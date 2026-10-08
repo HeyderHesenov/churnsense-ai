@@ -22,7 +22,7 @@ import json
 import platform
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -355,7 +355,7 @@ def build_metadata(outcome: TrainingOutcome, cfg: Config) -> dict[str, Any]:
         {
             "model_key": outcome.selected_key,
             "display_name": selected.display_name,
-            "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "trained_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "random_seed": cfg.random_seed,
             "feature_columns": outcome.feature_columns,
             "dropped_columns": list(cfg.features.drop_columns),

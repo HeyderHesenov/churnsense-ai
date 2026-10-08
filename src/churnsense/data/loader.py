@@ -76,8 +76,16 @@ def read_raw(path: Path | None = None, cfg: Config | None = None) -> pd.DataFram
     return df
 
 
-def clean_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, CleaningReport]:
-    """Return a typed, validated copy of ``df`` plus a record of the changes."""
+def clean_frame(
+    df: pd.DataFrame, required_columns: list[str] | None = None
+) -> tuple[pd.DataFrame, CleaningReport]:
+    """Return a typed, validated copy of ``df`` plus a record of the changes.
+
+    ``required_columns`` narrows validation to the columns the caller needs.
+    An uploaded scoring file legitimately carries only the model's feature
+    columns, and demanding ``customerID`` and ``gender`` from it - neither of
+    which the model uses - would reject perfectly valid input.
+    """
     rows_in = len(df)
     df = df.copy()
 
@@ -122,7 +130,7 @@ def clean_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, CleaningReport]:
     if schema.TARGET in df.columns:
         df[schema.TARGET] = (df[schema.TARGET] == schema.POSITIVE_LABEL).astype("int8")
 
-    schema.validate_frame(df, require_target=schema.TARGET in df.columns)
+    schema.validate_frame(df, columns=required_columns, require_target=schema.TARGET in df.columns)
 
     report = CleaningReport(
         rows_in=rows_in,

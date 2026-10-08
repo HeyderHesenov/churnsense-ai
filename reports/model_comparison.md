@@ -11,10 +11,10 @@ scored exactly once, by `make evaluate`, after selection is closed.
 
 | Model | CV PR-AUC | CV std | Val PR-AUC | Val ROC-AUC | Val precision | Val recall | Val F1 | Val Brier | Fit (s) | Selected |
 |---|---|---|---|---|---|---|---|---|---|---|
-| Logistic Regression | 0.6663 | 0.0244 | 0.6444 | 0.8373 | 0.5095 | 0.7888 | 0.6191 | 0.1678 | 0.9882 | **yes** |
-| Hist Gradient Boosting | 0.6706 | 0.0159 | 0.6431 | 0.8371 | 0.5177 | 0.7834 | 0.6234 | 0.1647 | 3.2315 |  |
-| Random Forest | 0.6715 | 0.0153 | 0.6383 | 0.8381 | 0.5169 | 0.7781 | 0.6211 | 0.1625 | 5.7462 |  |
-| Baseline (predicts the prior) | 0.2653 | 0.0005 | 0.2654 | 0.5000 | 0.0000 | 0.0000 | 0.0000 | 0.1950 | 1.2096 |  |
+| Logistic Regression | 0.6663 | 0.0244 | 0.6444 | 0.8373 | 0.5095 | 0.7888 | 0.6191 | 0.1678 | 1.1934 | **yes** |
+| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.6416 | 0.8369 | 0.5087 | 0.7807 | 0.6160 | 0.1647 | 4.2013 |  |
+| Random Forest | 0.6714 | 0.0152 | 0.6365 | 0.8380 | 0.5150 | 0.7807 | 0.6206 | 0.1626 | 5.9485 |  |
+| Baseline (predicts the prior) | 0.2653 | 0.0005 | 0.2654 | 0.5000 | 0.0000 | 0.0000 | 0.0000 | 0.1950 | 1.4909 |  |
 
 Selection metric: **average_precision** (PR-AUC), chosen because the
 positive class is the minority and the retention team cares about the precision

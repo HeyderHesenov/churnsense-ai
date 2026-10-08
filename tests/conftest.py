@@ -128,3 +128,13 @@ def clean_frame(raw_frame: pd.DataFrame) -> pd.DataFrame:
 @pytest.fixture(scope="session")
 def cfg() -> Config:
     return load_config()
+
+
+@pytest.fixture(scope="session")
+def monkeypatch_session():
+    """Session-scoped monkeypatch, for module-scoped fixtures that need patching."""
+    from _pytest.monkeypatch import MonkeyPatch
+
+    patcher = MonkeyPatch()
+    yield patcher
+    patcher.undo()
