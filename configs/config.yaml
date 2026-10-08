@@ -1,0 +1,97 @@
+# ChurnSense AI - single source of truth for every tunable value.
+# Committed to git on purpose: it contains no secrets. Secrets go in .env.
+
+project:
+  name: ChurnSense AI
+  random_seed: 42            # used for splits, model init and CV shuffling
+
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  artifacts_dir: artifacts
+  reports_dir: reports
+  figures_dir: reports/figures
+
+dataset:
+  # IBM Telco Customer Churn. Apache-2.0 licensed.
+  # Provenance and limitations: see docs/MODEL_CARD.md
+  filename: Telco-Customer-Churn.csv
+  url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  # SHA-256 of the file as fetched on 2026-10-09. `make data` verifies against
+  # this and refuses to proceed on a mismatch, so a silently changed upstream
+  # file cannot quietly alter every downstream result.
+  sha256: "16320c9c1ec72448db59aa0a26a0b95401046bef5d02fd3aeb906448e3055e91"
+  expected_rows: 7043
+
+split:
+  # Stratified 60/20/20. Model selection AND threshold tuning use `validation`
+  # only; `test` is scored exactly once, at the end of the pipeline.
+  test_size: 0.20
+  validation_size: 0.20      # fraction of the full dataset, not of the remainder
+  stratify: true
+
+features:
+  # `gender` is a protected attribute and is excluded from the production model.
+  # The measured cost of excluding it is published as an ablation in
+  # reports/model_comparison.md. `customerID` is an identifier with no signal.
+  drop_columns: [customerID, gender]
+  # TotalCharges correlates 0.9996 with tenure x MonthlyCharges. It is kept
+  # (it is known at prediction time, so this is collinearity, not leakage) and
+  # the include/exclude ablation is reported rather than decided silently.
+  include_total_charges: true
+
+training:
+  cv_folds: 5
+  scoring: average_precision   # PR-AUC: the right primary metric at 26.5% positives
+  n_jobs: -1
+  # Deliberately small grids. 7k rows x 8 cores means the whole sweep is
+  # seconds; a larger grid would buy noise, not signal.
+  grids:
+    logistic_regression:
+      classifier__C: [0.01, 0.1, 1.0, 10.0]
+    random_forest:
+      classifier__n_estimators: [300]
+      classifier__max_depth: [null, 8, 16]
+      classifier__min_samples_leaf: [1, 5, 20]
+    hist_gradient_boosting:
+      classifier__learning_rate: [0.05, 0.1]
+      classifier__max_leaf_nodes: [15, 31]
+      classifier__min_samples_leaf: [20, 50]
+      classifier__l2_regularization: [0.0, 1.0]
+  calibration:
+    enabled: true
+    method: isotonic          # swapped to sigmoid automatically for small folds
+    cv_folds: 5
+
+risk_bands:
+  # Operational segmentation for the retention team. Probability cut points,
+  # independent of the decision threshold so that the segments stay stable
+  # when the threshold is re-tuned.
+  - { name: Low,      min: 0.00, max: 0.25 }
+  - { name: Moderate, min: 0.25, max: 0.50 }
+  - { name: High,     min: 0.50, max: 0.75 }
+  - { name: Critical, min: 0.75, max: 1.01 }
+
+business:
+  # ---------------------------------------------------------------------
+  # ASSUMPTIONS, NOT MEASUREMENTS. Every monetary figure derived from these
+  # is a simulation. The dataset contains no campaign outcomes, so the
+  # success rate below cannot be estimated from it and must be supplied by
+  # the business. All values are exposed as sliders in the dashboard.
+  # ---------------------------------------------------------------------
+  currency: USD
+  retention_offer_cost: 50.0          # cost of one intervention, per flagged customer
+  offer_success_rate: 0.30            # P(stays | would have churned AND was offered)
+  expected_horizon_months: 12         # window over which retained revenue is counted
+  gross_margin: 0.65                  # margin fraction of revenue; avoids treating revenue as profit
+
+api:
+  host: 127.0.0.1
+  port: 8000
+  max_batch_rows: 10000
+  max_upload_bytes: 5242880           # 5 MiB
+
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s %(name)-28s %(message)s"
