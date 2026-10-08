@@ -1,0 +1,20 @@
+feature,measure,strength,direction
+Contract,Cramer's V,0.40979839182553446,n/a (categorical)
+tenure,point-biserial |r|,0.352228670113078,higher -> less churn
+OnlineSecurity,Cramer's V,0.34701606688272874,n/a (categorical)
+TechSupport,Cramer's V,0.3425261587493695,n/a (categorical)
+InternetService,Cramer's V,0.3220367323307425,n/a (categorical)
+PaymentMethod,Cramer's V,0.3026771381187204,n/a (categorical)
+OnlineBackup,Cramer's V,0.291850036724674,n/a (categorical)
+DeviceProtection,Cramer's V,0.28109492388964397,n/a (categorical)
+StreamingMovies,Cramer's V,0.23035147282444215,n/a (categorical)
+StreamingTV,Cramer's V,0.22990176915403474,n/a (categorical)
+TotalCharges,point-biserial |r|,0.19832426260399535,higher -> less churn
+MonthlyCharges,point-biserial |r|,0.19335642223784694,higher -> more churn
+PaperlessBilling,Cramer's V,0.19146842738873,n/a (categorical)
+Dependents,Cramer's V,0.16380010283590032,n/a (categorical)
+SeniorCitizen,Cramer's V,0.15042871285200934,n/a (categorical)
+Partner,Cramer's V,0.14998550986615822,n/a (categorical)
+MultipleLines,Cramer's V,0.03639958908232507,n/a (categorical)
+PhoneService,Cramer's V,0.0007783706471916932,n/a (categorical)
+gender,Cramer's V,0.0,n/a (categorical)

@@ -1,0 +1,121 @@
+customerID,gender,SeniorCitizen,Partner,Dependents,tenure,PhoneService,MultipleLines,InternetService,OnlineSecurity,OnlineBackup,DeviceProtection,TechSupport,StreamingTV,StreamingMovies,Contract,PaperlessBilling,PaymentMethod,MonthlyCharges,TotalCharges,Churn
+DEMO-00000,Female,0,Yes,Yes,68,Yes,No,DSL,No,Yes,Yes,Yes,No,Yes,One year,No,Mailed check,76.88,5227.84,No
+DEMO-00001,Male,1,No,Yes,67,Yes,Yes,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Electronic check,118.93,7968.31,No
+DEMO-00002,Male,0,No,Yes,54,Yes,No,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Credit card (automatic),71.09,3838.86,No
+DEMO-00003,Male,0,No,No,25,Yes,Yes,Fiber optic,No,Yes,Yes,Yes,Yes,No,Month-to-month,Yes,Mailed check,78.11,1952.75,Yes
+DEMO-00004,Female,1,No,No,19,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,Yes,Credit card (automatic),72.5,1377.5,Yes
+DEMO-00005,Female,0,No,No,65,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Electronic check,27.85,1810.25,No
+DEMO-00006,Female,0,No,Yes,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,38.42,1459.96,Yes
+DEMO-00007,Male,0,No,No,43,Yes,No,DSL,No,No,No,Yes,Yes,Yes,Two year,Yes,Credit card (automatic),110.79,4763.97,No
+DEMO-00008,Female,1,No,Yes,61,Yes,Yes,DSL,Yes,No,No,Yes,Yes,No,Two year,Yes,Bank transfer (automatic),72.91,4447.51,No
+DEMO-00009,Male,0,Yes,No,29,Yes,Yes,DSL,No,No,Yes,No,Yes,No,Month-to-month,No,Electronic check,64.75,1877.75,Yes
+DEMO-00010,Male,1,Yes,No,9,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),36.78,331.02,No
+DEMO-00011,Female,0,Yes,No,9,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),26.87,241.83,No
+DEMO-00012,Male,0,No,No,7,Yes,No,DSL,Yes,No,No,Yes,No,Yes,Month-to-month,No,Credit card (automatic),95.73,670.11,No
+DEMO-00013,Male,0,Yes,No,7,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,35.31,247.17,Yes
+DEMO-00014,Female,0,Yes,Yes,36,Yes,Yes,DSL,No,No,No,No,No,No,Month-to-month,No,Mailed check,109.13,3928.68,Yes
+DEMO-00015,Male,0,Yes,No,13,Yes,No,Fiber optic,No,Yes,No,No,No,Yes,One year,Yes,Electronic check,68.16,886.08,No
+DEMO-00016,Female,0,Yes,Yes,27,Yes,Yes,Fiber optic,No,No,Yes,Yes,Yes,No,Two year,Yes,Credit card (automatic),81.59,2202.93,No
+DEMO-00017,Male,0,Yes,No,27,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Mailed check,33.1,893.7,No
+DEMO-00018,Female,1,No,No,55,Yes,Yes,DSL,No,Yes,No,Yes,Yes,Yes,One year,No,Mailed check,76.1,4185.5,No
+DEMO-00019,Female,0,No,No,27,Yes,No,DSL,No,Yes,Yes,Yes,No,Yes,Two year,No,Bank transfer (automatic),106.28,2869.56,No
+DEMO-00020,Female,0,No,No,12,Yes,No,Fiber optic,No,No,No,No,Yes,Yes,Month-to-month,No,Bank transfer (automatic),106.24,1274.88,No
+DEMO-00021,Female,0,No,Yes,37,Yes,Yes,DSL,Yes,Yes,No,No,No,No,Month-to-month,Yes,Bank transfer (automatic),80.05,2961.85,No
+DEMO-00022,Male,0,No,No,71,Yes,No,DSL,Yes,No,No,No,Yes,Yes,One year,No,Credit card (automatic),101.83,7229.93,No
+DEMO-00023,Male,1,Yes,No,22,Yes,No,Fiber optic,No,No,No,Yes,No,No,Month-to-month,Yes,Electronic check,78.9,1735.8,No
+DEMO-00024,Female,1,Yes,No,39,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,35.93,1401.27,No
+DEMO-00025,Male,0,No,No,13,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,Yes,Bank transfer (automatic),85.4,1110.2,No
+DEMO-00026,Female,0,Yes,Yes,5,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Electronic check,29.35,146.75,Yes
+DEMO-00027,Female,1,No,Yes,48,Yes,No,Fiber optic,No,Yes,No,Yes,No,No,Two year,Yes,Electronic check,68.43,3284.64,No
+DEMO-00028,Female,1,Yes,No,18,Yes,No,Fiber optic,Yes,No,No,No,No,Yes,One year,No,Mailed check,97.28,1751.04,No
+DEMO-00029,Male,0,Yes,Yes,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),36.63,1391.94,No
+DEMO-00030,Male,1,No,No,8,Yes,Yes,Fiber optic,Yes,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,49.2,393.6,No
+DEMO-00031,Male,0,Yes,No,17,Yes,No,Fiber optic,No,No,Yes,No,No,No,Month-to-month,Yes,Electronic check,99.23,1686.91,No
+DEMO-00032,Male,0,No,No,8,Yes,Yes,DSL,No,Yes,No,Yes,No,Yes,Month-to-month,Yes,Credit card (automatic),105.49,843.92,Yes
+DEMO-00033,Female,0,No,No,39,Yes,Yes,DSL,Yes,No,No,No,Yes,No,Month-to-month,No,Credit card (automatic),77.94,3039.66,No
+DEMO-00034,Female,0,Yes,No,39,Yes,No,Fiber optic,Yes,No,Yes,No,No,No,One year,Yes,Electronic check,49.62,1935.18,No
+DEMO-00035,Male,0,No,Yes,20,Yes,Yes,DSL,No,No,Yes,No,No,Yes,Month-to-month,Yes,Electronic check,95.54,1910.8,No
+DEMO-00036,Female,0,No,No,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,28.0,1064.0,No
+DEMO-00037,Male,0,No,Yes,20,Yes,Yes,Fiber optic,Yes,No,No,Yes,Yes,No,Month-to-month,No,Credit card (automatic),92.61,1852.2,No
+DEMO-00038,Female,0,Yes,No,64,Yes,No,DSL,No,Yes,Yes,Yes,Yes,No,Two year,Yes,Credit card (automatic),72.87,4663.68,No
+DEMO-00039,Male,0,No,No,35,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,34.67,1213.45,No
+DEMO-00040,Male,0,Yes,No,30,Yes,No,DSL,No,Yes,No,Yes,No,No,Month-to-month,Yes,Mailed check,64.1,1923.0,No
+DEMO-00041,Male,0,Yes,No,61,Yes,Yes,Fiber optic,No,No,No,Yes,No,Yes,Two year,Yes,Credit card (automatic),80.26,4895.86,No
+DEMO-00042,Male,0,No,Yes,23,Yes,Yes,DSL,No,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,83.83,1928.09,No
+DEMO-00043,Male,0,Yes,No,52,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Bank transfer (automatic),33.95,1765.4,No
+DEMO-00044,Female,0,Yes,Yes,25,Yes,No,Fiber optic,Yes,Yes,Yes,Yes,Yes,Yes,One year,No,Credit card (automatic),60.03,1500.75,No
+DEMO-00045,Female,0,No,Yes,0,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,One year,No,Credit card (automatic),26.52, ,Yes
+DEMO-00046,Male,0,Yes,Yes,37,Yes,Yes,DSL,No,No,Yes,Yes,No,Yes,Month-to-month,Yes,Mailed check,66.4,2456.8,No
+DEMO-00047,Female,0,No,No,35,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Bank transfer (automatic),39.18,1371.3,Yes
+DEMO-00048,Female,0,Yes,No,14,Yes,No,Fiber optic,Yes,Yes,No,No,No,Yes,Month-to-month,No,Bank transfer (automatic),63.97,895.58,No
+DEMO-00049,Male,0,Yes,Yes,47,Yes,No,Fiber optic,No,No,Yes,No,Yes,No,Two year,No,Electronic check,49.99,2349.53,No
+DEMO-00050,Male,0,No,Yes,28,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Bank transfer (automatic),34.08,954.24,Yes
+DEMO-00051,Female,0,No,Yes,14,Yes,Yes,Fiber optic,Yes,No,No,Yes,No,Yes,One year,No,Mailed check,102.12,1429.68,No
+DEMO-00052,Female,0,No,Yes,3,Yes,Yes,Fiber optic,Yes,No,No,No,No,Yes,Month-to-month,Yes,Mailed check,97.51,292.53,Yes
+DEMO-00053,Female,0,No,Yes,2,No,No phone service,Fiber optic,No,No,No,Yes,Yes,No,Month-to-month,Yes,Mailed check,59.47,118.94,No
+DEMO-00054,Male,0,No,No,9,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),27.86,250.74,Yes
+DEMO-00055,Male,0,No,No,17,Yes,No,DSL,No,Yes,Yes,No,Yes,No,Month-to-month,No,Electronic check,68.79,1169.43,Yes
+DEMO-00056,Female,0,No,No,66,Yes,Yes,Fiber optic,Yes,No,No,Yes,Yes,No,Two year,Yes,Electronic check,101.85,6722.1,No
+DEMO-00057,Female,0,No,Yes,20,Yes,Yes,DSL,Yes,No,Yes,Yes,No,Yes,Month-to-month,No,Credit card (automatic),81.12,1622.4,No
+DEMO-00058,Female,0,Yes,No,12,Yes,Yes,Fiber optic,Yes,No,Yes,No,No,No,Two year,No,Credit card (automatic),113.32,1359.84,No
+DEMO-00059,Male,0,No,Yes,15,Yes,No,Fiber optic,No,Yes,Yes,Yes,No,No,One year,No,Bank transfer (automatic),93.57,1403.55,No
+DEMO-00060,Male,0,Yes,No,47,Yes,No,DSL,Yes,Yes,No,No,No,No,One year,Yes,Bank transfer (automatic),90.95,4274.65,No
+DEMO-00061,Female,0,No,No,32,Yes,Yes,Fiber optic,No,No,Yes,No,Yes,Yes,One year,No,Bank transfer (automatic),101.81,3257.92,No
+DEMO-00062,Male,0,No,No,63,Yes,Yes,DSL,No,No,Yes,No,Yes,Yes,One year,No,Mailed check,100.52,6332.76,No
+DEMO-00063,Female,0,Yes,Yes,32,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),22.72,727.04,Yes
+DEMO-00064,Female,0,No,No,27,Yes,No,Fiber optic,Yes,No,Yes,No,No,Yes,Month-to-month,No,Electronic check,64.02,1728.54,Yes
+DEMO-00065,Female,0,Yes,No,27,Yes,No,Fiber optic,Yes,Yes,No,No,Yes,Yes,Month-to-month,No,Electronic check,77.38,2089.26,Yes
+DEMO-00066,Female,0,Yes,No,12,Yes,No,Fiber optic,Yes,No,No,No,No,No,Month-to-month,Yes,Bank transfer (automatic),81.2,974.4,No
+DEMO-00067,Female,0,Yes,No,28,Yes,Yes,Fiber optic,No,Yes,No,Yes,No,No,Month-to-month,Yes,Credit card (automatic),55.49,1553.72,Yes
+DEMO-00068,Female,1,Yes,No,19,Yes,No,Fiber optic,No,No,No,No,Yes,Yes,Two year,No,Credit card (automatic),77.66,1475.54,No
+DEMO-00069,Male,0,Yes,No,25,Yes,No,DSL,Yes,Yes,Yes,Yes,Yes,No,Month-to-month,Yes,Bank transfer (automatic),92.35,2308.75,No
+DEMO-00070,Female,0,No,No,30,Yes,Yes,Fiber optic,No,Yes,Yes,No,Yes,No,One year,No,Mailed check,55.04,1651.2,Yes
+DEMO-00071,Male,0,No,Yes,38,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,No,Credit card (automatic),55.21,2097.98,Yes
+DEMO-00072,Female,1,No,Yes,52,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Mailed check,28.43,1478.36,No
+DEMO-00073,Male,0,No,No,64,Yes,Yes,DSL,No,No,No,Yes,Yes,No,One year,Yes,Mailed check,65.97,4222.08,No
+DEMO-00074,Female,0,Yes,Yes,24,No,No phone service,Fiber optic,No,No,No,Yes,No,Yes,Month-to-month,No,Mailed check,116.17,2788.08,Yes
+DEMO-00075,Male,1,No,No,60,Yes,Yes,Fiber optic,No,No,No,No,No,No,Two year,Yes,Electronic check,46.91,2814.6,No
+DEMO-00076,Female,1,No,No,30,Yes,Yes,Fiber optic,Yes,Yes,No,No,Yes,No,Two year,Yes,Electronic check,58.6,1758.0,No
+DEMO-00077,Female,0,Yes,Yes,19,Yes,Yes,DSL,Yes,No,No,No,No,Yes,Two year,No,Credit card (automatic),57.21,1086.99,No
+DEMO-00078,Female,0,No,Yes,62,No,No phone service,Fiber optic,No,Yes,Yes,No,Yes,No,One year,Yes,Credit card (automatic),80.1,4966.2,No
+DEMO-00079,Female,0,No,Yes,2,Yes,No,DSL,Yes,No,No,No,No,Yes,Month-to-month,Yes,Electronic check,46.12,92.24,No
+DEMO-00080,Male,0,Yes,Yes,18,Yes,Yes,DSL,Yes,No,Yes,No,Yes,No,Month-to-month,No,Credit card (automatic),78.9,1420.2,Yes
+DEMO-00081,Male,0,No,No,65,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Mailed check,34.72,2256.8,No
+DEMO-00082,Female,0,No,No,42,No,No phone service,DSL,No,Yes,No,Yes,Yes,No,One year,No,Bank transfer (automatic),64.95,2727.9,No
+DEMO-00083,Female,0,Yes,No,36,Yes,Yes,Fiber optic,No,No,Yes,Yes,No,No,Month-to-month,Yes,Credit card (automatic),103.64,3731.04,No
+DEMO-00084,Female,0,No,Yes,47,Yes,No,Fiber optic,No,Yes,Yes,No,No,No,Two year,No,Credit card (automatic),58.62,2755.14,No
+DEMO-00085,Female,0,Yes,No,46,No,No phone service,Fiber optic,Yes,Yes,Yes,Yes,Yes,No,One year,Yes,Credit card (automatic),90.67,4170.82,No
+DEMO-00086,Female,0,Yes,No,35,Yes,No,Fiber optic,No,Yes,No,Yes,Yes,Yes,One year,No,Bank transfer (automatic),75.07,2627.45,No
+DEMO-00087,Male,0,No,No,4,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,39.31,157.24,Yes
+DEMO-00088,Male,0,Yes,Yes,29,Yes,No,Fiber optic,Yes,No,Yes,Yes,No,Yes,Month-to-month,Yes,Bank transfer (automatic),105.45,3058.05,No
+DEMO-00089,Male,0,Yes,No,24,Yes,Yes,Fiber optic,Yes,Yes,No,No,No,Yes,Month-to-month,No,Mailed check,56.91,1365.84,Yes
+DEMO-00090,Female,0,Yes,No,36,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),26.63,958.68,Yes
+DEMO-00091,Female,1,No,No,17,Yes,Yes,Fiber optic,No,No,No,Yes,No,No,Two year,Yes,Mailed check,111.12,1889.04,No
+DEMO-00092,Female,0,No,No,6,No,No phone service,Fiber optic,Yes,Yes,No,No,No,No,Month-to-month,No,Bank transfer (automatic),94.46,566.76,Yes
+DEMO-00093,Female,0,No,No,23,Yes,Yes,Fiber optic,Yes,No,No,No,No,Yes,Month-to-month,No,Mailed check,48.66,1119.18,Yes
+DEMO-00094,Male,0,No,No,18,Yes,No,Fiber optic,No,Yes,No,No,No,No,Month-to-month,No,Credit card (automatic),94.08,1693.44,No
+DEMO-00095,Male,0,No,Yes,50,Yes,No,Fiber optic,No,Yes,No,No,No,Yes,One year,No,Mailed check,89.43,4471.5,No
+DEMO-00096,Female,0,No,No,15,Yes,Yes,Fiber optic,No,No,No,Yes,Yes,Yes,Month-to-month,No,Electronic check,102.14,1532.1,Yes
+DEMO-00097,Female,1,No,No,12,Yes,Yes,Fiber optic,No,Yes,No,No,Yes,No,Month-to-month,Yes,Mailed check,60.82,729.84,Yes
+DEMO-00098,Male,1,No,No,5,Yes,Yes,Fiber optic,Yes,Yes,Yes,No,Yes,No,Month-to-month,No,Electronic check,115.55,577.75,Yes
+DEMO-00099,Male,0,Yes,Yes,38,Yes,No,Fiber optic,Yes,Yes,No,No,Yes,No,Month-to-month,Yes,Bank transfer (automatic),110.58,4202.04,No
+DEMO-00100,Male,0,Yes,No,34,Yes,Yes,Fiber optic,No,No,Yes,Yes,No,Yes,Two year,Yes,Mailed check,53.46,1817.64,No
+DEMO-00101,Female,0,Yes,No,31,Yes,No,DSL,Yes,No,Yes,Yes,Yes,No,One year,Yes,Credit card (automatic),68.32,2117.92,No
+DEMO-00102,Female,0,No,No,9,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,30.11,270.99,Yes
+DEMO-00103,Female,0,Yes,No,25,No,No phone service,Fiber optic,No,No,Yes,Yes,No,Yes,Month-to-month,Yes,Electronic check,106.49,2662.25,No
+DEMO-00104,Male,0,Yes,No,31,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Electronic check,30.82,955.42,No
+DEMO-00105,Female,0,Yes,Yes,25,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Bank transfer (automatic),28.8,720.0,No
+DEMO-00106,Female,0,No,No,0,Yes,No,Fiber optic,Yes,No,No,No,Yes,No,One year,No,Mailed check,90.28, ,No
+DEMO-00107,Female,0,No,No,66,Yes,No,Fiber optic,Yes,Yes,No,Yes,No,No,One year,No,Mailed check,94.28,6222.48,No
+DEMO-00108,Female,0,Yes,No,29,Yes,Yes,DSL,No,No,Yes,Yes,No,Yes,Month-to-month,No,Credit card (automatic),95.2,2760.8,No
+DEMO-00109,Male,1,Yes,No,2,Yes,Yes,Fiber optic,Yes,No,Yes,Yes,No,No,Month-to-month,Yes,Credit card (automatic),87.19,174.38,Yes
+DEMO-00110,Female,0,Yes,No,33,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Mailed check,29.99,989.67,No
+DEMO-00111,Female,0,Yes,No,13,Yes,Yes,Fiber optic,Yes,Yes,Yes,No,No,Yes,Two year,No,Bank transfer (automatic),89.98,1169.74,No
+DEMO-00112,Male,0,No,Yes,0,Yes,Yes,Fiber optic,No,No,No,No,No,No,Month-to-month,No,Credit card (automatic),69.84, ,Yes
+DEMO-00113,Male,0,Yes,No,51,Yes,No,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Bank transfer (automatic),82.95,4230.45,No
+DEMO-00114,Male,0,No,No,27,Yes,No,Fiber optic,No,No,Yes,No,Yes,No,Month-to-month,Yes,Electronic check,46.38,1252.26,Yes
+DEMO-00115,Male,0,Yes,No,25,Yes,Yes,Fiber optic,No,No,Yes,No,No,Yes,One year,Yes,Credit card (automatic),98.59,2464.75,No
+DEMO-00116,Female,0,Yes,No,22,Yes,No,Fiber optic,No,No,No,No,Yes,No,Two year,No,Mailed check,96.35,2119.7,No
+DEMO-00117,Female,0,Yes,No,29,Yes,Yes,DSL,No,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,76.16,2208.64,Yes
+DEMO-00118,Male,0,Yes,No,33,Yes,No,DSL,No,No,No,No,No,Yes,Month-to-month,Yes,Electronic check,108.01,3564.33,No
+DEMO-00119,Male,0,Yes,Yes,69,Yes,No,DSL,Yes,Yes,No,No,No,No,Two year,Yes,Mailed check,100.91,6962.79,No
