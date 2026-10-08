@@ -1,0 +1,18 @@
+# Streamlit's own chrome. The chart palette lives in src/churnsense/viz.py;
+# these values exist so the framework's widgets (sliders, radios, focus rings)
+# match it instead of shipping Streamlit's default red against a cyan theme.
+[theme]
+base = "dark"
+primaryColor = "#1897ae"
+backgroundColor = "#0d1117"
+secondaryBackgroundColor = "#161b22"
+textColor = "#e6edf3"
+font = "sans serif"
+
+[server]
+headless = true
+fileWatcherType = "auto"
+maxUploadSize = 5          # MB; mirrors api.max_upload_bytes in configs/config.yaml
+
+[browser]
+gatherUsageStats = false

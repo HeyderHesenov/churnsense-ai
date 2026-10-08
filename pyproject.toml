@@ -61,6 +61,10 @@ ignore = ["E501"]   # line length is handled by the formatter
 # whether or not they use both, the lifespan hook takes the app, and
 # `Depends`/`File` in a default IS the dependency-injection idiom.
 "src/churnsense/api/main.py" = ["ARG001", "B008"]
+# Sections share one signature, render(frame, cfg), so the dispatch table in
+# streamlit_app.py can call any of them the same way. A section that happens
+# not to need one argument still has to accept it.
+"app/sections/*.py" = ["ARG001"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -23,6 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
@@ -66,6 +67,24 @@ class Predictor:
     config: Config
 
     @property
+    def epsilon(self) -> float:
+        """How far from 0 and 1 a served probability is allowed to get.
+
+        Isotonic calibration is a step function fitted to the training data, so
+        its terminal bins carry the empirical rate of those bins exactly - on
+        this dataset that is 0.000 for 210 customers and 1.000 for five. Those
+        are artefacts of the method, not claims that an outcome is certain, and
+        a probability of exactly 1 has infinite log-odds, which degenerates any
+        expected-value or log-loss arithmetic downstream.
+
+        The bound is the finest rate the calibration sample could express,
+        1 / (2n), rather than a round number picked by hand. It is far smaller
+        than any usable decision threshold, so it changes no decision - only
+        the claim the number makes.
+        """
+        return 1.0 / (2 * int(self.meta["n_train"]))
+
+    @property
     def threshold(self) -> float:
         return float(self.meta["threshold"])
 
@@ -99,7 +118,9 @@ class Predictor:
         decision drawn from them.
         """
         cut = self.threshold if threshold is None else float(threshold)
-        probabilities = self.model.predict_proba(self._aligned(df))[:, 1]
+        raw = self.model.predict_proba(self._aligned(df))[:, 1]
+        # Clipping is monotone, so the model's ranking is untouched.
+        probabilities = np.clip(raw, self.epsilon, 1.0 - self.epsilon)
 
         bands = assign_risk_bands(probabilities, self.config)
         return pd.DataFrame(

@@ -193,3 +193,44 @@ def test_an_upload_with_an_unknown_category_is_refused(cfg: Config, demo_csv):
     frame.loc[0, "Contract"] = "Monthly"  # plausible typo for "Month-to-month"
     with pytest.raises(SchemaValidationError, match="Contract"):
         validate_upload(_csv(frame), cfg)
+
+
+# --- calibration saturation -------------------------------------------------
+
+
+def test_probabilities_never_reach_exactly_zero_or_one(predictor: Predictor, sample):
+    """Isotonic calibration saturates; a served probability must not claim certainty.
+
+    On the real dataset isotonic regression assigns exactly 0.000 to 210
+    customers and exactly 1.000 to 5. Those are the empirical rates of its
+    terminal bins, not evidence that the outcome is certain - the top bin held
+    five customers. A probability of exactly 1 also has infinite log-odds,
+    which breaks any downstream log-loss or expected-value arithmetic.
+    """
+    out = predictor.predict_frame(sample)
+    assert (out["churn_probability"] > 0.0).all()
+    assert (out["churn_probability"] < 1.0).all()
+
+
+def test_the_clamp_is_tighter_than_any_decision_it_could_change(predictor: Predictor):
+    """Clamping must not move a customer across a plausible threshold.
+
+    The bound scales with the calibration sample, so this fixture's small
+    training split gives a looser epsilon than the real model does
+    (1 / (2 x 4,225) = 1.2e-4 there). Either way it sits far below any
+    threshold anyone would operate at.
+    """
+    assert predictor.epsilon < 0.01
+    assert predictor.epsilon < predictor.threshold / 10
+
+
+def test_the_clamp_is_derived_from_the_calibration_sample_size(predictor: Predictor):
+    """Not a magic number: it is the finest rate the calibration data can express."""
+    assert predictor.epsilon == pytest.approx(1.0 / (2 * predictor.meta["n_train"]))
+
+
+def test_clamping_preserves_ordering(predictor: Predictor, sample):
+    """Rank order is the model's real output and must survive the clamp."""
+    raw = predictor.model.predict_proba(sample[predictor.feature_columns])[:, 1]
+    clamped = predictor.predict_frame(sample)["churn_probability"].to_numpy()
+    assert (np.argsort(raw) == np.argsort(clamped)).all()
