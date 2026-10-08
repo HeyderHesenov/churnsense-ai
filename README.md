@@ -289,6 +289,12 @@ ships; a test enforces the distinction.
 > ε is the finest rate the calibration sample can express, not a round number,
 > and sits three orders of magnitude below the operating threshold, so no
 > decision changes. Clipping is monotone, so ranking is untouched.
+>
+> The clamp lives **inside the persisted artifact**, not in one consumer, so
+> the reports, SHAP and the API all describe the same function. It did not,
+> once: the explainability page showed the same customer as `0.9999` in one
+> place and `100.0%` in another. See
+> [`docs/PROJECT_WALKTHROUGH.md`](docs/PROJECT_WALKTHROUGH.md) §5.
 
 ## Evaluation
 
@@ -483,19 +489,20 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**229 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**246 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
 ............................................................ [100%]
-229 passed in 34.84s
+246 passed in 35.76s
 
 $ pytest -m "not slow"          # what a clean checkout runs
-217 passed, 12 skipped
+224 passed, 22 skipped
 ```
 
-The 12 `slow` tests drive the dashboard end to end and need a trained
-artifact; they **skip cleanly** when one is absent, verified by hiding
+The 22 `slow` tests drive the dashboard end to end and check that the
+numbers in this README still match `artifacts/model_meta.json`; both need a
+trained artifact and **skip cleanly** without one, verified by hiding
 `artifacts/` and `data/raw/` and re-running. Everything else needs **no
 dataset and no network**. `tests/conftest.py` generates
 seeded synthetic data that reproduces the real file's *structure* — the same
@@ -516,6 +523,7 @@ What the tests actually defend:
 | Contract drift | the API's category vocabularies are compared against the training schema |
 | Arithmetic | threshold economics checked against hand-computed values on tiny inputs |
 | Dashboard | all eight sections driven through `streamlit.testing.v1.AppTest`; a section that raises on load is the cheapest bug to catch and the most embarrassing to miss |
+| Documentation drift | the headline metrics in this README are parsed back out and compared to `model_meta.json`, so prose cannot outlive a retrain |
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
 pytest with coverage, an end-to-end training smoke test, an API smoke test, and

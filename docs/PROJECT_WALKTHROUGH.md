@@ -138,7 +138,9 @@ have overstated recall by 48 % relative. The shipped pipeline is now scored on
 its own, both sets are published side by side, and a test asserts the reported
 metrics match the persisted model.
 
-### The probability clamp
+### The probability clamp, and where it belongs
+
+**First version, and why it was wrong.**
 
 Isotonic calibration is a step function. Its terminal bins assigned **exactly
 0.000 to 210 customers and exactly 1.000 to five**, and the dashboard was
@@ -153,6 +155,27 @@ finest rate the calibration sample can express, derived rather than chosen.
 Clipping is monotone so ranking is untouched, and ε sits three orders of
 magnitude below the operating threshold so no decision changes. The UI shows
 the extremes as `>99.9%` rather than `100.0%`.
+
+I first put the clamp in `Predictor`, the serving layer. That was the wrong
+altitude and a later review caught it: the serving layer applied the clamp and
+nothing else did, so the evaluation report published a Brier score and an ECE
+for a distribution the system never emits, and the explainability page showed
+one customer as **`0.9999` in its dropdown and `100.0%` in the KPI tile beside
+it** — the certainty bug resurfacing through the one path that bypassed the fix.
+
+The clamp is a fact about the *fitted model* (isotonic's terminal bins) with a
+bound derived from the *training size*. Both belong to the artifact, so it now
+wraps the classifier inside the persisted pipeline. Every consumer gets the
+same function by construction, and SHAP additivity reconciles against the
+**served** probability instead of one nobody sees. Wrapping the step rather
+than the pipeline keeps `named_steps` intact, which is what the explainer
+reaches for.
+
+The general lesson, and the one I would give in an interview: a fix applied at
+the layer where you *noticed* the problem will be bypassed by every other
+layer. The clamp was noticed in the dashboard and therefore implemented in the
+dashboard's dependency, which is exactly how it ended up contradicting itself
+two pages later.
 
 **The alternative I rejected** was leaving the raw value and "reporting what
 the model says". But 1.0 is not what the model knows; it is an artefact of the

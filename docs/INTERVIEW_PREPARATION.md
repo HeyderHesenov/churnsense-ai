@@ -320,7 +320,7 @@ says the first thing to change before exposing it beyond localhost
 
 ### Q21. Why this test suite shape?
 
-**229 tests** (217 of them needing no dataset and no network). `conftest.py` generates seeded synthetic
+**246 tests** (224 of them needing no dataset and no network). `conftest.py` generates seeded synthetic
 data reproducing the real file's *structure* — the same vocabularies, the
 "No internet service" dependency, the blank-`TotalCharges`-at-zero-tenure quirk
 — and none of its statistics. Every id is prefixed `DEMO-`.
@@ -362,4 +362,4 @@ of reproducibility than anything I could have asserted.
 | Threshold | 0.36, validation-chosen, one-offer indifference band |
 | Test | P 0.5516 · R 0.7005 · F1 0.6172 · ROC-AUC 0.8425 · PR-AUC 0.6254 · ECE 0.0264 |
 | Baseline | PR-AUC 0.2654, ROC-AUC 0.500 |
-| Tests | 229 passing (217 without data), Python 3.12.13 |
+| Tests | 246 passing (224 without data), Python 3.12.13 |

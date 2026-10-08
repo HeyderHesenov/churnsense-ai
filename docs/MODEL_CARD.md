@@ -119,9 +119,11 @@ metric because the retention simulator multiplies predicted probability by
 customer value — a model that ranks well but is systematically overconfident
 would produce a plausible-looking budget built on inflated numbers.
 
-Isotonic calibration saturates at its terminal bins, so served probabilities
-are clamped to `[ε, 1−ε]` with `ε = 1/(2 × 4,225) = 1.2e-4`. Without it the
-model reported exact certainty for 215 customers.
+Isotonic calibration saturates at its terminal bins, so probabilities are
+clamped to `[ε, 1−ε]` with `ε = 1/(2 × 4,225) = 1.2e-4`. Without it the model
+reported exact certainty for 215 customers. The clamp is part of the fitted
+artifact rather than of any one consumer, so these metrics describe the same
+function the API serves.
 
 ### Performance by segment (test partition, threshold 0.36)
 
