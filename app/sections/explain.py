@@ -94,7 +94,11 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     else:
         cached = data.report_json("shap_global.json") or {}
         ui.question("Which features move this model's predictions the most?")
-        top_n = st.slider("Features to show", 5, min(18, len(importance)), 12, key="sh_top")
+        # Bounds derived from what is actually there: features.drop_columns is
+        # documented as an ablation knob, and a fixed default of 12 raises
+        # StreamlitAPIException the moment an ablation leaves fewer than that.
+        most = max(2, min(18, len(importance)))
+        top_n = st.slider("Features to show", min(5, most), most, min(12, most), key="sh_top")
         ui.chart(_global_chart(importance, top_n), height=max(260, 26 * top_n), key="sh_global")
         st.caption(
             f"Computed on {cached.get('n_explained', '?')} "

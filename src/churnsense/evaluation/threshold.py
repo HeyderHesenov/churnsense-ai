@@ -169,10 +169,31 @@ def recommend_threshold(
 
     This is the same discipline the model selection uses, for the same reason.
     """
-    sweep = sweep_thresholds(y_true, y_proba, monthly_charges, business, thresholds)
+    return recommend_threshold_from(
+        sweep_thresholds(y_true, y_proba, monthly_charges, business, thresholds), business
+    )
+
+
+def indifference_band(sweep: pd.DataFrame, business: Business) -> pd.DataFrame:
+    """Rows of ``sweep`` that are statistically indistinguishable from the best.
+
+    Exposed so the dashboard can shade exactly the region the recommendation
+    was drawn from, instead of re-deriving it and risking a caption that
+    describes something the chart does not show.
+    """
     ceiling = sweep["net_benefit"].max()
     tolerance = max(business.retention_offer_cost, 0.0)
-    band = sweep[sweep["net_benefit"] >= ceiling - tolerance]
+    return sweep[sweep["net_benefit"] >= ceiling - tolerance]
+
+
+def recommend_threshold_from(sweep: pd.DataFrame, business: Business) -> ThresholdScenario:
+    """Pick the operating point from a sweep that has already been computed.
+
+    Separate from ``recommend_threshold`` so a caller holding a sweep - the
+    dashboard redraws one on every slider move - does not pay for a second
+    identical pass over the same 101 x n comparison matrix.
+    """
+    band = indifference_band(sweep, business)
     best = band.loc[band["threshold"].idxmax()]
 
     return ThresholdScenario(

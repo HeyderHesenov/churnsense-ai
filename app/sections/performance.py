@@ -12,7 +12,11 @@ from app import components as ui
 from app import data
 from churnsense import viz
 from churnsense.config import Config
-from churnsense.evaluation.metrics import evaluate, reliability_table
+from churnsense.evaluation.metrics import (
+    evaluate,
+    expected_calibration_error,
+    reliability_table,
+)
 
 
 def _comparison_chart(table: pd.DataFrame) -> go.Figure:
@@ -152,7 +156,7 @@ def _confusion(metrics) -> go.Figure:
     return figure
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:
+def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Model performance")
 
     model = data.predictor()
@@ -182,7 +186,11 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         st.info("Partition information is unavailable.")
         return
 
-    test_proba = model.model.predict_proba(parts.X_test)[:, 1]
+    # Through Predictor, not the raw Pipeline: predict_frame applies the
+    # column contract (a clear error instead of a raw sklearn one when the
+    # artifact and configs/config.yaml disagree) and the same clamp every
+    # other surface uses.
+    test_proba = model.predict_frame(parts.X_test)["churn_probability"].to_numpy()
     metrics = evaluate(parts.y_test, test_proba, threshold=model.threshold)
 
     st.divider()
@@ -249,7 +257,11 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     st.subheader("Calibration")
     ui.question("When the model says 70%, do 70% of those customers actually churn?")
     table = reliability_table(parts.y_test, test_proba)
-    ui.chart(_reliability_chart(table, _ece(table)), height=340, key="pf_cal")
+    ui.chart(
+        _reliability_chart(table, expected_calibration_error(parts.y_test, test_proba)),
+        height=340,
+        key="pf_cal",
+    )
     st.caption(
         f"Brier score {metrics.brier:.4f}. Calibration is reported as a headline "
         "metric rather than a diagnostic because the retention simulator multiplies "
@@ -263,8 +275,3 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         f"nobody churns would score {1 - metrics.positives / metrics.n:.1%} on this "
         "partition and be worth nothing."
     )
-
-
-def _ece(table: pd.DataFrame) -> float:
-    weights = table["count"] / table["count"].sum()
-    return float((weights * table["gap"].abs()).sum())

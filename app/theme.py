@@ -102,7 +102,7 @@ def _css() -> str:
         font-style: italic;
       }}
       .sim-note {{
-        background: rgba(201, 133, 0, 0.11);
+        background: {viz.rgba(viz.ACCENT_ALT, 0.11)};
         border-left: 3px solid var(--warning);
         border-radius: 0 7px 7px 0;
         padding: 0.6rem 0.85rem;

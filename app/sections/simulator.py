@@ -16,7 +16,11 @@ from app import components as ui
 from app import data
 from churnsense import viz
 from churnsense.config import Business, Config
-from churnsense.evaluation.threshold import recommend_threshold, sweep_thresholds
+from churnsense.evaluation.threshold import (
+    indifference_band,
+    recommend_threshold_from,
+    sweep_thresholds,
+)
 
 
 def _assumption_controls(cfg: Config) -> Business:
@@ -58,12 +62,16 @@ def _assumption_controls(cfg: Config) -> Business:
     return Business(cfg.business.currency, float(cost), success, int(horizon), float(margin))
 
 
-def _economics_chart(sweep: pd.DataFrame, chosen: float, tolerance: float) -> go.Figure:
+def _economics_chart(
+    sweep: pd.DataFrame, chosen: float, business: Business, band: pd.DataFrame
+) -> go.Figure:
+    """The band is passed in rather than recomputed, so the shading, the
+    caption and the recommendation are guaranteed to describe the same rows."""
+    tolerance = business.retention_offer_cost
     ceiling = sweep["net_benefit"].max()
-    band = sweep[sweep["net_benefit"] >= ceiling - tolerance]
 
     figure = go.Figure()
-    if tolerance > 0 and len(band) > 1:
+    if tolerance > 0 and len(band) > 1:  # mirrored by the caption in render()
         figure.add_vrect(
             x0=float(band["threshold"].min()),
             x1=float(band["threshold"].max()),
@@ -147,10 +155,12 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     # Economics are computed on the validation partition, the same data the
     # shipped threshold was chosen on - so the recommendation the user sees
     # here is produced exactly the way the artifact's own threshold was.
-    probabilities = model.model.predict_proba(parts.X_val)[:, 1]
+    probabilities = model.predict_frame(parts.X_val)["churn_probability"].to_numpy()
     charges = parts.X_val["MonthlyCharges"]
     sweep = sweep_thresholds(parts.y_val, probabilities, charges, business)
-    recommended = recommend_threshold(parts.y_val, probabilities, charges, business)
+    # recommend_threshold would otherwise recompute this identical sweep
+    # internally, doubling the work on every slider nudge.
+    recommended = recommend_threshold_from(sweep, business)
 
     st.markdown("")
     mode = st.radio(
@@ -172,7 +182,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             "Threshold", 0.0, 1.0, float(recommended.threshold), step=0.01, key="sim_threshold"
         )
 
-    row = sweep.iloc[(sweep["threshold"] - threshold).abs().idxmin()]
+    # .loc, not .iloc: idxmin returns a label. The two agree only while the
+    # sweep happens to carry a default RangeIndex.
+    row = sweep.loc[(sweep["threshold"] - threshold).abs().idxmin()]
     currency = business.currency
 
     ui.kpi_row(
@@ -228,26 +240,25 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         ]
     )
 
+    # Computed once, then handed to both the chart and the caption. Deriving it
+    # twice is how a caption ends up describing a region the chart did not draw,
+    # which is the kind of small dishonesty that erodes trust in the rest of the
+    # page.
+    band = indifference_band(sweep, business)
+    shaded = business.retention_offer_cost > 0 and len(band) > 1
+
     st.markdown("")
     left, right = st.columns(2)
     with left:
         ui.question("Where does the simulated return peak, and how flat is that peak?")
         ui.chart(
-            _economics_chart(sweep, threshold, business.retention_offer_cost),
-            height=330,
-            key="sim_economics",
+            _economics_chart(sweep, threshold, business, band), height=330, key="sim_economics"
         )
     with right:
         ui.question("What does moving the threshold do to who gets contacted?")
         ui.chart(_tradeoff_chart(sweep, threshold), height=330, key="sim_tradeoff")
 
-    # The caption has to match what is actually drawn. Under some assumptions
-    # the optimum is distinct and no band is shaded; describing a shaded region
-    # that is not on screen is the kind of small dishonesty that erodes trust in
-    # everything else on the page.
-    ceiling = sweep["net_benefit"].max()
-    band = sweep[sweep["net_benefit"] >= ceiling - business.retention_offer_cost]
-    if len(band) > 1:
+    if shaded:
         st.caption(
             f"The shaded region marks the {len(band)} operating points whose simulated "
             f"net benefit is within one ${business.retention_offer_cost:,.0f} offer of "
@@ -275,12 +286,15 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         f"or above {threshold:.2f}. Monthly charges attached to them: "
         f"${scored['MonthlyCharges'].sum():,.0f}."
     )
+    # The whole selection, not a slice. An earlier version capped the file at
+    # 5,000 rows one line below a caption stating the true count, so a user
+    # could be told 7,043 and handed 5,000 with nothing to indicate the gap.
     ui.download_button(
         scored[
             ["customerID", "churn_probability", "risk_band", "Contract", "tenure", "MonthlyCharges"]
-        ].head(5000),
+        ],
         f"churnsense_target_list_{threshold:.2f}.csv",
-        "Download target list (CSV)",
+        f"Download all {len(scored):,} (CSV)",
         "sim_download",
     )
 

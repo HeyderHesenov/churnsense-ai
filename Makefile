@@ -53,7 +53,9 @@ format:  ## Auto-format and auto-fix with ruff
 	$(PY) -m ruff check --fix src app tests
 
 audit:  ## Check installed dependencies for known vulnerabilities
-	$(PY) -m pip_audit --strict || echo "pip-audit reported findings - review them above"
+	@# --skip-editable: churnsense itself is installed editable and is not on
+	@# PyPI, which --strict would report as an un-auditable dependency.
+	$(PY) -m pip_audit --skip-editable
 
 app:  ## Launch the Streamlit dashboard
 	.venv/bin/streamlit run app/streamlit_app.py

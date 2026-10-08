@@ -77,10 +77,15 @@ class Predictor:
         a probability of exactly 1 has infinite log-odds, which degenerates any
         expected-value or log-loss arithmetic downstream.
 
-        The bound is the finest rate the calibration sample could express,
-        1 / (2n), rather than a round number picked by hand. It is far smaller
-        than any usable decision threshold, so it changes no decision - only
-        the claim the number makes.
+        The bound is 1 / (2n) over the training partition - the finest rate a
+        sample that size can express - rather than a round number picked by
+        hand. (Each cross-validated calibrator actually sees about 4/5 of
+        those rows, so the true resolution is slightly coarser; the bound is
+        deliberately on the conservative side of it.) It is orders of
+        magnitude below any usable decision threshold, so it changes no
+        decision - only the claim the number makes.
+
+        ``load_artifact`` guarantees ``n_train`` is present.
         """
         return 1.0 / (2 * int(self.meta["n_train"]))
 

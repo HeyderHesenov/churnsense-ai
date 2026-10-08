@@ -34,7 +34,7 @@ TABLE_COLUMNS = [
 ]
 
 
-def _controls(frame: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+def _controls(frame: pd.DataFrame) -> pd.DataFrame:
     """Filter row. A dashboard without filtering is the documented anti-pattern."""
     st.markdown("**Filters**")
     columns = st.columns(len(FILTERS) + 2)
@@ -93,7 +93,7 @@ def _probability_histogram(frame: pd.DataFrame, threshold: float) -> go.Figure:
     return figure
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:
+def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Customer explorer")
     st.caption(
         "Every customer in the dataset, scored by the shipped model. The same "
@@ -101,7 +101,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     )
 
     model = data.predictor()
-    filtered = _controls(frame, cfg)
+    filtered = _controls(frame)
 
     if filtered.empty:
         ui.empty_filter_state()

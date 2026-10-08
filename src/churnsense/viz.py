@@ -79,6 +79,18 @@ DIVERGING_MID: Final = "#383835"
 CHURN_COLORS: Final[dict[str, str]] = {"Retained": SERIES[0], "Churned": STATUS["critical"]}
 
 
+def rgba(hex_color: str, alpha: float) -> str:
+    """A palette colour at reduced opacity, as a CSS/Plotly rgba() string.
+
+    Exists so tints are derived from the palette rather than hand-written. A
+    literal `rgba(201, 133, 0, 0.11)` elsewhere in the codebase is the same
+    colour as ACCENT_ALT until someone changes one of them.
+    """
+    value = hex_color.lstrip("#")
+    r, g, b = (int(value[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
 def apply_matplotlib_theme() -> None:
     """Set matplotlib rcParams for the report figures.
 

@@ -12,6 +12,11 @@ from churnsense import viz
 from churnsense.config import Config
 
 
+def _with_column(frame: pd.DataFrame, name: str, build) -> pd.DataFrame:
+    """Return a frame carrying ``name``, computing it only if it is absent."""
+    return frame if name in frame.columns else frame.assign(**{name: build(frame)})
+
+
 def _rate_bars(frame: pd.DataFrame, column: str, label: str, color: str) -> go.Figure:
     rates = an.churn_rate_by(frame, column)
     figure = go.Figure(
@@ -112,14 +117,16 @@ def _addon_dumbbell(frame: pd.DataFrame) -> go.Figure:
     return figure
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:
+def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Contract, tenure, payment and pricing")
     st.caption("Observed churn across the dimensions a retention team can actually act on.")
 
     tabs = st.tabs(["Lifecycle", "Pricing", "Products", "Concentration"])
 
     with tabs[0]:
-        working = frame.assign(tenure_bucket=an.tenure_bucket(frame["tenure"]))
+        # data.customers() already attached tenure_bucket and charge_band;
+        # recomputing them over 7,043 rows on every rerun of a tab buys nothing.
+        working = _with_column(frame, "tenure_bucket", lambda f: an.tenure_bucket(f["tenure"]))
         ui.question("When in the customer lifecycle does churn happen?")
         ui.chart(
             _rate_bars(working, "tenure_bucket", "Tenure (months)", viz.ACCENT_ALT),
@@ -135,7 +142,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         )
 
     with tabs[1]:
-        working = frame.assign(charge_band=an.charge_band(frame["MonthlyCharges"]))
+        working = _with_column(frame, "charge_band", lambda f: an.charge_band(f["MonthlyCharges"]))
         ui.question("Are the customers we lose the expensive ones?")
         ui.chart(
             _rate_bars(working, "charge_band", "Monthly charges", viz.SERIES[3]),

@@ -425,6 +425,16 @@ def load_artifact(directory: Path) -> tuple[Pipeline, dict[str, Any]]:
             "Retrain with `make train`."
         ) from exc
 
+    # Serving reads these on every prediction. Validating here turns a missing
+    # key into "no model available" at load time rather than a bare KeyError
+    # deep inside predict_frame, where the API would return 500 instead of 503.
+    required = ("model_key", "threshold", "feature_columns", "n_train")
+    if absent := [key for key in required if key not in meta]:
+        raise ModelNotAvailableError(
+            f"the artifact in {directory} has incomplete metadata (missing "
+            f"{', '.join(absent)}). Retrain with `make train`."
+        )
+
     if meta.get("sklearn_version") != sklearn.__version__:
         logger.warning(
             "artifact was trained with scikit-learn %s but %s is installed; "

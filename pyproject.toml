@@ -21,7 +21,7 @@ dependencies = [
     "matplotlib>=3.8",
     "seaborn>=0.13",
     "plotly>=5.22,<8",
-    "streamlit>=1.37,<2",
+    "streamlit>=1.59,<2",      # width="stretch" and st.plotly_chart(config=...)
     "shap>=0.46",
     "numba>=0.63",               # 0.63+ is the first line allowing numpy>=2.2
     "fastapi>=0.111,<1",
@@ -40,8 +40,8 @@ dev = [
 ]
 notebook = ["jupyter>=1.0", "ipykernel>=6.29", "nbconvert>=7.16"]
 
-[project.scripts]
-churnsense = "churnsense.cli:main"
+# No [project.scripts]: the Makefile is the interface, and an entry point
+# pointing at a module that does not exist is worse than none.
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -62,9 +62,9 @@ ignore = ["E501"]   # line length is handled by the formatter
 # `Depends`/`File` in a default IS the dependency-injection idiom.
 "src/churnsense/api/main.py" = ["ARG001", "B008"]
 # Sections share one signature, render(frame, cfg), so the dispatch table in
-# streamlit_app.py can call any of them the same way. A section that happens
-# not to need one argument still has to accept it.
-"app/sections/*.py" = ["ARG001"]
+# streamlit_app.py can call any of them the same way. The unused parameters are
+# marked individually with noqa on those signatures rather than ignored
+# file-wide, which would also hide genuinely dead arguments in helpers.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

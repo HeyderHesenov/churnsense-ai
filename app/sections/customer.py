@@ -55,7 +55,7 @@ GROUPS: dict[str, list[str]] = {
 }
 
 
-def _gauge(probability: float, threshold: float, band: str) -> go.Figure:
+def _gauge(probability: float, threshold: float, band_name: str, cfg: Config) -> go.Figure:
     figure = go.Figure(
         go.Indicator(
             mode="gauge+number",
@@ -63,14 +63,21 @@ def _gauge(probability: float, threshold: float, band: str) -> go.Figure:
             number={"suffix": "%", "font": {"size": 42, "color": viz.INK}},
             gauge={
                 "axis": {"range": [0, 100], "tickcolor": viz.INK_MUTED, "tickfont": {"size": 10}},
-                "bar": {"color": viz.RISK_BAND_COLORS.get(band, viz.ACCENT), "thickness": 0.72},
+                "bar": {
+                    "color": viz.RISK_BAND_COLORS.get(band_name, viz.ACCENT),
+                    "thickness": 0.72,
+                },
                 "bgcolor": viz.SURFACE_RAISED,
                 "borderwidth": 0,
+                # Derived from the risk-band palette rather than written out,
+                # so a band colour cannot mean one thing on this gauge and
+                # another everywhere else in the app.
                 "steps": [
-                    {"range": [0, 25], "color": "rgba(12,163,12,0.14)"},
-                    {"range": [25, 50], "color": "rgba(250,178,25,0.14)"},
-                    {"range": [50, 75], "color": "rgba(236,131,90,0.14)"},
-                    {"range": [75, 100], "color": "rgba(208,59,59,0.14)"},
+                    {
+                        "range": [band.min * 100, min(band.max, 1.0) * 100],
+                        "color": viz.rgba(viz.RISK_BAND_COLORS[band.name], 0.14),
+                    }
+                    for band in cfg.risk_bands
                 ],
                 "threshold": {
                     "line": {"color": viz.ACCENT_ALT, "width": 3},
@@ -147,7 +154,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     with left:
         ui.question("How likely is this customer to churn?")
         ui.chart(
-            _gauge(result.churn_probability, result.threshold, result.risk_band),
+            _gauge(result.churn_probability, result.threshold, result.risk_band, cfg),
             height=300,
             key="cu_gauge",
         )
@@ -164,12 +171,22 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
 
     with right:
         ui.question("What is driving this particular estimate?")
+        # A seeded random sample, not `head(150)`: a file-order slice of the
+        # source CSV is an arbitrary subset, and "relative to an average
+        # customer" would then mean something different here than on the
+        # Explainability page. Passed as an explicit background so the
+        # customer being explained is not also inside their own baseline.
         population = frame.loc[:, columns]
+        background = population.sample(min(150, len(population)), random_state=cfg.random_seed)
         single = pd.DataFrame([record])[columns]
-        combined = pd.concat([single, population.head(150)], ignore_index=True)
         with st.spinner("Computing contributions..."):
             explanation = explain_customer(
-                model.model, combined, row=0, top_k=6, seed=cfg.random_seed
+                model.model,
+                single,
+                row=0,
+                top_k=6,
+                background=background,
+                seed=cfg.random_seed,
             )
         for sentence in narrate(explanation):
             st.markdown(f"- {sentence}")

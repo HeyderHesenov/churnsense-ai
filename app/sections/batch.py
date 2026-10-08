@@ -87,7 +87,7 @@ def _band_summary(scored: pd.DataFrame) -> go.Figure:
     return ui.add_label_headroom(figure, "y", 1.16)
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:
+def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Batch scoring and export")
     model = data.predictor()
 
