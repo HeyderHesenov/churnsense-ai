@@ -194,20 +194,23 @@ def recommend_threshold_from(sweep: pd.DataFrame, business: Business) -> Thresho
     identical pass over the same 101 x n comparison matrix.
     """
     band = indifference_band(sweep, business)
-    best = band.loc[band["threshold"].idxmax()]
+    return _scenario_from_row(band.loc[band["threshold"].idxmax()], business)
 
+
+def _scenario_from_row(row: pd.Series, business: Business) -> ThresholdScenario:
+    """Build a scenario from one row of a sweep."""
     return ThresholdScenario(
-        threshold=float(best["threshold"]),
-        flagged=int(best["flagged"]),
-        true_positives=int(best["true_positives"]),
-        false_positives=int(best["false_positives"]),
-        false_negatives=int(best["false_negatives"]),
-        precision=float(best["precision"]),
-        recall=float(best["recall"]),
-        f1=float(best["f1"]),
-        intervention_cost=float(best["intervention_cost"]),
-        retained_value=float(best["retained_value"]),
-        net_benefit=float(best["net_benefit"]),
+        threshold=float(row["threshold"]),
+        flagged=int(row["flagged"]),
+        true_positives=int(row["true_positives"]),
+        false_positives=int(row["false_positives"]),
+        false_negatives=int(row["false_negatives"]),
+        precision=float(row["precision"]),
+        recall=float(row["recall"]),
+        f1=float(row["f1"]),
+        intervention_cost=float(row["intervention_cost"]),
+        retained_value=float(row["retained_value"]),
+        net_benefit=float(row["net_benefit"]),
         currency=business.currency,
     )
 
@@ -227,3 +230,16 @@ def assign_risk_bands(probabilities: ArrayLike, cfg: Config | None = None) -> pd
 
     labels = pd.cut(values, bins=edges, labels=names, right=False, include_lowest=True)
     return pd.Series(labels).astype(pd.CategoricalDtype(categories=names, ordered=True))
+
+
+def scenario_at(sweep: pd.DataFrame, threshold: float, business: Business) -> ThresholdScenario:
+    """The scenario for the grid point nearest ``threshold``.
+
+    In the library rather than in the dashboard because "find the sweep row
+    closest to a threshold" was being written out in two places, each with
+    its own `.loc`/`.iloc` subtlety, and because the result is exactly a
+    ``ThresholdScenario`` - which already knows how to compute return on
+    spend, so the caller does not have to reimplement the divide-by-zero case.
+    """
+    nearest = (sweep["threshold"] - float(threshold)).abs().idxmin()
+    return _scenario_from_row(sweep.loc[nearest], business)

@@ -100,32 +100,52 @@ def clean_frame(
     if duplicates_dropped:
         logger.warning("dropped %d exact duplicate row(s)", duplicates_dropped)
 
+    # Columns are handled if present rather than assumed. A scoring file need
+    # not carry every column of the raw contract - with
+    # `features.include_total_charges: false`, a perfectly valid upload has no
+    # TotalCharges at all - and an unconditional `df["TotalCharges"]` turned
+    # that into a bare KeyError, which the API served as a 500 instead of a
+    # 422 explaining what was wrong.
+    numeric = {
+        name: pd.to_numeric(df[name], errors="coerce")
+        for name in ("tenure", "MonthlyCharges", "TotalCharges")
+        if name in df.columns
+    }
+    n_blank = zero_filled = derived_filled = 0
+
     # --- TotalCharges: the one genuinely ambiguous field ---------------------
-    raw_total = df["TotalCharges"]
-    numeric_total = pd.to_numeric(raw_total, errors="coerce")
-    blank_mask = numeric_total.isna()
-    n_blank = int(blank_mask.sum())
+    if "TotalCharges" in numeric:
+        total, tenure = numeric["TotalCharges"], numeric.get("tenure")
+        blank = total.isna()
+        n_blank = int(blank.sum())
 
-    tenure = pd.to_numeric(df["tenure"], errors="coerce")
-    monthly = pd.to_numeric(df["MonthlyCharges"], errors="coerce")
+        if tenure is None:
+            # Without tenure there is no way to tell "never billed" from
+            # "missing", so 0.0 would be a guess dressed as a fact.
+            zero_filled = 0
+        else:
+            at_zero_tenure = blank & tenure.eq(0)
+            total = total.mask(at_zero_tenure, 0.0)
+            zero_filled = int(at_zero_tenure.sum())
 
-    zero_mask = blank_mask & tenure.eq(0)
-    derived_mask = blank_mask & ~tenure.eq(0)
-    numeric_total = numeric_total.mask(zero_mask, 0.0)
-    if derived_mask.any():
-        # Not expected on the IBM file (all 11 blanks have tenure 0), but a
-        # blank with real tenure is recoverable: TotalCharges tracks
-        # tenure x MonthlyCharges at r = 0.9996 on this dataset.
-        logger.warning(
-            "%d blank TotalCharges value(s) with tenure > 0; filling from tenure x MonthlyCharges",
-            int(derived_mask.sum()),
-        )
-        numeric_total = numeric_total.mask(derived_mask, tenure * monthly)
-    df["TotalCharges"] = numeric_total
+            recoverable = blank & ~tenure.eq(0)
+            if recoverable.any() and "MonthlyCharges" in numeric:
+                # Not expected on the IBM file (all 11 blanks have tenure 0),
+                # but a blank with real tenure is recoverable: TotalCharges
+                # tracks tenure x MonthlyCharges at r = 0.9996 here.
+                logger.warning(
+                    "%d blank TotalCharges value(s) with tenure > 0; "
+                    "filling from tenure x MonthlyCharges",
+                    int(recoverable.sum()),
+                )
+                total = total.mask(recoverable, tenure * numeric["MonthlyCharges"])
+                derived_filled = int(recoverable.sum())
+        numeric["TotalCharges"] = total
 
-    df["tenure"] = tenure
-    df["MonthlyCharges"] = monthly
-    df["SeniorCitizen"] = df["SeniorCitizen"].astype(str)
+    for name, values in numeric.items():
+        df[name] = values
+    if "SeniorCitizen" in df.columns:
+        df["SeniorCitizen"] = df["SeniorCitizen"].astype(str)
 
     if schema.TARGET in df.columns:
         df[schema.TARGET] = (df[schema.TARGET] == schema.POSITIVE_LABEL).astype("int8")
@@ -137,8 +157,8 @@ def clean_frame(
         rows_out=len(df),
         duplicate_rows_dropped=duplicates_dropped,
         total_charges_blank=n_blank,
-        total_charges_filled_zero=int(zero_mask.sum()),
-        total_charges_filled_derived=int(derived_mask.sum()),
+        total_charges_filled_zero=zero_filled,
+        total_charges_filled_derived=derived_filled,
         stripped_columns=stripped,
     )
     for line in report.as_lines():

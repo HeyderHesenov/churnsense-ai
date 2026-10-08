@@ -20,48 +20,7 @@ def _template(cfg: Config) -> pd.DataFrame:
     columns = schema.model_input_columns(
         cfg.features.drop_columns, cfg.features.include_total_charges
     )
-    rows = [
-        {
-            "SeniorCitizen": "0",
-            "Partner": "No",
-            "Dependents": "No",
-            "tenure": 3,
-            "PhoneService": "Yes",
-            "MultipleLines": "No",
-            "InternetService": "Fiber optic",
-            "OnlineSecurity": "No",
-            "OnlineBackup": "No",
-            "DeviceProtection": "No",
-            "TechSupport": "No",
-            "StreamingTV": "Yes",
-            "StreamingMovies": "Yes",
-            "Contract": "Month-to-month",
-            "PaperlessBilling": "Yes",
-            "PaymentMethod": "Electronic check",
-            "MonthlyCharges": 95.0,
-            "TotalCharges": 285.0,
-        },
-        {
-            "SeniorCitizen": "1",
-            "Partner": "Yes",
-            "Dependents": "Yes",
-            "tenure": 64,
-            "PhoneService": "Yes",
-            "MultipleLines": "Yes",
-            "InternetService": "DSL",
-            "OnlineSecurity": "Yes",
-            "OnlineBackup": "Yes",
-            "DeviceProtection": "Yes",
-            "TechSupport": "Yes",
-            "StreamingTV": "No",
-            "StreamingMovies": "No",
-            "Contract": "Two year",
-            "PaperlessBilling": "No",
-            "PaymentMethod": "Credit card (automatic)",
-            "MonthlyCharges": 68.3,
-            "TotalCharges": 4371.2,
-        },
-    ]
+    rows = [schema.EXAMPLE_HIGH_RISK, schema.EXAMPLE_LOW_RISK]
     return pd.DataFrame(rows).reindex(columns=columns)
 
 

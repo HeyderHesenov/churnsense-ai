@@ -13,29 +13,8 @@ from churnsense.config import Config
 from churnsense.data import schema
 from churnsense.explainability.shap_explain import explain_customer, narrate
 
-#: A month-to-month fibre customer with no add-ons - the shape the EDA
-#: identified as highest risk. Gives the form a meaningful starting point
-#: rather than an arbitrary one.
-DEFAULTS: dict[str, object] = {
-    "SeniorCitizen": "0",
-    "Partner": "No",
-    "Dependents": "No",
-    "tenure": 3,
-    "PhoneService": "Yes",
-    "MultipleLines": "No",
-    "InternetService": "Fiber optic",
-    "OnlineSecurity": "No",
-    "OnlineBackup": "No",
-    "DeviceProtection": "No",
-    "TechSupport": "No",
-    "StreamingTV": "Yes",
-    "StreamingMovies": "Yes",
-    "Contract": "Month-to-month",
-    "PaperlessBilling": "Yes",
-    "PaymentMethod": "Electronic check",
-    "MonthlyCharges": 95.0,
-    "TotalCharges": 285.0,
-}
+#: Form defaults, from the single definition in the column contract.
+DEFAULTS = schema.EXAMPLE_HIGH_RISK
 
 GROUPS: dict[str, list[str]] = {
     "Account": ["Contract", "tenure", "PaperlessBilling", "PaymentMethod"],

@@ -93,7 +93,7 @@ def _probability_histogram(frame: pd.DataFrame, threshold: float) -> go.Figure:
     return figure
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
+def render(frame: pd.DataFrame, cfg: Config) -> None:
     st.header("Customer explorer")
     st.caption(
         "Every customer in the dataset, scored by the shipped model. The same "
@@ -101,6 +101,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     )
 
     model = data.predictor()
+    currency = cfg.business.currency
     filtered = _controls(frame)
 
     if filtered.empty:
@@ -129,7 +130,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             ),
             (
                 "Monthly charges",
-                f"${filtered['MonthlyCharges'].sum():,.0f}",
+                ui.money(filtered["MonthlyCharges"].sum(), currency),
                 "in the selection",
                 "",
             ),

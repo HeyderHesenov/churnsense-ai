@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from churnsense import viz
 from churnsense.config import Config, load_config
 from churnsense.data.split import DataSplits
 from churnsense.evaluation.metrics import (
@@ -29,6 +30,7 @@ from churnsense.evaluation.metrics import (
 from churnsense.evaluation.threshold import (
     DISCLAIMER,
     ThresholdScenario,
+    indifference_band,
     recommend_threshold,
     sweep_thresholds,
 )
@@ -289,11 +291,6 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
     return evaluation
 
 
-def _money(amount: float, currency: str) -> str:
-    symbol = {"USD": "$", "EUR": "€", "GBP": "£"}.get(currency, f"{currency} ")
-    return f"{symbol}{amount:,.0f}"
-
-
 def write_final_report(
     evaluation: FinalEvaluation,
     meta: dict,
@@ -309,9 +306,11 @@ def write_final_report(
     scenario, currency = evaluation.test_scenario, cfg.business.currency
     gain = evaluation.tuning_gain
 
-    highlights = evaluation.validation_sweep[
-        evaluation.validation_sweep["threshold"].isin([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
-    ][
+    # Positional, not `.isin([0.1, ..., 0.8])`: the sweep grid is
+    # np.linspace(0, 1, 101), whose 0.7 is 0.7000000000000001, so float
+    # equality silently dropped that row and the published table jumped
+    # 0.60 -> 0.80.
+    highlights = evaluation.validation_sweep.iloc[10:81:10][
         [
             "threshold",
             "flagged",
@@ -397,7 +396,7 @@ the dashboard:
 
 | Assumption | Value |
 |---|---|
-| Cost of one retention offer | {_money(b.retention_offer_cost, currency)} |
+| Cost of one retention offer | {viz.money(b.retention_offer_cost, currency)} |
 | Probability an offer retains a would-be churner | {b.offer_success_rate:.0%} |
 | Horizon over which retained revenue counts | {b.expected_horizon_months} months |
 | Gross margin on revenue | {b.gross_margin:.0%} |
@@ -423,9 +422,9 @@ balances the probability.
 | Customers flagged | {scenario.flagged:,} |
 | Of those, real churners | {scenario.true_positives:,} |
 | Churners missed | {scenario.false_negatives:,} |
-| Simulated campaign cost | {_money(scenario.intervention_cost, currency)} |
-| Simulated retained value | {_money(scenario.retained_value, currency)} |
-| **Simulated net benefit** | **{_money(scenario.net_benefit, currency)}** |
+| Simulated campaign cost | {viz.money(scenario.intervention_cost, currency)} |
+| Simulated retained value | {viz.money(scenario.retained_value, currency)} |
+| **Simulated net benefit** | **{viz.money(scenario.net_benefit, currency)}** |
 
 These are simulated figures for a {m.n:,}-customer partition of a published
 sample dataset. They are not a forecast of any company's results, and the
@@ -504,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
         evaluation.threshold,
         cfg.business.currency,
         out,
-        tolerance=cfg.business.retention_offer_cost,
+        band=indifference_band(evaluation.validation_sweep, cfg.business),
     )
     figures.reliability(evaluation.reliability, evaluation.test_ece, out)
     figures.precision_recall(splits.y_test, model.predict_proba(splits.X_test)[:, 1], out)

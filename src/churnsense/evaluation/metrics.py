@@ -47,11 +47,6 @@ class ClassificationMetrics:
     brier: float
 
     @property
-    def specificity(self) -> float:
-        denominator = self.tn + self.fp
-        return self.tn / denominator if denominator else 0.0
-
-    @property
     def flagged(self) -> int:
         """Customers the model would send to the retention team."""
         return self.tp + self.fp

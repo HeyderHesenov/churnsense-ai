@@ -73,6 +73,12 @@ def band_chip(name: str) -> str:
     return f'<span class="band band-{safe}">{safe}</span>'
 
 
+def money(amount: float, currency: str = "USD") -> str:
+    """Re-exported from the library so the dashboard honours the configured
+    currency instead of hard-coding a dollar sign in a dozen places."""
+    return viz.money(amount, currency)
+
+
 def format_probability(value: float, *, saturation: float = 0.001) -> str:
     """Render a probability without overstating what the model knows.
 

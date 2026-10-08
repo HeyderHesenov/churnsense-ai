@@ -40,13 +40,6 @@ NUMERIC_BOUNDS: Final[dict[str, tuple[float, float]]] = {
     "TotalCharges": (0.0, 100_000.0),
 }
 
-# Observed training ranges, measured on the 7043-row IBM file.
-TRAINING_RANGES: Final[dict[str, tuple[float, float]]] = {
-    "tenure": (0.0, 72.0),
-    "MonthlyCharges": (18.25, 118.75),
-    "TotalCharges": (0.0, 8684.8),
-}
-
 _YES_NO: Final = ("No", "Yes")
 _YES_NO_NO_INTERNET: Final = ("No", "No internet service", "Yes")
 
@@ -74,8 +67,6 @@ ALLOWED_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
     ),
 }
 
-CATEGORICAL_COLUMNS: Final[tuple[str, ...]] = tuple(ALLOWED_CATEGORIES)
-
 # Column order in the raw CSV, used to give a precise error when a file is
 # missing columns or carries unexpected extras.
 RAW_COLUMNS: Final[tuple[str, ...]] = (
@@ -101,6 +92,53 @@ RAW_COLUMNS: Final[tuple[str, ...]] = (
     "TotalCharges",
     TARGET,
 )
+
+#: A month-to-month fibre customer with no add-ons - the profile the EDA
+#: identified as highest-risk. One definition serves the dashboard form's
+#: defaults, the downloadable CSV template and the OpenAPI example, so the
+#: three cannot describe different "valid customers".
+EXAMPLE_HIGH_RISK: Final[dict[str, object]] = {
+    "SeniorCitizen": "0",
+    "Partner": "No",
+    "Dependents": "No",
+    "tenure": 3,
+    "PhoneService": "Yes",
+    "MultipleLines": "No",
+    "InternetService": "Fiber optic",
+    "OnlineSecurity": "No",
+    "OnlineBackup": "No",
+    "DeviceProtection": "No",
+    "TechSupport": "No",
+    "StreamingTV": "Yes",
+    "StreamingMovies": "Yes",
+    "Contract": "Month-to-month",
+    "PaperlessBilling": "Yes",
+    "PaymentMethod": "Electronic check",
+    "MonthlyCharges": 95.0,
+    "TotalCharges": 285.0,
+}
+
+#: The contrast case: a long-tenure, fully-subscribed, two-year customer.
+EXAMPLE_LOW_RISK: Final[dict[str, object]] = {
+    "SeniorCitizen": "1",
+    "Partner": "Yes",
+    "Dependents": "Yes",
+    "tenure": 64,
+    "PhoneService": "Yes",
+    "MultipleLines": "Yes",
+    "InternetService": "DSL",
+    "OnlineSecurity": "Yes",
+    "OnlineBackup": "Yes",
+    "DeviceProtection": "Yes",
+    "TechSupport": "Yes",
+    "StreamingTV": "No",
+    "StreamingMovies": "No",
+    "Contract": "Two year",
+    "PaperlessBilling": "No",
+    "PaymentMethod": "Credit card (automatic)",
+    "MonthlyCharges": 68.3,
+    "TotalCharges": 4371.2,
+}
 
 # Human-readable labels, shared by the dashboard, the SHAP narratives and the
 # EDA report so a feature is never named two different ways to the user.

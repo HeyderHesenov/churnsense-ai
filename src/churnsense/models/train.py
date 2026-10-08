@@ -44,6 +44,7 @@ from churnsense.evaluation.metrics import (
 )
 from churnsense.exceptions import ModelNotAvailableError
 from churnsense.logging_setup import get_logger
+from churnsense.models.calibration_clamp import clamp_pipeline, epsilon_for
 from churnsense.models.registry import COMPLEXITY_ORDER, DISPLAY_NAMES, iter_candidates
 
 logger = get_logger(__name__)
@@ -306,6 +307,12 @@ def train_all(
         else:
             method = None
 
+    # Clamp before anything measures or persists the model, so the metrics in
+    # model_meta.json, the evaluation report, SHAP and the API all describe the
+    # one function that is actually served. Applied after the calibration
+    # comparison above, which must see raw probabilities to judge ECE honestly.
+    model = clamp_pipeline(model, n_calibration=len(y_train))
+
     shipped_validation = evaluate(y_validation, model.predict_proba(X_validation)[:, 1])
     if applied:
         logger.info(
@@ -373,6 +380,7 @@ def build_metadata(outcome: TrainingOutcome, cfg: Config) -> dict[str, Any]:
             "calibrated_ece": outcome.calibrated_ece,
             # Default operating point. `make evaluate` replaces it with the
             # business-optimal threshold chosen on validation.
+            "probability_epsilon": epsilon_for(outcome.n_train),
             "threshold": DEFAULT_THRESHOLD,
             "threshold_source": "default (0.5); run `make evaluate` to tune it",
             "validation_metrics": outcome.shipped_validation.as_dict(),
@@ -428,7 +436,7 @@ def load_artifact(directory: Path) -> tuple[Pipeline, dict[str, Any]]:
     # Serving reads these on every prediction. Validating here turns a missing
     # key into "no model available" at load time rather than a bare KeyError
     # deep inside predict_frame, where the API would return 500 instead of 503.
-    required = ("model_key", "threshold", "feature_columns", "n_train")
+    required = ("model_key", "threshold", "feature_columns", "n_train", "probability_epsilon")
     if absent := [key for key in required if key not in meta]:
         raise ModelNotAvailableError(
             f"the artifact in {directory} has incomplete metadata (missing "
@@ -447,11 +455,15 @@ def load_artifact(directory: Path) -> tuple[Pipeline, dict[str, Any]]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Train and compare churn models.")
+    # BooleanOptionalAction, not store_true: `action="store_true", default=True`
+    # is unsatisfiable - the flag reads True with or without it, so the `if`
+    # below was permanently taken and the CLI advertised a toggle that did
+    # not exist.
     parser.add_argument(
         "--report",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
-        help="write reports/model_comparison.md (default: on)",
+        help="write reports/model_comparison.md",
     )
     args = parser.parse_args(argv)
 

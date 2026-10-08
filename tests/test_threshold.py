@@ -225,3 +225,21 @@ def test_the_indifference_band_scales_with_the_offer_cost():
         recommend_threshold(Y, P, CHARGES, pricey).threshold
         >= recommend_threshold(Y, P, CHARGES, cheap).threshold
     )
+
+
+def test_out_of_range_probabilities_are_not_labelled_critical(cfg: Config):
+    """A scalar band helper once labelled NaN and p > 1 as "Critical".
+
+    It had no production callers, so the bug was latent — but "Critical" is
+    the highest-priority retention queue, and a NaN landing there is the worst
+    possible default. `assign_risk_bands` returns NaN for anything outside
+    the configured range, which is the honest answer.
+    """
+    bands = assign_risk_bands(np.array([-0.5, 1.5, np.nan]), cfg)
+    assert bands.isna().all(), f"expected NaN outside [0, 1], got {list(bands)}"
+
+
+def test_a_single_probability_can_be_banded(cfg: Config):
+    """The scalar case goes through the same function as the vector case."""
+    assert assign_risk_bands(np.array([0.9]), cfg).iloc[0] == "Critical"
+    assert assign_risk_bands(np.array([0.01]), cfg).iloc[0] == "Low"

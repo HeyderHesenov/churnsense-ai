@@ -167,13 +167,6 @@ class Config:
     def raw_data_file(self) -> Path:
         return self.paths.raw_dir / self.dataset.filename
 
-    def band_for(self, probability: float) -> str:
-        """Map a churn probability to its operational risk band name."""
-        for band in self.risk_bands:
-            if band.min <= probability < band.max:
-                return band.name
-        return self.risk_bands[-1].name
-
 
 def _build(raw: dict[str, Any], root: Path) -> Config:
     try:

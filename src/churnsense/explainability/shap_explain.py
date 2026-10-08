@@ -80,27 +80,6 @@ class CustomerExplanation:
     base_value: float
     contributions: list[FeatureContribution]
 
-    @property
-    def caveat(self) -> str:
-        return CAVEAT
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "probability": self.probability,
-            "base_value": self.base_value,
-            "contributions": [
-                {
-                    "feature": c.feature,
-                    "label": c.label,
-                    "value": str(c.value),
-                    "shap_value": c.shap_value,
-                    "direction": c.direction,
-                }
-                for c in self.contributions
-            ],
-            "caveat": CAVEAT,
-        }
-
 
 def _parts(model: Pipeline):
     """Split the pipeline into its preprocessor and its fitted classifier."""

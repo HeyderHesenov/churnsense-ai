@@ -40,13 +40,6 @@ def _pct(x: float) -> str:
     return f"{x * 100:.1f}%"
 
 
-def _save(fig: plt.Figure, path: Path) -> Path:
-    fig.savefig(path)
-    plt.close(fig)
-    logger.info("wrote figure %s", path.name)
-    return path
-
-
 def _rate_barh(
     data: pd.DataFrame,
     label_col: str,
@@ -61,7 +54,7 @@ def _rate_barh(
     shape ("which levels of this dimension churn most?") gets the same chart
     shape, so a reader learns to read it once.
     """
-    fig, ax = plt.subplots(figsize=(_FIG_W, height))
+    fig, ax = viz.figure(figsize=(_FIG_W, height))
     order = data.iloc[::-1]  # largest rate at the top
     bars = ax.barh(order[label_col].astype(str), order["churn_rate"], color=color, height=0.52)
 
@@ -87,7 +80,7 @@ def _rate_barh(
 def fig_contract(df: pd.DataFrame, out: Path) -> Path:
     data = an.churn_rate_by(df, "Contract", sort_by_rate=True)
     fig = _rate_barh(data, "Contract", title="Which contract types lose customers?", height=2.9)
-    return _save(fig, out / "churn_by_contract.png")
+    return viz.save_figure(fig, out / "churn_by_contract.png")
 
 
 def fig_payment(df: pd.DataFrame, out: Path) -> Path:
@@ -98,7 +91,7 @@ def fig_payment(df: pd.DataFrame, out: Path) -> Path:
         title="Does how a customer pays track with leaving?",
         height=3.2,
     )
-    return _save(fig, out / "churn_by_payment.png")
+    return viz.save_figure(fig, out / "churn_by_payment.png")
 
 
 def fig_tenure(df: pd.DataFrame, out: Path) -> Path:
@@ -112,7 +105,7 @@ def fig_tenure(df: pd.DataFrame, out: Path) -> Path:
         height=3.4,
     )
     fig.axes[0].set_ylabel("Tenure (months)")
-    return _save(fig, out / "churn_by_tenure.png")
+    return viz.save_figure(fig, out / "churn_by_tenure.png")
 
 
 def fig_charges(df: pd.DataFrame, out: Path) -> Path:
@@ -136,13 +129,13 @@ def fig_charges(df: pd.DataFrame, out: Path) -> Path:
         height=3.2,
     )
     fig.axes[0].set_ylabel("Monthly charges")
-    return _save(fig, out / "charges_by_price_band.png")
+    return viz.save_figure(fig, out / "charges_by_price_band.png")
 
 
 def fig_addons(df: pd.DataFrame, out: Path) -> Path:
     """Dumbbell: churn rate with vs without each add-on, internet customers only."""
     data = an.service_addon_rates(df)
-    fig, ax = plt.subplots(figsize=(_FIG_W, 3.8))
+    fig, ax = viz.figure(figsize=(_FIG_W, 3.8))
     y = np.arange(len(data))
 
     ends = (
@@ -180,13 +173,13 @@ def fig_addons(df: pd.DataFrame, out: Path) -> Path:
         )
     ax.set_ylim(-0.55, len(data) - 0.3)
     ax.margins(x=0.08)
-    return _save(fig, out / "addon_effect.png")
+    return viz.save_figure(fig, out / "addon_effect.png")
 
 
 def fig_risk_heatmap(df: pd.DataFrame, out: Path) -> Path:
     """Where risk concentrates: contract x tenure band."""
     rate, counts = an.risk_concentration(df)
-    fig, ax = plt.subplots(figsize=(_FIG_W, 3.0))
+    fig, ax = viz.figure(figsize=(_FIG_W, 3.0))
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
         "churn_seq", list(viz.SEQUENTIAL_BLUE)
     )
@@ -223,13 +216,13 @@ def fig_risk_heatmap(df: pd.DataFrame, out: Path) -> Path:
     bar.ax.tick_params(colors=viz.INK_MUTED)
     bar.ax.yaxis.set_major_formatter(lambda v, _: f"{v:.0%}")
     bar.outline.set_edgecolor(viz.AXIS)
-    return _save(fig, out / "risk_heatmap.png")
+    return viz.save_figure(fig, out / "risk_heatmap.png")
 
 
 def fig_association(ranking: pd.DataFrame, out: Path) -> Path:
     """Ranked association strength - deliberately not called 'importance'."""
     data = ranking.head(14).iloc[::-1]
-    fig, ax = plt.subplots(figsize=(_FIG_W, 4.6))
+    fig, ax = viz.figure(figsize=(_FIG_W, 4.6))
     colors = [viz.ACCENT_ALT if m.startswith("point") else viz.ACCENT for m in data["measure"]]
     bars = ax.barh(
         [schema.FEATURE_LABELS.get(f, f) for f in data["feature"]],
@@ -272,7 +265,7 @@ def fig_association(ranking: pd.DataFrame, out: Path) -> Path:
         ),
     ]
     ax.legend(handles=handles, loc="lower right")
-    return _save(fig, out / "association_ranking.png")
+    return viz.save_figure(fig, out / "association_ranking.png")
 
 
 def fig_collinearity(df: pd.DataFrame, out: Path) -> Path:
@@ -280,7 +273,7 @@ def fig_collinearity(df: pd.DataFrame, out: Path) -> Path:
     product = df["tenure"] * df["MonthlyCharges"]
     r = float(np.corrcoef(product, df["TotalCharges"])[0, 1])
 
-    fig, ax = plt.subplots(figsize=(5.4, 4.2))
+    fig, ax = viz.figure(figsize=(5.4, 4.2))
     ax.scatter(
         product,
         df["TotalCharges"],
@@ -301,7 +294,7 @@ def fig_collinearity(df: pd.DataFrame, out: Path) -> Path:
         f"Pearson r = {r:.4f}", xy=(0.04, 0.9), xycoords="axes fraction", color=viz.INK, fontsize=11
     )
     ax.legend(loc="lower right")
-    return _save(fig, out / "total_charges_collinearity.png")
+    return viz.save_figure(fig, out / "total_charges_collinearity.png")
 
 
 def _overview(df: pd.DataFrame) -> dict[str, float | int]:

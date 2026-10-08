@@ -19,6 +19,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from churnsense.data import schema as columns
+
 # Mirrors churnsense.data.schema.ALLOWED_CATEGORIES; tests/test_api.py asserts
 # the two stay identical.
 YesNo = Literal["No", "Yes"]
@@ -59,28 +61,8 @@ class CustomerFeatures(BaseModel):
 
     model_config = ConfigDict(
         extra="ignore",  # callers may pass customerID or Churn; ignore, don't reject
-        json_schema_extra={
-            "example": {
-                "SeniorCitizen": "0",
-                "Partner": "Yes",
-                "Dependents": "No",
-                "tenure": 5,
-                "PhoneService": "Yes",
-                "MultipleLines": "No",
-                "InternetService": "Fiber optic",
-                "OnlineSecurity": "No",
-                "OnlineBackup": "No",
-                "DeviceProtection": "No",
-                "TechSupport": "No",
-                "StreamingTV": "Yes",
-                "StreamingMovies": "Yes",
-                "Contract": "Month-to-month",
-                "PaperlessBilling": "Yes",
-                "PaymentMethod": "Electronic check",
-                "MonthlyCharges": 94.4,
-                "TotalCharges": 472.0,
-            }
-        },
+        # The same record the dashboard form and the CSV template use.
+        json_schema_extra={"example": dict(columns.EXAMPLE_HIGH_RISK)},
     )
 
     SeniorCitizen: SeniorFlag = Field(description="1 if the customer is a senior citizen")

@@ -40,10 +40,6 @@ class DataSplits:
     X_test: pd.DataFrame
     y_test: pd.Series
 
-    @property
-    def feature_names(self) -> list[str]:
-        return list(self.X_train.columns)
-
     def summary(self) -> dict[str, dict[str, float | int]]:
         """Per-partition size and positive rate, for the report and the logs."""
         return {

@@ -90,3 +90,28 @@ def test_report_writes_a_file_with_the_measured_numbers(evaluated, cfg: Config, 
     assert f"{evaluation.test_metrics.roc_auc:.4f}" in text
     assert "SIMULAT" in text.upper()
     assert "test" in text.lower()
+
+
+def test_the_sweep_table_in_the_report_has_no_missing_rows(evaluated, cfg: Config, tmp_path):
+    """Regression: float equality silently dropped the 0.70 row.
+
+    The sweep grid is `np.linspace(0, 1, 101)`, whose 0.7 element is
+    0.7000000000000001. Selecting highlight rows with
+    `.isin([0.1, ..., 0.8])` therefore matched 7 of 8, and the published
+    `final_evaluation.md` jumped straight from 0.60 to 0.80 with nothing to
+    indicate a row was missing.
+    """
+    from churnsense.evaluation.report import write_final_report
+
+    evaluation, _, _ = evaluated
+    text = write_final_report(
+        evaluation, {"display_name": "Test Model"}, cfg, directory=tmp_path
+    ).read_text()
+
+    sweep_section = text.split("### Sweep on the validation partition")[1].split("###")[0]
+    thresholds = [
+        line.split("|")[1].strip() for line in sweep_section.splitlines() if line.startswith("| 0.")
+    ]
+    assert thresholds == ["0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80"], (
+        f"the highlight table is missing rows: {thresholds}"
+    )

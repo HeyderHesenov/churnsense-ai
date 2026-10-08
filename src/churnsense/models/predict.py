@@ -23,7 +23,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
@@ -31,12 +30,11 @@ from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.evaluation.threshold import assign_risk_bands
 from churnsense.exceptions import SchemaValidationError
+from churnsense.features.preprocess import align_to_contract
 from churnsense.logging_setup import get_logger
 from churnsense.models.train import load_artifact
 
 logger = get_logger(__name__)
-
-PREDICTION_COLUMNS = ("churn_probability", "risk_band", "flagged")
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,26 +66,13 @@ class Predictor:
 
     @property
     def epsilon(self) -> float:
-        """How far from 0 and 1 a served probability is allowed to get.
+        """How far from 0 and 1 the served probabilities can get.
 
-        Isotonic calibration is a step function fitted to the training data, so
-        its terminal bins carry the empirical rate of those bins exactly - on
-        this dataset that is 0.000 for 210 customers and 1.000 for five. Those
-        are artefacts of the method, not claims that an outcome is certain, and
-        a probability of exactly 1 has infinite log-odds, which degenerates any
-        expected-value or log-loss arithmetic downstream.
-
-        The bound is 1 / (2n) over the training partition - the finest rate a
-        sample that size can express - rather than a round number picked by
-        hand. (Each cross-validated calibrator actually sees about 4/5 of
-        those rows, so the true resolution is slightly coarser; the bound is
-        deliberately on the conservative side of it.) It is orders of
-        magnitude below any usable decision threshold, so it changes no
-        decision - only the claim the number makes.
-
-        ``load_artifact`` guarantees ``n_train`` is present.
+        Reported, not applied: the clamp lives inside the fitted artifact
+        (``churnsense.models.calibration_clamp``) so that every consumer -
+        this class, the evaluation report, SHAP - sees the same function.
         """
-        return 1.0 / (2 * int(self.meta["n_train"]))
+        return float(self.meta["probability_epsilon"])
 
     @property
     def threshold(self) -> float:
@@ -110,10 +95,7 @@ class Predictor:
         """
         if df.empty:
             raise SchemaValidationError("input contains no rows")
-        missing = [c for c in self.feature_columns if c not in df.columns]
-        if missing:
-            raise SchemaValidationError("input is missing required feature column(s)", missing)
-        return df.loc[:, self.feature_columns]
+        return align_to_contract(df, self.feature_columns)
 
     def predict_frame(self, df: pd.DataFrame, threshold: float | None = None) -> pd.DataFrame:
         """Score a frame. Returns probability, risk band and the flag decision.
@@ -123,9 +105,8 @@ class Predictor:
         decision drawn from them.
         """
         cut = self.threshold if threshold is None else float(threshold)
-        raw = self.model.predict_proba(self._aligned(df))[:, 1]
-        # Clipping is monotone, so the model's ranking is untouched.
-        probabilities = np.clip(raw, self.epsilon, 1.0 - self.epsilon)
+        # Already clamped by the artifact itself; see calibration_clamp.
+        probabilities = self.model.predict_proba(self._aligned(df))[:, 1]
 
         bands = assign_risk_bands(probabilities, self.config)
         return pd.DataFrame(
@@ -220,15 +201,12 @@ def validate_upload(
     required = schema.model_input_columns(
         cfg.features.drop_columns, cfg.features.include_total_charges
     )
-    # Column presence first: cleaning reads tenure, MonthlyCharges and
-    # TotalCharges directly and would raise a KeyError rather than a useful
-    # message if they were absent.
-    if missing := [c for c in required if c not in frame.columns]:
-        raise SchemaValidationError("file is missing required column(s)", missing)
-
     # Clean *before* validating values. The real IBM file stores a blank for
     # TotalCharges on zero-tenure customers, so validating the raw text would
     # reject the project's own dataset as containing non-numeric charges.
+    # clean_frame handles each column only if present, so a missing one
+    # surfaces from validate_frame as a SchemaValidationError (-> 422) rather
+    # than as a KeyError (-> 500).
     from churnsense.data.loader import clean_frame
 
     return clean_frame(frame, required_columns=required)[0]

@@ -89,12 +89,6 @@ def _css() -> str:
       .kpi-crit   {{ border-left: 3px solid var(--critical); }}
 
       /* --- Panels and callouts ------------------------------------------- */
-      .panel {{
-        background: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1rem 1.15rem;
-      }}
       .question {{
         color: var(--ink-muted);
         font-size: 0.8rem;

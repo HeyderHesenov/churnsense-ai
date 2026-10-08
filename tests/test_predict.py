@@ -196,82 +196,58 @@ def test_an_upload_with_an_unknown_category_is_refused(cfg: Config, demo_csv):
 
 
 # --- calibration saturation -------------------------------------------------
+#
+# The clamp itself lives in the artifact and is tested in tests/test_clamp.py.
+# What belongs here is the integration: that a Predictor loaded from disk
+# reports the bound and never serves a probability outside it.
 
 
-class _SaturatingModel:
-    """A stand-in whose probabilities hit exactly 0 and 1.
-
-    The synthetic fixture is too small for isotonic calibration (``train_all``
-    falls back to sigmoid), so a predictor built from it never produces a
-    saturated probability and cannot exercise the clamp. An earlier version of
-    these tests asserted on that predictor and passed with the clamp deleted -
-    they proved nothing. This reproduces the condition the clamp exists for.
-    """
-
-    def __init__(self, columns: list[str]) -> None:
-        self.feature_names_in_ = np.array(columns)
-
-    def predict_proba(self, X) -> np.ndarray:
-        positives = np.linspace(0.0, 1.0, len(X))  # includes exactly 0.0 and 1.0
-        return np.column_stack([1.0 - positives, positives])
+def test_the_predictor_reports_the_artifact_s_bound(predictor: Predictor):
+    assert predictor.epsilon == pytest.approx(1.0 / (2 * predictor.meta["n_train"]))
+    assert 0.0 < predictor.epsilon < 0.01
 
 
-@pytest.fixture
-def saturating(predictor: Predictor, sample) -> Predictor:
-    import dataclasses
-
-    return dataclasses.replace(predictor, model=_SaturatingModel(predictor.feature_columns))
-
-
-def test_a_saturated_probability_is_never_served(saturating: Predictor, sample):
-    """The regression this clamp exists for.
-
-    Isotonic calibration is a step function: on the real dataset its terminal
-    bins assigned exactly 0.000 to 210 customers and exactly 1.000 to five.
-    Neither is a claim 4,225 training rows can support, and a probability of
-    exactly 1 has infinite log-odds.
-    """
-    raw = saturating.model.predict_proba(sample)[:, 1]
-    assert raw.min() == 0.0 and raw.max() == 1.0, "fixture must actually saturate"
-
-    served = saturating.predict_frame(sample)["churn_probability"]
+def test_a_loaded_predictor_never_serves_certainty(predictor: Predictor, sample):
+    """End to end: train, persist, reload, score - no 0.0 and no 1.0."""
+    served = predictor.predict_frame(sample)["churn_probability"]
     assert (served > 0.0).all()
     assert (served < 1.0).all()
-    assert served.min() == pytest.approx(saturating.epsilon)
-    assert served.max() == pytest.approx(1.0 - saturating.epsilon)
 
 
-def test_the_clamp_moves_only_the_saturated_values(saturating: Predictor, sample):
-    """Everything strictly inside the bounds must pass through untouched."""
-    raw = saturating.model.predict_proba(sample)[:, 1]
-    served = saturating.predict_frame(sample)["churn_probability"].to_numpy()
+def test_the_bound_survives_the_round_trip(predictor: Predictor):
+    """The epsilon in the metadata must match the one baked into the pickle."""
+    from churnsense.models.calibration_clamp import ProbabilityClamp
 
-    interior = (raw > saturating.epsilon) & (raw < 1.0 - saturating.epsilon)
-    np.testing.assert_allclose(served[interior], raw[interior])
-
-
-def test_clamping_preserves_ordering(saturating: Predictor, sample):
-    """Rank order is the model's real output and must survive the clamp."""
-    raw = saturating.model.predict_proba(sample)[:, 1]
-    served = saturating.predict_frame(sample)["churn_probability"].to_numpy()
-    assert (np.argsort(raw, kind="stable") == np.argsort(served, kind="stable")).all()
+    classifier = predictor.model.named_steps["classifier"]
+    assert isinstance(classifier, ProbabilityClamp)
+    assert classifier.epsilon == pytest.approx(predictor.epsilon)
 
 
-def test_predict_one_is_clamped_too(saturating: Predictor, sample):
-    """The single-record path must not bypass the bound."""
-    record = sample.iloc[0].to_dict()
-    assert 0.0 < saturating.predict_one(record).churn_probability < 1.0
+def test_a_file_without_total_charges_is_accepted_when_the_config_drops_it(cfg: Config, demo_csv):
+    """Regression: a documented ablation produced HTTP 500.
 
-
-def test_the_clamp_is_tighter_than_any_decision_it_could_change(predictor: Predictor):
-    """The bound must sit far below any threshold anyone would operate at.
-
-    It scales with the calibration sample, so this fixture's small training
-    split gives a looser epsilon than the real model (1 / (2 x 4,225) = 1.2e-4).
+    `features.include_total_charges: false` is advertised in config.yaml and
+    the README as an ablation knob. With it set, a valid scoring file has no
+    TotalCharges column — and clean_frame used to dereference that column
+    unconditionally, raising a bare KeyError. KeyError is not a
+    SchemaValidationError, so the API turned a perfectly good upload into a
+    generic 500 instead of explaining anything.
     """
-    assert predictor.epsilon < 0.01
+    import dataclasses
+
+    ablated = dataclasses.replace(
+        cfg, features=dataclasses.replace(cfg.features, include_total_charges=False)
+    )
+    frame = pd.read_csv(demo_csv, dtype=str).drop(columns=["TotalCharges"])
+
+    cleaned = validate_upload(_csv(frame), ablated)
+
+    assert len(cleaned) == 120
+    assert "TotalCharges" not in cleaned.columns
 
 
-def test_the_clamp_is_derived_from_the_calibration_sample_size(predictor: Predictor):
-    """Not a magic number: the finest rate the calibration data can express."""
-    assert predictor.epsilon == pytest.approx(1.0 / (2 * predictor.meta["n_train"]))
+def test_a_genuinely_missing_column_is_still_a_clean_rejection(cfg: Config, demo_csv):
+    """The other half of the above: dropping a *required* column must 422."""
+    frame = pd.read_csv(demo_csv, dtype=str).drop(columns=["Contract"])
+    with pytest.raises(SchemaValidationError, match="Contract"):
+        validate_upload(_csv(frame), cfg)

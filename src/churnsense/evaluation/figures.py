@@ -14,42 +14,13 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import precision_recall_curve
 
 from churnsense import viz
-from churnsense.logging_setup import get_logger
-
-logger = get_logger(__name__)
 
 _W = 8.0
-
-
-def _money(amount: float, currency: str) -> str:
-    symbol = {"USD": "$", "EUR": "\u20ac", "GBP": "\u00a3"}.get(currency, f"{currency} ")
-    return f"{symbol}{amount:,.0f}"
-
-
-def _figure(*args, **kwargs):
-    """Create a themed figure.
-
-    Every figure goes through here so the project theme cannot be forgotten.
-    An earlier version applied it only in the EDA module, and these evaluation
-    figures silently rendered on matplotlib's default light background - the
-    kind of inconsistency that is invisible in code review and obvious the
-    moment you look at the output.
-    """
-    viz.apply_matplotlib_theme()
-    return plt.subplots(*args, **kwargs)
-
-
-def _save(fig: plt.Figure, path: Path) -> Path:
-    fig.savefig(path)
-    plt.close(fig)
-    logger.info("wrote figure %s", path.name)
-    return path
 
 
 def threshold_economics(
@@ -57,10 +28,15 @@ def threshold_economics(
     chosen: float,
     currency: str,
     out: Path,
-    tolerance: float | None = None,
+    band: pd.DataFrame | None = None,
 ) -> Path:
-    """Two stacked panels on a shared threshold axis: money, then rates."""
-    fig, (top, bottom) = _figure(
+    """Two stacked panels on a shared threshold axis: money, then rates.
+
+    ``band`` is the indifference region, passed in rather than re-derived, so
+    the shading here and the recommendation that produced ``chosen`` cannot
+    describe different rows. The dashboard's equivalent chart does the same.
+    """
+    fig, (top, bottom) = viz.figure(
         2, 1, figsize=(_W, 5.6), sharex=True, gridspec_kw={"height_ratios": [1.25, 1]}
     )
 
@@ -70,9 +46,8 @@ def threshold_economics(
     # Shade the indifference band. The chosen threshold is deliberately not the
     # argmax, so showing only a peak marker would make the choice look like an
     # error; the band is what makes it legible.
-    if tolerance is not None and tolerance > 0:
+    if band is not None and len(band) > 1:
         ceiling = sweep["net_benefit"].max()
-        band = sweep[sweep["net_benefit"] >= ceiling - tolerance]
         top.axvspan(
             band["threshold"].min(),
             band["threshold"].max(),
@@ -81,7 +56,7 @@ def threshold_economics(
             zorder=0,
         )
         top.annotate(
-            f"within one {_money(tolerance, currency)} offer of the best",
+            "within one offer of the best",
             xy=(band["threshold"].mean(), ceiling),
             textcoords="offset points",
             xytext=(0, 14),
@@ -103,7 +78,7 @@ def threshold_economics(
     # Anchored to the chosen point's own value, not to the peak: those are no
     # longer the same number once the indifference band is applied.
     top.annotate(
-        f"chosen {chosen:.2f} - {_money(at_chosen, currency)}",
+        f"chosen {chosen:.2f} - {viz.money(at_chosen, currency)}",
         xy=(chosen, at_chosen),
         textcoords="offset points",
         xytext=(14, -38),
@@ -130,12 +105,12 @@ def threshold_economics(
     bottom.legend(loc="center right")
 
     fig.align_ylabels()
-    return _save(fig, out / "threshold_economics.png")
+    return viz.save_figure(fig, out / "threshold_economics.png")
 
 
 def reliability(table: pd.DataFrame, ece: float, out: Path) -> Path:
     """Predicted probability against observed rate, sized by bin population."""
-    fig, ax = _figure(figsize=(5.4, 4.6))
+    fig, ax = viz.figure(figsize=(5.4, 4.6))
     ax.plot(
         [0, 1], [0, 1], color=viz.AXIS, linestyle="--", linewidth=1.4, label="Perfect calibration"
     )
@@ -166,7 +141,7 @@ def reliability(table: pd.DataFrame, ece: float, out: Path) -> Path:
         f"ECE = {ece:.4f}", xy=(0.05, 0.9), xycoords="axes fraction", color=viz.INK, fontsize=11
     )
     ax.legend(loc="lower right")
-    return _save(fig, out / "reliability.png")
+    return viz.save_figure(fig, out / "reliability.png")
 
 
 def precision_recall(y_true, y_proba, out: Path) -> Path:
@@ -174,7 +149,7 @@ def precision_recall(y_true, y_proba, out: Path) -> Path:
     precision, recall, _ = precision_recall_curve(y_true, y_proba)
     base_rate = float(np.mean(y_true))
 
-    fig, ax = _figure(figsize=(5.4, 4.6))
+    fig, ax = viz.figure(figsize=(5.4, 4.6))
     ax.plot(recall, precision, color=viz.ACCENT, linewidth=2.2, label="Model")
     ax.axhline(
         base_rate,
@@ -192,13 +167,13 @@ def precision_recall(y_true, y_proba, out: Path) -> Path:
     for axis in (ax.xaxis, ax.yaxis):
         axis.set_major_formatter(lambda v, _: f"{v:.0%}")
     ax.legend(loc="upper right")
-    return _save(fig, out / "precision_recall.png")
+    return viz.save_figure(fig, out / "precision_recall.png")
 
 
 def shap_importance(importance: pd.DataFrame, out: Path, top_n: int = 12) -> Path:
     """Mean absolute SHAP per feature - model influence, not causal effect."""
     data = importance.head(top_n).iloc[::-1]
-    fig, ax = _figure(figsize=(_W, 4.4))
+    fig, ax = viz.figure(figsize=(_W, 4.4))
     bars = ax.barh(data["label"], data["mean_abs_shap"], color=viz.ACCENT, height=0.56)
     for bar, value in zip(bars, data["mean_abs_shap"], strict=True):
         ax.text(
@@ -214,4 +189,4 @@ def shap_importance(importance: pd.DataFrame, out: Path, top_n: int = 12) -> Pat
     ax.set_xlabel("Mean |SHAP value| (probability points)")
     ax.set_xlim(0, float(data["mean_abs_shap"].max()) * 1.16)
     ax.grid(axis="y", visible=False)
-    return _save(fig, out / "shap_importance.png")
+    return viz.save_figure(fig, out / "shap_importance.png")

@@ -85,7 +85,13 @@ def test_calibration_decision_is_measured_not_assumed(outcome: TrainingOutcome):
         outcome.calibrated_ece is not None and outcome.calibrated_ece < outcome.uncalibrated_ece
     )
     if outcome.calibration_applied:
-        assert isinstance(outcome.model.named_steps["classifier"], CalibratedClassifierCV)
+        # The shipped pipeline wraps its classifier in the probability clamp,
+        # so the calibrator is one level in.
+        from churnsense.models.calibration_clamp import ProbabilityClamp
+
+        classifier = outcome.model.named_steps["classifier"]
+        assert isinstance(classifier, ProbabilityClamp)
+        assert isinstance(classifier.estimator, CalibratedClassifierCV)
 
 
 def test_cv_scores_are_finite(outcome: TrainingOutcome):

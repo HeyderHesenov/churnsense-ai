@@ -59,13 +59,13 @@ def _risk_distribution(frame: pd.DataFrame) -> go.Figure:
     )
 
 
-def _revenue_at_risk(frame: pd.DataFrame) -> go.Figure:
+def _revenue_at_risk(frame: pd.DataFrame, currency: str) -> go.Figure:
     return _band_bars(
         frame,
         frame.groupby("risk_band", observed=True)["MonthlyCharges"].sum(),
-        axis_title="Monthly charges (USD)",
-        fmt=lambda v: f"${v:,.0f}",
-        hover="<b>%{y} risk</b><br>$%{x:,.0f} per month<extra></extra>",
+        axis_title=f"Monthly charges ({currency})",
+        fmt=lambda v: ui.money(v, currency),
+        hover="<b>%{y} risk</b><br>%{x:,.0f} per month<extra></extra>",
     )
 
 
@@ -109,6 +109,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     flagged = frame["flagged"]
     high_risk = frame["risk_band"].isin(["High", "Critical"])
     model = data.predictor()
+    currency = cfg.business.currency
 
     ui.kpi_row(
         [
@@ -121,7 +122,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             ),
             (
                 "Monthly charges on the book",
-                f"${frame['MonthlyCharges'].sum():,.0f}",
+                ui.money(frame["MonthlyCharges"].sum(), currency),
                 "sum across all customers",
                 "",
             ),
@@ -149,7 +150,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     with right:
         st.subheader("Monthly charges by risk band")
         ui.question("How much recurring revenue is attached to each band?")
-        ui.chart(_revenue_at_risk(frame), height=300, key="ov_revenue")
+        ui.chart(_revenue_at_risk(frame, currency), height=300, key="ov_revenue")
 
     st.caption(
         "Risk bands are fixed probability ranges "

@@ -19,6 +19,7 @@ from churnsense.config import Business, Config
 from churnsense.evaluation.threshold import (
     indifference_band,
     recommend_threshold_from,
+    scenario_at,
     sweep_thresholds,
 )
 
@@ -28,7 +29,7 @@ def _assumption_controls(cfg: Config) -> Business:
     columns = st.columns(4)
     with columns[0]:
         cost = st.slider(
-            "Cost of one retention offer ($)",
+            f"Cost of one retention offer ({cfg.business.currency})",
             0,
             300,
             int(cfg.business.retention_offer_cost),
@@ -99,7 +100,7 @@ def _economics_chart(
             mode="lines",
             line={"color": viz.ACCENT, "width": 2.5},
             name="Net benefit",
-            hovertemplate="threshold %{x:.2f}<br>net benefit $%{y:,.0f}<extra></extra>",
+            hovertemplate="threshold %{x:.2f}<br>net benefit %{y:,.0f}<extra></extra>",
         )
     )
     figure.add_hline(y=0, line_color=viz.AXIS, line_width=1)
@@ -182,8 +183,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             "Threshold", 0.0, 1.0, float(recommended.threshold), step=0.01, key="sim_threshold"
         )
 
-    # .loc, not .iloc: idxmin returns a label. The two agree only while the
-    # sweep happens to carry a default RangeIndex.
+    scenario = scenario_at(sweep, threshold, business)
     row = sweep.loc[(sweep["threshold"] - threshold).abs().idxmin()]
     currency = business.currency
 
@@ -212,28 +212,26 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         [
             (
                 "Simulated campaign cost",
-                f"${row['intervention_cost']:,.0f}",
-                f"{int(row['flagged']):,} offers at ${business.retention_offer_cost:,.0f}",
+                ui.money(row["intervention_cost"], currency),
+                f"{int(row['flagged']):,} offers at {ui.money(business.retention_offer_cost, currency)}",
                 "warn",
             ),
             (
                 "Simulated retained value",
-                f"${row['retained_value']:,.0f}",
+                ui.money(row["retained_value"], currency),
                 f"{business.offer_success_rate:.0%} success over "
                 f"{business.expected_horizon_months} months",
                 "",
             ),
             (
                 "Simulated net benefit",
-                f"${row['net_benefit']:,.0f}",
+                ui.money(row["net_benefit"], currency),
                 "retained value minus campaign cost",
                 "accent" if row["net_benefit"] > 0 else "crit",
             ),
             (
-                "Return per dollar spent",
-                f"{row['retained_value'] / row['intervention_cost']:.2f}x"
-                if row["intervention_cost"]
-                else "n/a",
+                "Return per unit spent",
+                f"{scenario.return_on_spend:.2f}x" if scenario.return_on_spend else "n/a",
                 "simulated",
                 "",
             ),
@@ -261,7 +259,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     if shaded:
         st.caption(
             f"The shaded region marks the {len(band)} operating points whose simulated "
-            f"net benefit is within one ${business.retention_offer_cost:,.0f} offer of "
+            f"net benefit is within one {ui.money(business.retention_offer_cost, currency)} offer of "
             f"the best ({band['threshold'].min():.2f} to {band['threshold'].max():.2f}). "
             "Inside it the differences are smaller than the cost of a single "
             "intervention, so they are treated as tied and the threshold that contacts "
@@ -271,7 +269,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     else:
         st.caption(
             "Under these assumptions the optimum is distinct: no other threshold comes "
-            f"within one ${business.retention_offer_cost:,.0f} offer of it, so there is "
+            f"within one {ui.money(business.retention_offer_cost, currency)} offer of it, so there is "
             "no indifference band to shade. Flatten the curve - a cheaper offer or a "
             "lower success rate - and a band appears."
         )
@@ -284,7 +282,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     st.caption(
         f"{len(scored):,} of {len(frame):,} customers across the whole dataset sit at "
         f"or above {threshold:.2f}. Monthly charges attached to them: "
-        f"${scored['MonthlyCharges'].sum():,.0f}."
+        f"{ui.money(scored['MonthlyCharges'].sum(), currency)}."
     )
     # The whole selection, not a slice. An earlier version capped the file at
     # 5,000 rows one line below a caption stating the true count, so a user

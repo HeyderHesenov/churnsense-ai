@@ -22,7 +22,12 @@ meaning alone. That pairing is the documented mitigation, not an oversight.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Final
+
+from churnsense.logging_setup import get_logger
+
+_logger = get_logger(__name__)
 
 # --- Surfaces and ink -------------------------------------------------------
 PAGE_BG: Final = "#0d1117"
@@ -72,11 +77,44 @@ SEQUENTIAL_BLUE: Final[tuple[str, ...]] = (
     "#184f95",
     "#0d366b",
 )
-DIVERGING_MID: Final = "#383835"
 
-# Churn is the subject of this project: it gets one fixed pair everywhere, so
-# "churned" never changes colour between two charts.
-CHURN_COLORS: Final[dict[str, str]] = {"Retained": SERIES[0], "Churned": STATUS["critical"]}
+
+def figure(*args, **kwargs):
+    """Create a themed matplotlib figure.
+
+    Every figure in the project goes through here so the theme cannot be
+    forgotten. It was, once: the evaluation figures silently rendered on
+    matplotlib's default light background because `apply_matplotlib_theme`
+    was only called in the EDA module.
+    """
+    import matplotlib.pyplot as plt
+
+    apply_matplotlib_theme()
+    return plt.subplots(*args, **kwargs)
+
+
+def save_figure(fig, path: Path) -> Path:
+    """Write a figure and close it, returning the path."""
+    import matplotlib.pyplot as plt
+
+    fig.savefig(path)
+    plt.close(fig)
+    _logger.info("wrote figure %s", path.name)
+    return path
+
+
+def money(amount: float, currency: str = "USD") -> str:
+    """Format a monetary amount for display.
+
+    Here rather than in the report or the figure module because both render
+    the same numbers into the same artifact set - `make evaluate` writes
+    final_evaluation.md and threshold_economics.png in one run - and two
+    copies of the currency table meant they could disagree inside it. The
+    dashboard reads it too, so `business.currency` finally means something
+    everywhere instead of only in the reports.
+    """
+    symbol = {"USD": "$", "EUR": "\u20ac", "GBP": "\u00a3"}.get(currency, f"{currency} ")
+    return f"{symbol}{amount:,.0f}"
 
 
 def rgba(hex_color: str, alpha: float) -> str:

@@ -68,13 +68,12 @@ def test_risk_bands_tile_the_probability_range(cfg: Config):
         assert lower.max == upper.min, "bands must be contiguous, with no gap or overlap"
 
 
-@pytest.mark.parametrize(("probability", "expected"), [(0.0, "Low"), (0.99, "Critical")])
-def test_band_for_covers_the_endpoints(cfg: Config, probability: float, expected: str):
-    assert cfg.band_for(probability) == expected
-
-
-def test_band_for_never_returns_none_within_range(cfg: Config):
-    assert all(cfg.band_for(p / 100) for p in range(101))
+# Band assignment itself is tested in tests/test_threshold.py against
+# `assign_risk_bands`, the implementation the serving path actually uses.
+# `Config.band_for` used to be a second, scalar implementation beside it; it
+# had no production callers and labelled NaN and out-of-range probabilities
+# as "Critical" - the highest-priority retention queue - so it was removed
+# rather than fixed. See tests/test_threshold.py for the guard.
 
 
 def test_missing_config_file_is_reported_clearly(tmp_path: Path):

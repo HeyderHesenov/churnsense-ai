@@ -71,25 +71,6 @@ def churn_rate_by(
     return out.sort_values("churn_rate", ascending=False) if sort_by_rate else out
 
 
-def numeric_summary_by_churn(
-    df: pd.DataFrame, column: str, *, target: str = schema.TARGET
-) -> pd.DataFrame:
-    """Median, mean, quartiles and count of ``column`` split by churn outcome."""
-    out = (
-        df.groupby(target, observed=True)[column]
-        .agg(
-            customers="size",
-            mean="mean",
-            median="median",
-            q25=lambda s: s.quantile(0.25),
-            q75=lambda s: s.quantile(0.75),
-        )
-        .reset_index()
-    )
-    out[target] = out[target].map({0: "Retained", 1: "Churned"})
-    return out.rename(columns={target: "outcome"})
-
-
 def cramers_v(x: pd.Series, y: pd.Series) -> float:
     """Bias-corrected Cramer's V between two categorical series.
 
