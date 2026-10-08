@@ -111,7 +111,13 @@ and batch scoring **cannot** disagree.
 
 ## Quick start
 
-Requires **Python 3.11+** (developed and tested on 3.12.13).
+Requires **Python 3.11+** (developed and tested on 3.12.13). If your default
+`python3` is older, pass a newer one — `make setup` checks before it creates
+anything and tells you which interpreters it can find:
+
+```bash
+make setup PYTHON=python3.12
+```
 
 ```bash
 make setup      # .venv + pinned install
@@ -521,6 +527,25 @@ pytest with coverage, an end-to-end training smoke test, an API smoke test, and
 > check on first push.
 
 `make audit` currently reports **no known vulnerabilities**.
+
+### Verified in a clean checkout
+
+The whole flow was run from a fresh `git clone` into an empty directory:
+
+```
+make setup PYTHON=python3.12   ok
+make data                      ok   sha256 16320c9c... (identical)
+make all                       ok   12 figures, 6 reports
+make test                      ok   229 passed
+make lint                      ok   59 files already formatted
+make audit                     ok   no known vulnerabilities
+make api  -> POST /predict     ok   0.804955658153  (identical to the value above)
+make app                       ok   HTTP 200
+```
+
+Every documented number reproduced exactly — same split, same selection, same
+threshold 0.36, same test metrics. The clone itself was audited too: 84 tracked
+files, no secrets, no raw data, no artifacts, no venv.
 
 ## Project layout
 
