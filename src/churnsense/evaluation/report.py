@@ -13,11 +13,25 @@ touched test data, and the final report runs once, after selection is closed.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
 from churnsense.config import Config, load_config
+from churnsense.data.split import DataSplits
+from churnsense.evaluation.metrics import (
+    ClassificationMetrics,
+    evaluate,
+    expected_calibration_error,
+    reliability_table,
+)
+from churnsense.evaluation.threshold import (
+    DISCLAIMER,
+    ThresholdScenario,
+    recommend_threshold,
+    sweep_thresholds,
+)
 from churnsense.logging_setup import get_logger
 from churnsense.models.train import TrainingOutcome
 
@@ -184,3 +198,341 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
     path.write_text(content, encoding="utf-8")
     logger.info("wrote %s", path.name)
     return path
+
+
+# ---------------------------------------------------------------------------
+# Final evaluation: the single scoring of the test partition
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class FinalEvaluation:
+    """The outcome of the one and only test-set scoring.
+
+    ``test_optimal_threshold`` is recorded deliberately. It is *not* used for
+    anything - it exists so the report can show how far the honestly-chosen
+    threshold sits from the one that would have been picked by cheating, which
+    is a more informative disclosure than silence.
+    """
+
+    threshold: float
+    validation_scenario: ThresholdScenario
+    validation_sweep: pd.DataFrame
+    test_metrics: ClassificationMetrics
+    test_metrics_at_half: ClassificationMetrics
+    test_scenario: ThresholdScenario
+    test_optimal_threshold: float
+    test_ece: float
+    reliability: pd.DataFrame
+
+    @property
+    def tuning_gain(self) -> dict[str, float]:
+        """What moving off 0.5 bought, in test metrics."""
+        return {
+            "precision": self.test_metrics.precision - self.test_metrics_at_half.precision,
+            "recall": self.test_metrics.recall - self.test_metrics_at_half.recall,
+            "f1": self.test_metrics.f1 - self.test_metrics_at_half.f1,
+        }
+
+
+def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -> FinalEvaluation:
+    """Choose the threshold on validation, then score test exactly once.
+
+    The ordering of the statements below *is* the protocol: validation
+    probabilities and the business assumptions fix the threshold, and only then
+    is ``X_test`` touched.
+    """
+    cfg = cfg or load_config()
+
+    validation_proba = model.predict_proba(splits.X_val)[:, 1]
+    sweep = sweep_thresholds(
+        splits.y_val, validation_proba, splits.X_val["MonthlyCharges"], cfg.business
+    )
+    scenario = recommend_threshold(
+        splits.y_val, validation_proba, splits.X_val["MonthlyCharges"], cfg.business
+    )
+    threshold = scenario.threshold
+    logger.info(
+        "threshold %.2f chosen on validation (simulated net benefit %s%.0f)",
+        threshold,
+        cfg.business.currency,
+        scenario.net_benefit,
+    )
+
+    # --- the test partition is read from here, and only here -----------------
+    test_proba = model.predict_proba(splits.X_test)[:, 1]
+    test_charges = splits.X_test["MonthlyCharges"]
+
+    evaluation = FinalEvaluation(
+        threshold=threshold,
+        validation_scenario=scenario,
+        validation_sweep=sweep,
+        test_metrics=evaluate(splits.y_test, test_proba, threshold=threshold),
+        test_metrics_at_half=evaluate(splits.y_test, test_proba, threshold=0.5),
+        test_scenario=recommend_threshold(
+            splits.y_test, test_proba, test_charges, cfg.business, thresholds=[threshold]
+        ),
+        test_optimal_threshold=recommend_threshold(
+            splits.y_test, test_proba, test_charges, cfg.business
+        ).threshold,
+        test_ece=expected_calibration_error(splits.y_test, test_proba),
+        reliability=reliability_table(splits.y_test, test_proba),
+    )
+    logger.info(
+        "test: pr_auc=%.4f roc_auc=%.4f precision=%.4f recall=%.4f ece=%.4f",
+        evaluation.test_metrics.average_precision,
+        evaluation.test_metrics.roc_auc,
+        evaluation.test_metrics.precision,
+        evaluation.test_metrics.recall,
+        evaluation.test_ece,
+    )
+    return evaluation
+
+
+def _money(amount: float, currency: str) -> str:
+    symbol = {"USD": "$", "EUR": "€", "GBP": "£"}.get(currency, f"{currency} ")
+    return f"{symbol}{amount:,.0f}"
+
+
+def write_final_report(
+    evaluation: FinalEvaluation,
+    meta: dict,
+    cfg: Config | None = None,
+    directory: Path | None = None,
+) -> Path:
+    """Write ``reports/final_evaluation.md`` from a real test-set scoring."""
+    cfg = cfg or load_config()
+    directory = Path(directory) if directory else cfg.paths.reports_dir
+    directory.mkdir(parents=True, exist_ok=True)
+
+    b, m, half = cfg.business, evaluation.test_metrics, evaluation.test_metrics_at_half
+    scenario, currency = evaluation.test_scenario, cfg.business.currency
+    gain = evaluation.tuning_gain
+
+    highlights = evaluation.validation_sweep[
+        evaluation.validation_sweep["threshold"].isin([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+    ][
+        [
+            "threshold",
+            "flagged",
+            "precision",
+            "recall",
+            "intervention_cost",
+            "retained_value",
+            "net_benefit",
+        ]
+    ].rename(
+        columns={
+            "threshold": "Threshold",
+            "flagged": "Flagged",
+            "precision": "Precision",
+            "recall": "Recall",
+            "intervention_cost": "Campaign cost",
+            "retained_value": "Retained value",
+            "net_benefit": "Net benefit",
+        }
+    )
+
+    content = f"""# Final evaluation - ChurnSense AI
+
+Generated by `make evaluate`. **This is the only place the test partition is
+scored, and it is scored once.** The model was selected on validation
+(`reports/model_comparison.md`) and the decision threshold was chosen on
+validation too; neither used the numbers below.
+
+Model: **{meta.get("display_name", meta.get("model_key", "unknown"))}**.
+Test partition: **{m.n:,} customers, {m.positives:,} of them churned
+({m.positives / m.n:.1%})**.
+
+## Test-set performance at the chosen operating point
+
+Threshold **{evaluation.threshold:.2f}**, fixed on validation before this
+partition was read.
+
+| Metric | Value |
+|---|---|
+| Precision | {m.precision:.4f} |
+| Recall | {m.recall:.4f} |
+| F1 | {m.f1:.4f} |
+| ROC-AUC | {m.roc_auc:.4f} |
+| PR-AUC (average precision) | {m.average_precision:.4f} |
+| Brier score | {m.brier:.4f} |
+| Expected calibration error | {evaluation.test_ece:.4f} |
+| Accuracy | {m.accuracy:.4f} |
+
+Accuracy is last on purpose. Predicting "nobody churns" would score
+{1 - m.positives / m.n:.1%} on this partition and be worth nothing.
+
+### Confusion matrix at threshold {evaluation.threshold:.2f}
+
+|  | Predicted stay | Predicted churn |
+|---|---|---|
+| **Actually stayed** | {m.tn:,} | {m.fp:,} |
+| **Actually churned** | {m.fn:,} | {m.tp:,} |
+
+{m.flagged:,} customers would be flagged for intervention. {m.fn:,} churners
+would be missed.
+
+### What tuning the threshold bought
+
+| Metric | At 0.50 (default) | At {evaluation.threshold:.2f} (tuned) | Change |
+|---|---|---|---|
+| Precision | {half.precision:.4f} | {m.precision:.4f} | {gain["precision"]:+.4f} |
+| Recall | {half.recall:.4f} | {m.recall:.4f} | {gain["recall"]:+.4f} |
+| F1 | {half.f1:.4f} | {m.f1:.4f} | {gain["f1"]:+.4f} |
+| Customers flagged | {half.flagged:,} | {m.flagged:,} | {m.flagged - half.flagged:+,} |
+
+For reference only: the threshold that would have been optimal *on this test
+partition* is {evaluation.test_optimal_threshold:.2f}, against the
+{evaluation.threshold:.2f} chosen on validation. That number is reported and
+then discarded - using it would be tuning on the held-out set. The gap is a
+fair measure of how much threshold choice moves between samples.
+
+## Threshold economics (SIMULATED)
+
+> **{DISCLAIMER}**
+
+Assumptions, all configurable in `configs/config.yaml` and adjustable live in
+the dashboard:
+
+| Assumption | Value |
+|---|---|
+| Cost of one retention offer | {_money(b.retention_offer_cost, currency)} |
+| Probability an offer retains a would-be churner | {b.offer_success_rate:.0%} |
+| Horizon over which retained revenue counts | {b.expected_horizon_months} months |
+| Gross margin on revenue | {b.gross_margin:.0%} |
+
+Value of one retained customer = monthly charges x horizon x margin.
+Campaign cost = every flagged customer x offer cost. Net benefit = retained
+value - campaign cost.
+
+### Sweep on the validation partition
+
+{_markdown_table(highlights, "{:,.2f}")}
+
+The optimum sits at **{evaluation.threshold:.2f}**, not at 0.5. That is the
+whole point of treating the threshold as a business parameter: a missed churner
+costs a customer's remaining margin, while a false positive costs one offer.
+Those are not symmetric, so the cut that balances them is not the cut that
+balances the probability.
+
+### Applied to the test partition
+
+| Quantity | Value |
+|---|---|
+| Customers flagged | {scenario.flagged:,} |
+| Of those, real churners | {scenario.true_positives:,} |
+| Churners missed | {scenario.false_negatives:,} |
+| Simulated campaign cost | {_money(scenario.intervention_cost, currency)} |
+| Simulated retained value | {_money(scenario.retained_value, currency)} |
+| **Simulated net benefit** | **{_money(scenario.net_benefit, currency)}** |
+
+These are simulated figures for a {m.n:,}-customer partition of a published
+sample dataset. They are not a forecast of any company's results, and the
+offer-success assumption in particular is an input, not an estimate.
+
+## Calibration on test
+
+Expected calibration error **{evaluation.test_ece:.4f}**, Brier score
+**{m.brier:.4f}**.
+
+{
+        _markdown_table(
+            evaluation.reliability.rename(
+                columns={
+                    "mean_predicted": "Mean predicted",
+                    "observed_rate": "Observed rate",
+                    "count": "Customers",
+                    "gap": "Gap",
+                }
+            ),
+            "{:.4f}",
+        )
+    }
+
+Calibration is reported because the economics above multiply a predicted
+probability by a customer's value. A model that ranks well but is
+systematically overconfident would produce a plausible-looking budget built on
+inflated numbers.
+
+## Limitations
+
+- **One split of one public dataset.** The intervals around every number here
+  are wider than the decimal places suggest; a different seed moves them.
+- **No causal claim.** The model finds customers who resemble past churners.
+  It does not establish why they leave, and it cannot say what a retention
+  offer would do to any individual.
+- **The economics are assumptions.** No campaign outcomes exist in this data.
+  Change `offer_success_rate` and every monetary figure changes with it.
+- **Distribution shift is unaddressed.** Pricing, product mix and competitive
+  conditions all move; a deployed version of this would need monitoring and
+  periodic recalibration, neither of which is in scope here.
+"""
+    path = directory / "final_evaluation.md"
+    path.write_text(content, encoding="utf-8")
+    logger.info("wrote %s", path.name)
+    return path
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`make evaluate`: score the test partition once and publish the result."""
+    import argparse
+    import json
+
+    from churnsense.data.loader import features_and_target, load_clean
+    from churnsense.data.split import make_splits
+    from churnsense.evaluation import figures
+    from churnsense.explainability.shap_explain import load_cached_importance
+    from churnsense.models.train import META_FILENAME, load_artifact
+
+    argparse.ArgumentParser(description="Final test-set evaluation.").parse_args(argv)
+    cfg = load_config()
+    cfg.paths.ensure()
+
+    model, meta = load_artifact(cfg.paths.artifacts_dir)
+    df, _ = load_clean(cfg)
+    X, y = features_and_target(df, cfg)
+    splits = make_splits(X, y, cfg)
+
+    evaluation = run_final_evaluation(model, splits, cfg)
+    write_final_report(evaluation, meta, cfg)
+    evaluation.validation_sweep.to_csv(cfg.paths.reports_dir / "threshold_sweep.csv", index=False)
+
+    out = cfg.paths.figures_dir
+    figures.threshold_economics(
+        evaluation.validation_sweep,
+        evaluation.threshold,
+        cfg.business.currency,
+        out,
+        tolerance=cfg.business.retention_offer_cost,
+    )
+    figures.reliability(evaluation.reliability, evaluation.test_ece, out)
+    figures.precision_recall(splits.y_test, model.predict_proba(splits.X_test)[:, 1], out)
+    if (importance := load_cached_importance(cfg)) is not None:
+        figures.shap_importance(importance, out)
+    else:
+        logger.warning("no cached SHAP importance; run `make explain` for that figure")
+
+    # Publish the validation-chosen threshold so the API, dashboard and batch
+    # scoring all use the same operating point.
+    meta_path = cfg.paths.artifacts_dir / META_FILENAME
+    meta["threshold"] = evaluation.threshold
+    meta["threshold_source"] = (
+        "maximises simulated net benefit on the validation partition under the "
+        "assumptions in configs/config.yaml"
+    )
+    meta["test_metrics"] = evaluation.test_metrics.as_dict()
+    meta["test_ece"] = evaluation.test_ece
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+
+    m = evaluation.test_metrics
+    print(
+        f"Test partition ({m.n:,} customers) at threshold {evaluation.threshold:.2f}\n"
+        f"  precision {m.precision:.4f}  recall {m.recall:.4f}  f1 {m.f1:.4f}\n"
+        f"  roc_auc   {m.roc_auc:.4f}  pr_auc {m.average_precision:.4f}  ece {evaluation.test_ece:.4f}"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
