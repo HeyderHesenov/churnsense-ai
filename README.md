@@ -514,10 +514,12 @@ matches the library to `0.00e+00`, and `POST /predict` row by row to `4e-16`
 (the JSON float round trip).
 
 **Behaviour under failure.** With no artifact the API returns **503** and says
-so; it never produces a placeholder score. Unhandled exceptions return a generic
+so; it never produces a placeholder score. A request body over the upload limit
+gets **413** before it is buffered. Unhandled exceptions return a generic
 500 with the traceback in the log. Validation failures are returned in full —
-they describe the caller's input, not ours. No response body contains a
-filesystem path, and a test asserts it.
+they describe the caller's input, not ours. Every error body has the shape
+`{"error", "detail", "problems"}`. No response body contains a filesystem path,
+and a test asserts it.
 
 ## Testing
 
@@ -526,22 +528,24 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**263 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**275 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
-263 passed in 82.69s
+275 passed in 78.93s
 
 $ pytest -m "not slow"          # needs no dataset
-241 passed, 22 deselected
+253 passed, 22 deselected
 ```
 
-On GitHub Actions — a fresh checkout with no dataset and no trained artifact —
-the full suite reports **244 passed, 19 skipped** on both Python 3.12 and 3.13:
+On a fresh checkout with no dataset and no trained artifact — the state
+GitHub Actions runs in — the full suite reports **256 passed, 19 skipped**:
 the slow tests that need a trained model skip cleanly.
 
-The 241 fast tests also pass on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0)
-in a separate environment resolved from the `pyproject.toml` constraints.
+Before the security hardening added its 12 tests, the then 241 fast tests also
+passed on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0) in a separate
+environment resolved from the `pyproject.toml` constraints; CI runs 3.12 and
+3.13 on every push.
 
 The 22 `slow` tests drive the dashboard end to end and check that the
 numbers in this README still match `artifacts/model_meta.json`; both need a
@@ -581,7 +585,9 @@ skip there because no trained artifact exists in a fresh checkout.
 ### Verified in a clean checkout
 
 The whole flow was run from a copy of exactly the 87 tracked files — no `.venv`,
-no data, no artifacts, no caches — on 2026-10-09:
+no data, no artifacts, no caches — on 2026-10-09, before the security
+hardening of the same day (whose test counts are the ones under
+[Testing](#testing)):
 
 ```
 make setup PYTHON=python3.12   ok   81 s, installed from the lock
@@ -615,7 +621,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       263 tests + seeded synthetic fixtures
+tests/                       275 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -626,27 +632,49 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 - **No secrets.** `.env.example` documents the two environment variables the
   code reads; `.env` is gitignored. The project uses no paid APIs and no
   external LLM services, so there is deliberately no API-key setting to leak.
-- **Uploads are validated before anything is predicted**, cheapest check first:
-  the API reads at most 5 MB + 1 byte of an upload, so an oversized file is
-  refused (413) without being held in memory or reaching the CSV parser. Then
-  row count, required columns, numeric ranges, category values and target
-  labels. An unknown category is **rejected**, not bucketed — a typo must not
-  become a confident prediction — and the same check runs inside
-  `Predictor`, so no consumer can bypass it.
+- **Request bodies are bounded before anything buffers them.** Starlette
+  spools a multipart upload to disk, and reads a JSON body into memory, before
+  an endpoint runs, so a size check inside the endpoint would come too late.
+  A small ASGI middleware refuses any body over 5 MB (plus multipart framing)
+  with **413**: by its declared `Content-Length` without reading it, or, when
+  chunked, the moment the running count crosses the limit.
+- **Uploads are validated before anything is predicted**, cheapest check
+  first: size, then row count, required columns, numeric ranges, category
+  values and target labels. An unknown category is **rejected**, not bucketed
+  — a typo must not become a confident prediction — and the same check runs
+  inside `Predictor`, so no consumer can bypass it. Error messages quote at
+  most five offending values, each cut to 40 characters, and the dashboard
+  shows them as literal text, never as Markdown.
+- **Exports cannot carry spreadsheet formulas.** The scored batch file keeps
+  only `customerID`, `Churn`, the model's inputs and its outputs; any other
+  uploaded column is dropped rather than echoed back. Every dashboard export
+  then prefixes `'` to text — cells and column names — that starts with `=`,
+  `+`, `-`, `@`, tab or carriage return, and to a trigger that follows `;` or
+  a tab mid-cell, where Excel in `;`-separator locales would split the cell.
+  Opened in Excel or Sheets they read as text instead of running.
 - **No arbitrary deserialization.** The artifact path comes from config and is
   never caller-supplied; unpickling is equivalent to executing a file.
 - **No SQL, no `eval`,** no execution of uploaded content.
 - **Errors do not leak internals.** Generic messages to users, detail to logs,
-  no filesystem paths in any API response.
+  no filesystem paths in any API response. Every API error, the framework's
+  404/405 included, has the documented `ErrorResponse` shape, and every
+  response carries `X-Content-Type-Options: nosniff` and
+  `Cache-Control: no-store`.
 - **Never a fabricated prediction.** A missing or unreadable model surfaces as
   503 / a dead-end dashboard state, never as a default score.
 - **Dependencies** are constrained in `pyproject.toml` and locked in
   `requirements.txt`, which `make setup` installs; `make audit` runs `pip-audit`.
+  CI audits both the resolved environment and the lock itself, with a
+  read-only `GITHUB_TOKEN`.
 
-> The dashboard binds to localhost and shows Streamlit's default tracebacks,
-> which is right for a local analyst tool. Before exposing it beyond localhost,
-> set `client.showErrorDetails = "none"` in `.streamlit/config.toml` and put
-> authentication in front of it. Neither is in scope here.
+> **Local by design.** There is no authentication and no rate limiting, so
+> `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would
+> listen on every interface). The dashboard also shows Streamlit's default
+> tracebacks, which is right for a local analyst tool. Before exposing either
+> beyond localhost: put authentication, TLS and rate limiting in front of it,
+> set `client.showErrorDetails = "none"` in `.streamlit/config.toml`, and
+> consider disabling the API's `/docs` (it loads Swagger UI from a CDN). None
+> of that is in scope here.
 
 ## Limitations
 

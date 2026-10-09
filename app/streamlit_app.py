@@ -1,6 +1,9 @@
 """ChurnSense AI dashboard.
 
-Run with ``make app`` (``streamlit run app/streamlit_app.py``).
+Run with ``make app``, which is
+``streamlit run app/streamlit_app.py --server.address 127.0.0.1``. Keep the
+address flag when launching it any other way: without it Streamlit listens on
+every network interface, and the dashboard has no authentication.
 
 This file does three things and nothing else: configure the page, resolve the
 shared state every section needs, and route to a section. All analysis lives

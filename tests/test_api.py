@@ -173,6 +173,7 @@ def test_batch_rejects_an_oversized_upload(client, cfg: Config):
     payload = b"a," * (cfg.api.max_upload_bytes // 2 + 10)
     response = client.post("/predict/batch", files={"file": ("big.csv", payload, "text/csv")})
     assert response.status_code == 413
+    assert response.json()["error"] == "payload_too_large"
 
 
 def test_service_reports_unavailable_rather_than_guessing(tmp_path, monkeypatch):
@@ -184,6 +185,222 @@ def test_service_reports_unavailable_rather_than_guessing(tmp_path, monkeypatch)
     with TestClient(api_main.app) as unloaded:
         assert unloaded.get("/health").json()["model_loaded"] is False
         assert unloaded.post("/predict", json={}).status_code in (422, 503)
+
+
+def test_unavailable_model_is_a_503_in_the_documented_shape(tmp_path, monkeypatch, payload):
+    from churnsense.api import main as api_main
+
+    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
+    api_main.get_predictor.cache_clear()
+    with TestClient(api_main.app) as unloaded:
+        response = unloaded.post("/predict", json=payload)
+    assert response.status_code == 503
+    assert response.json()["error"] == "model_unavailable"
+
+
+# --- request size, error shape, headers --------------------------------------
+
+
+def _chunked(total: int, head: bytes = b"", chunk: int = 64 * 1024):
+    """A request body with no Content-Length: httpx sends a generator chunked."""
+    yield head
+    for start in range(0, total, chunk):
+        yield b"a" * min(chunk, total - start)
+
+
+def test_body_limit_refuses_a_declared_oversized_body_unread():
+    """The declared length alone decides; nothing behind the limit is entered."""
+    import asyncio
+
+    from churnsense.api.main import BodySizeLimit
+
+    entered, sent = [], []
+
+    async def inner(scope, receive, send):
+        entered.append(scope)
+
+    async def receive():
+        pytest.fail("an oversized body must not be read")
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/predict/batch",
+        "headers": [(b"content-length", str(10**9).encode())],
+    }
+    asyncio.run(BodySizeLimit(inner, max_bytes=1024)(scope, receive, send))
+
+    assert entered == []
+    assert sent[0]["status"] == 413
+
+
+def _drive(middleware, scope: dict, messages: list[dict]) -> tuple[int, Exception | None]:
+    """Run ``middleware`` over ``messages`` one at a time, as a real server streams them.
+
+    The inner app drains the body the way Starlette's parsers do. Returns how
+    many bytes it got and whatever the middleware raised.
+    """
+    import asyncio
+
+    queue = list(messages)
+    got = 0
+
+    async def receive():
+        return queue.pop(0)
+
+    async def send(message):
+        pass
+
+    async def app(scope, receive, send):
+        nonlocal got
+        while True:
+            message = await receive()
+            got += len(message.get("body", b""))
+            if not message.get("more_body"):
+                return
+
+    try:
+        asyncio.run(middleware(app)(scope, receive, send))
+    except Exception as exc:  # noqa: BLE001 - the raised exception is the result
+        return got, exc
+    return got, None
+
+
+def _post_scope(headers: list[tuple[bytes, bytes]] | None = None) -> dict:
+    return {"type": "http", "method": "POST", "path": "/predict", "headers": headers or []}
+
+
+def test_body_limit_counts_a_streamed_body_across_messages():
+    """TestClient sends a body as one message, so the running count is tested here."""
+    from starlette.exceptions import HTTPException
+
+    from churnsense.api.main import BodySizeLimit
+
+    chunks = [{"type": "http.request", "body": b"a" * 1024, "more_body": True}] * 8
+    chunks.append({"type": "http.request", "body": b"", "more_body": False})
+
+    got, raised = _drive(lambda app: BodySizeLimit(app, max_bytes=4096), _post_scope(), chunks)
+
+    assert isinstance(raised, HTTPException)
+    assert raised.status_code == 413
+    assert got == 4096, "the app must not see the message that crossed the limit"
+
+    got, raised = _drive(lambda app: BodySizeLimit(app, max_bytes=8192), _post_scope(), chunks)
+    assert raised is None
+    assert got == 8192
+
+
+@pytest.mark.parametrize("declared", ["²", "1e9", "-1", " 12", ""])
+def test_body_limit_ignores_a_content_length_it_cannot_read(declared: str):
+    """Not a crash: the streamed count still applies. h11 rejects these first anyway."""
+    from churnsense.api.main import BodySizeLimit
+
+    headers = [(b"content-length", declared.encode("latin-1"))]
+    body = [{"type": "http.request", "body": b"{}", "more_body": False}]
+    got, raised = _drive(lambda app: BodySizeLimit(app, max_bytes=1024), _post_scope(headers), body)
+    assert raised is None
+    assert got == 2
+
+
+def test_body_limit_defaults_to_the_configured_upload_limit(cfg: Config):
+    from churnsense.api.main import MULTIPART_OVERHEAD_BYTES, BodySizeLimit
+
+    limit = BodySizeLimit(lambda *_: None).max_bytes
+    assert limit == cfg.api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
+
+
+def test_an_unhandled_error_is_generic_and_still_carries_the_headers():
+    """A 500 is rendered outside every user middleware; the headers must come with it."""
+    import asyncio
+
+    from starlette.requests import Request
+
+    from churnsense.api.main import _unhandled_handler
+
+    request = Request({"type": "http", "method": "GET", "path": "/x", "headers": []})
+    response = asyncio.run(_unhandled_handler(request, RuntimeError("secret detail")))
+
+    assert response.status_code == 500
+    assert b"secret detail" not in response.body
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_openapi_declares_every_error_the_scoring_endpoints_return(client):
+    paths = client.get("/openapi.json").json()["paths"]
+    assert {"413", "422", "503"} <= set(paths["/predict"]["post"]["responses"])
+    assert {"413", "422", "503"} <= set(paths["/predict/batch"]["post"]["responses"])
+
+
+def test_body_limit_cuts_off_a_chunked_upload(client, cfg: Config):
+    """Without a Content-Length the limit still holds through FastAPI's form parsing.
+
+    The 413 is raised from inside the multipart parser's read and must come
+    back as an ordinary 413, not FastAPI's 400 "error parsing the body".
+    TestClient delivers the body as a single message, so the running count
+    across messages is tested directly, in the test above.
+    """
+    head = (
+        b"--b\r\n"
+        b'Content-Disposition: form-data; name="file"; filename="big.csv"\r\n'
+        b"Content-Type: text/csv\r\n\r\n"
+    )
+    response = client.post(
+        "/predict/batch",
+        content=_chunked(2 * cfg.api.max_upload_bytes, head),
+        headers={"content-type": "multipart/form-data; boundary=b"},
+    )
+    assert response.status_code == 413
+    assert response.json()["error"] == "payload_too_large"
+
+
+def test_body_limit_also_bounds_json(client, cfg: Config):
+    response = client.post(
+        "/predict",
+        content=_chunked(2 * cfg.api.max_upload_bytes),
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413
+
+
+def test_http_errors_use_the_documented_error_shape(client):
+    missing = client.get("/no-such-route")
+    assert missing.status_code == 404
+    assert missing.json()["error"] == "not_found"
+
+    wrong_method = client.get("/predict")
+    assert wrong_method.status_code == 405
+    assert set(wrong_method.json()) == {"error", "detail", "problems"}
+    assert "POST" in wrong_method.headers["allow"]
+
+
+def test_responses_are_neither_sniffed_nor_cached(client, payload, cfg: Config):
+    responses = [
+        client.get("/health"),
+        client.post("/predict", json=payload),
+        client.get("/no-such-route"),
+        client.post(
+            "/predict",
+            content=_chunked(2 * cfg.api.max_upload_bytes),
+            headers={"content-type": "application/json"},
+        ),
+    ]
+    for response in responses:
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_predict_rejects_non_finite_numbers(client, payload, value):
+    """Python's json accepts NaN and Infinity; the field bounds must still refuse them."""
+    import json
+
+    body = json.dumps({**payload, "MonthlyCharges": value})
+    response = client.post("/predict", content=body, headers={"content-type": "application/json"})
+    assert response.status_code == 422
 
 
 def test_openapi_schema_is_served(client):

@@ -88,6 +88,22 @@ def test_validate_frame_rejects_an_unknown_category(clean_frame: pd.DataFrame):
         schema.validate_frame(broken)
 
 
+def test_quoted_values_in_problems_are_bounded(clean_frame: pd.DataFrame):
+    """Problems echo uploaded text back; long or numerous values must not balloon them."""
+    broken = clean_frame.copy()
+    broken["PaymentMethod"] = [f"{i:06d}" + "x" * 10_000 for i in range(len(broken))]
+    broken[schema.TARGET] = [f"label{i}" * 1_000 for i in range(len(broken))]
+    with pytest.raises(SchemaValidationError) as caught:
+        schema.validate_frame(broken, require_target=True)
+
+    assert len(caught.value.problems) == 2
+    assert all(len(problem) < 600 for problem in caught.value.problems)
+    assert "000000xxx" in " ".join(caught.value.problems)
+    # The user is told how much is left, not left to find out one upload at a time.
+    hidden = len(broken) - 5
+    assert all(f"and {hidden} more" in problem for problem in caught.value.problems)
+
+
 def test_feature_labels_cover_every_model_input():
     """The dashboard and SHAP narratives look every feature up by label."""
     missing = [c for c in schema.model_input_columns() if c not in schema.FEATURE_LABELS]

@@ -195,6 +195,23 @@ def split_feature_types(columns: list[str]) -> tuple[list[str], list[str]]:
     return numeric, categorical
 
 
+#: Problems quote uploaded values back to the caller, so how many are quoted
+#: and how much of each is bounded: a file of long junk labels must not turn
+#: into a multi-megabyte error message.
+_MAX_QUOTED_VALUES = 5
+_MAX_QUOTED_CHARS = 40
+
+
+def _quoted(values: list[str]) -> str:
+    """The first few offending values, each cut short, and how many were left out."""
+    shown = [
+        v if len(v) <= _MAX_QUOTED_CHARS else v[:_MAX_QUOTED_CHARS] + "…"
+        for v in values[:_MAX_QUOTED_VALUES]
+    ]
+    hidden = len(values) - len(shown)
+    return f"{shown}" + (f" and {hidden} more" if hidden else "")
+
+
 def validate_frame(
     df: pd.DataFrame,
     *,
@@ -230,7 +247,9 @@ def validate_frame(
         else:
             labels = set(df[TARGET].dropna().astype(str).unique())
             if not labels <= set(_YES_NO) and not labels <= {"0", "1"}:
-                problems.append(f"target '{TARGET}' has unexpected labels: {sorted(labels)}")
+                problems.append(
+                    f"target '{TARGET}' has unexpected labels: {_quoted(sorted(labels))}"
+                )
 
     for col in (c for c in NUMERIC_COLUMNS if c in df.columns and c in required):
         values = pd.to_numeric(df[col], errors="coerce")
@@ -250,7 +269,7 @@ def validate_frame(
         seen = set(df[col].dropna().astype(str).str.strip().unique())
         if unexpected := sorted(seen - set(allowed)):
             problems.append(
-                f"'{col}' has unexpected value(s) {unexpected[:5]}; allowed: {list(allowed)}"
+                f"'{col}' has unexpected value(s) {_quoted(unexpected)}; allowed: {list(allowed)}"
             )
 
     if problems:

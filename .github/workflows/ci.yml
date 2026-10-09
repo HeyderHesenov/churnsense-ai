@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -123,6 +127,15 @@ jobs:
       - name: pip-audit
         continue-on-error: true
         run: pip-audit --skip-editable
+
+      # The install above resolves pyproject's ranges as of today; users get
+      # the exact pins in requirements.txt from `make setup`. Audit those too,
+      # so a vulnerable pinned version cannot hide behind a newer resolution.
+      # --disable-pip reads the pins as written; without it pip-audit installs
+      # the whole (macOS-frozen) lock into a scratch venv first.
+      - name: pip-audit (lock)
+        continue-on-error: true
+        run: pip-audit -r requirements.txt --no-deps --disable-pip
 
       - name: Check that no secrets or data are committed
         run: |

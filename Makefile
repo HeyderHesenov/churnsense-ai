@@ -82,8 +82,10 @@ audit:  ## Check installed dependencies for known vulnerabilities
 	@# PyPI, which --strict would report as an un-auditable dependency.
 	$(PY) -m pip_audit --skip-editable
 
+# Both servers bind to loopback: neither has authentication, and Streamlit
+# otherwise listens on every interface, i.e. to anyone on the same network.
 app:  ## Launch the Streamlit dashboard
-	.venv/bin/streamlit run app/streamlit_app.py
+	.venv/bin/streamlit run app/streamlit_app.py --server.address 127.0.0.1
 
 api:  ## Launch the FastAPI service
 	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port 8000 --reload

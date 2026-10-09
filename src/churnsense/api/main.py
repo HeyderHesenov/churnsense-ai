@@ -10,7 +10,12 @@ the difference.
 **It never leaks internals.** Unhandled exceptions become a generic 500; the
 traceback goes to the log. Validation failures are returned in full, because
 those describe the caller's input, not ours. No filesystem path appears in any
-response body.
+response body, and every error - ours or the framework's - has the one
+``ErrorResponse`` shape the OpenAPI schema promises.
+
+**It bounds what it reads.** A request body larger than the upload limit is
+refused before anything buffers it, so the limit protects memory and disk
+rather than only the CSV parser.
 
 **It shares one prediction path with everything else.** Scoring goes through
 ``churnsense.models.predict``, the same module the dashboard and batch scoring
@@ -20,6 +25,7 @@ call, so the three cannot drift apart.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -27,6 +33,9 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.datastructures import Headers, MutableHeaders
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from churnsense.api.schemas import (
     BatchPredictionRow,
@@ -57,6 +66,128 @@ LIMITATIONS = [
     "assumptions, not measured business results.",
     "No drift monitoring. Performance will decay as pricing and product mix change.",
 ]
+
+#: Room for the multipart envelope (boundary lines, part headers) around a file
+#: that is exactly at the upload limit, so the endpoint - not the body limit -
+#: is what reports a file that is only slightly too large.
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+#: Stable ``error`` codes for the HTTP errors this service can return. Written
+#: out rather than derived from ``http.HTTPStatus``, whose phrase for 413
+#: changed between Python 3.12 and 3.13 - a contract must not depend on that.
+HTTP_ERROR_CODES = {
+    400: "bad_request",
+    404: "not_found",
+    405: "method_not_allowed",
+    413: "payload_too_large",
+    503: "model_unavailable",
+}
+
+
+#: Sent on every response. Scores describe customers: no MIME sniffing, and no
+#: cache may keep them.
+SECURITY_HEADERS = {"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
+
+
+def _error_response(
+    status_code: int,
+    detail: str,
+    *,
+    error: str | None = None,
+    problems: list[str] | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
+    """Every error the service sends, in the one documented ``ErrorResponse`` shape.
+
+    The security headers are set here as well as by ``SecurityHeaders``: a 500
+    is rendered by Starlette's outermost error middleware, outside every user
+    middleware, so this is the only place that reaches it.
+    """
+    return JSONResponse(
+        status_code=status_code,
+        content=ErrorResponse(
+            error=error or HTTP_ERROR_CODES.get(status_code, "http_error"),
+            detail=detail,
+            problems=problems or [],
+        ).model_dump(),
+        headers={**SECURITY_HEADERS, **(headers or {})},
+    )
+
+
+class SecurityHeaders:
+    """Add ``SECURITY_HEADERS`` to every HTTP response that does not set them itself."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in SECURITY_HEADERS.items():
+                    headers.setdefault(name, value)
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+class BodySizeLimit:
+    """Refuse request bodies over ``max_bytes`` before anything buffers them.
+
+    Starlette spools a multipart upload to a temporary file, and reads a JSON
+    body into memory, before the endpoint runs - so a size check inside the
+    endpoint only happens after the disk or memory is already spent. This
+    sits in front of both. A declared ``Content-Length`` over the limit is
+    refused unread; a body without one (chunked) is counted as it streams and
+    cut off the moment it crosses the limit.
+
+    Without an explicit ``max_bytes`` the limit is read from the config on
+    each request - the same cached value ``predict_batch`` reads - so the two
+    can never disagree, and importing this module does not need a config file.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int | None = None) -> None:
+        self.app = app
+        self._max_bytes = max_bytes
+
+    @property
+    def max_bytes(self) -> int:
+        if self._max_bytes is not None:
+            return self._max_bytes
+        return load_config().api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = self.max_bytes
+        detail = f"Request body exceeds the {limit / 1_048_576:.0f} MB limit."
+
+        # isascii: str.isdigit also accepts digits such as '²' that int() rejects.
+        declared = Headers(scope=scope).get("content-length", "")
+        if declared.isascii() and declared.isdigit() and int(declared) > limit:
+            await _error_response(413, detail)(scope, receive, send)
+            return
+
+        received = 0
+
+        async def counting_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > limit:
+                    # FastAPI re-raises an HTTPException met while reading the
+                    # body, so this reaches the client as an ordinary 413.
+                    raise StarletteHTTPException(status_code=413, detail=detail)
+            return message
+
+        await self.app(scope, counting_receive, send)
 
 
 @lru_cache(maxsize=1)
@@ -102,6 +233,15 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+app.add_middleware(BodySizeLimit)
+# Added last, so outermost: the body limit's own 413s get the headers too.
+app.add_middleware(SecurityHeaders)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """413, 503 and the router's own 404/405 in the documented ErrorResponse shape."""
+    return _error_response(exc.status_code, str(exc.detail), headers=exc.headers)
 
 
 @app.exception_handler(RequestValidationError)
@@ -111,36 +251,27 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
         f"{'.'.join(str(p) for p in error['loc'][1:]) or 'body'}: {error['msg']}"
         for error in exc.errors()
     ]
-    return JSONResponse(
-        status_code=422,
-        content=ErrorResponse(
-            error="validation_error",
-            detail="The request body did not match the expected schema.",
-            problems=problems,
-        ).model_dump(),
+    return _error_response(
+        422,
+        "The request body did not match the expected schema.",
+        error="validation_error",
+        problems=problems,
     )
 
 
 @app.exception_handler(SchemaValidationError)
 async def _schema_handler(request: Request, exc: SchemaValidationError) -> JSONResponse:
-    return JSONResponse(
-        status_code=422,
-        content=ErrorResponse(
-            error="invalid_input", detail=str(exc), problems=exc.problems
-        ).model_dump(),
-    )
+    return _error_response(422, str(exc), error="invalid_input", problems=exc.problems)
 
 
 @app.exception_handler(Exception)
 async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
     """Log the detail, return none of it."""
     logger.exception("unhandled error on %s %s", request.method, request.url.path)
-    return JSONResponse(
-        status_code=500,
-        content=ErrorResponse(
-            error="internal_error",
-            detail="The request could not be processed. The incident has been logged.",
-        ).model_dump(),
+    return _error_response(
+        500,
+        "The request could not be processed. The incident has been logged.",
+        error="internal_error",
     )
 
 
@@ -189,7 +320,11 @@ def model_info() -> ModelInfoResponse:
     "/predict",
     response_model=PredictionResponse,
     tags=["scoring"],
-    responses={422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    responses={
+        413: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
 )
 def predict(customer: CustomerFeatures) -> PredictionResponse:
     """Score one customer."""
@@ -219,10 +354,11 @@ def predict_batch(
 ) -> BatchResponse:
     """Score a CSV upload.
 
-    At most one byte past the size limit is read, so an oversized upload is
-    refused without being held in memory or handed to the CSV parser. A plain
-    ``def`` rather than ``async def``: parsing and scoring are CPU-bound, so
-    FastAPI runs them in its threadpool instead of on the event loop.
+    ``BodySizeLimit`` has already refused any request body much larger than
+    the limit, so the file here is at most a few KB over it; reading one byte
+    past the limit is enough to tell, and the CSV parser never sees it. A
+    plain ``def`` rather than ``async def``: parsing and scoring are CPU-bound,
+    so FastAPI runs them in its threadpool instead of on the event loop.
     """
     cfg = load_config()
     predictor = _require_predictor()

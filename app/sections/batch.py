@@ -24,6 +24,22 @@ def _template(cfg: Config) -> pd.DataFrame:
     return pd.DataFrame(rows).reindex(columns=columns)
 
 
+def with_predictions(cleaned: pd.DataFrame, predictions: pd.DataFrame, cfg: Config) -> pd.DataFrame:
+    """The scored file: identifiers, the model's inputs, then its outputs.
+
+    Only known columns travel to the export. Anything else in the upload is
+    dropped rather than echoed back, so an unexpected column - personal data,
+    or a header crafted to run as a spreadsheet formula - cannot ride along.
+    Prediction columns already in the upload (a scored export uploaded again)
+    are replaced, not duplicated: two ``flagged`` columns crashed the page.
+    """
+    inputs = schema.model_input_columns(
+        cfg.features.drop_columns, cfg.features.include_total_charges
+    )
+    keep = [c for c in (schema.ID_COLUMN, schema.TARGET) if c in cleaned.columns] + inputs
+    return pd.concat([cleaned[keep], predictions], axis=1)
+
+
 def _band_summary(scored: pd.DataFrame) -> go.Figure:
     order = [b for b in viz.RISK_BAND_COLORS if (scored["risk_band"] == b).any()]
     counts = scored["risk_band"].value_counts().reindex(order).fillna(0)
@@ -66,7 +82,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             f"**{cfg.api.max_upload_bytes / 1_048_576:.0f} MB**\n"
             "- `customerID` and `Churn` are optional; if present they are carried "
             "through to the output and ignored by the model (`Churn` must then be "
-            "`Yes` or `No`)\n"
+            "`Yes` or `No`); any other column is dropped from the output\n"
             "- every row is scored, duplicates included, in file order\n"
             "- `gender` is **not** used: it is a protected attribute with no "
             "measurable signal in this dataset, so the model never sees it"
@@ -86,8 +102,14 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     except SchemaValidationError as error:
         st.error("The file could not be used.")
         st.markdown(f"**{error.args[0].split(':')[0]}**")
-        for problem in error.problems or [str(error)]:
-            st.markdown(f"- {problem}")
+        # Problems quote values from the uploaded file, so they are shown as
+        # literal text: through st.markdown a crafted value would render as a
+        # link or a remote image in the analyst's browser.
+        st.code(
+            "\n".join(f"- {p}" for p in error.problems or [str(error)]),
+            language=None,
+            wrap_lines=True,
+        )
         st.caption(
             "Nothing was scored. Fix the file and upload it again - the dashboard "
             "will not guess at missing or malformed values."
@@ -97,8 +119,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         st.error("The file could not be processed. Check that it is a valid CSV.")
         return
 
-    predictions = model.predict_frame(cleaned)
-    scored = pd.concat([cleaned, predictions], axis=1)
+    scored = with_predictions(cleaned, model.predict_frame(cleaned), cfg)
 
     ui.kpi_row(
         [
