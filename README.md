@@ -575,7 +575,10 @@ What the tests actually defend:
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
 pytest with coverage, an end-to-end training smoke test, an API smoke test, and
-`pip-audit`, on Python 3.12 and 3.13.
+`pip-audit`, on Python 3.12 and 3.13; a third job installs the lock through
+`make setup`, runs `pip check` and the suite against those exact pins. Pull
+requests into `main` also run a dependency review, and only merge once every
+check passes.
 
 CI needs no dataset and no network beyond the package index; the slow tests
 skip there because no trained artifact exists in a fresh checkout.
@@ -629,6 +632,9 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 
 ## Security
 
+Found a vulnerability? Please report it privately, as described in
+[SECURITY.md](SECURITY.md), not in a public issue.
+
 - **No secrets.** `.env.example` documents the two environment variables the
   code reads; `.env` is gitignored. The project uses no paid APIs and no
   external LLM services, so there is deliberately no API-key setting to leak.
@@ -678,7 +684,9 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 - **Dependencies** are constrained in `pyproject.toml` and locked in
   `requirements.txt`, which `make setup` installs; `make audit` runs `pip-audit`.
   CI audits both the resolved environment and the lock itself, with a
-  read-only `GITHUB_TOKEN`.
+  read-only `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot
+  raises alerts and fix pull requests for known advisories and proposes
+  weekly version updates; CodeQL scans the Python code and the workflows.
 
 > **Local by design.** There is no authentication and no rate limiting, so
 > `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would
