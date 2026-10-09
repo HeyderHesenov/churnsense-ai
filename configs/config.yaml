@@ -93,6 +93,12 @@ api:
   # Unknown columns are dropped, never built, so 1,000 columns x 2,400 rows
   # (4.8 MB) reads in under 0.1 s. Must be at least the raw contract's 21.
   max_upload_columns: 1000
+  # Host headers the API and the dashboard answer to (DNS-rebinding defence,
+  # see src/churnsense/hosts.py). Bare host names: no scheme, path or
+  # wildcard; a port is ignored. Add the public host name when deploying,
+  # e.g. your-app.streamlit.app, then restart: config is read once.
+  # "*" (quoted - bare * is YAML syntax) turns the check off.
+  allowed_hosts: [localhost, 127.0.0.1]
 
 logging:
   level: INFO

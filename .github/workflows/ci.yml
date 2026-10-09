@@ -98,7 +98,7 @@ jobs:
           from fastapi.testclient import TestClient
           from churnsense.api import main
 
-          with TestClient(main.app) as client:
+          with TestClient(main.app, base_url="http://localhost") as client:
               body = client.get("/health").json()
               assert body["status"] in {"ok", "degraded"}, body
               print(f"OK  /health -> {body}")

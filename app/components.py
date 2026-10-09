@@ -10,13 +10,14 @@ from __future__ import annotations
 import html
 import numbers
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from churnsense import viz
+from churnsense.hosts import is_allowed_host
 
 #: Repeated verbatim anywhere money appears. One string, one meaning.
 #: Written as HTML, not markdown: it is injected into a styled <div>, and
@@ -132,6 +133,21 @@ def chart(figure: go.Figure, *, height: int = 320, key: str | None = None) -> No
             "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"],
         },
     )
+
+
+def host_allowed(headers: Mapping[str, str] | None, allowed: Iterable[str]) -> bool:
+    """Whether this session's Host header is one the dashboard answers to.
+
+    The DNS-rebinding defence from ``churnsense.hosts``. A browser session
+    always has headers, Host among them. Streamlit reports none only when no
+    client is attached to the session - AppTest, bare mode, or a browser that
+    disconnected mid-run - and then whatever renders reaches nobody, so there
+    is nothing to protect. (``st.runtime.exists()`` cannot tell these apart:
+    it is True under AppTest.)
+    """
+    if not headers:
+        return True
+    return is_allowed_host(headers.get("host"), allowed)
 
 
 def model_missing(message: str) -> None:

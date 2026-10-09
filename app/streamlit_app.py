@@ -14,6 +14,7 @@ keeps a number here identical to the same number from the API.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -37,7 +38,10 @@ from app.sections import (  # noqa: E402
     performance,
     simulator,
 )
+from churnsense.exceptions import ConfigError  # noqa: E402
 from churnsense.logging_setup import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 SECTIONS = {
     "Executive overview": overview.render,
@@ -95,7 +99,22 @@ def main() -> None:
     theme.apply()
     configure_logging()
 
-    cfg = data.config()
+    try:
+        cfg = data.config()
+    except ConfigError:
+        # Logged in full; on the page, no path - this runs before the host
+        # check, so the page may be a rebound one.
+        logger.exception("dashboard configuration could not be loaded")
+        st.error("The dashboard's configuration could not be loaded. See the server log.")
+        st.stop()
+    # Before anything with data in it renders: a rebound session gets nothing.
+    if not ui.host_allowed(st.context.headers, cfg.api.allowed_hosts):
+        st.error(
+            "This dashboard only answers on its own address: open it at "
+            f"http://localhost:{st.get_option('server.port')}. To serve it under "
+            "another name, add that name to `api.allowed_hosts` and restart it."
+        )
+        st.stop()
     choice = _sidebar()
 
     model, frame = data.predictor(), data.scored()

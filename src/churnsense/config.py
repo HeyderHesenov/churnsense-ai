@@ -20,11 +20,15 @@ from typing import Any
 import yaml
 
 from churnsense.exceptions import ConfigError
+from churnsense.hosts import allowed_host_entry
 
 #: Columns in the raw data contract, ``len(schema.RAW_COLUMNS)``. Written out
 #: so the config layer does not import the data layer (and pandas with it);
 #: tests/test_config.py asserts the two agree.
 CONTRACT_WIDTH = 21
+
+#: Loopback names only: what `make app` and `make api` bind to.
+DEFAULT_ALLOWED_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
@@ -147,14 +151,29 @@ class Business:
 
 @dataclass(frozen=True, slots=True)
 class ApiConfig:
-    """Limits on what one upload may cost. Shared by the API and the dashboard."""
+    """What the API and the dashboard accept: upload limits and host names."""
 
     max_batch_rows: int
     max_upload_bytes: int
-    # Defaulted so a config written before this limit existed still loads.
+    # Defaulted so a config written before these settings existed still loads.
     max_upload_columns: int = 1000
+    # Host headers the API and the dashboard answer to; see churnsense.hosts.
+    allowed_hosts: tuple[str, ...] = DEFAULT_ALLOWED_HOSTS
 
     def __post_init__(self) -> None:
+        # YAML gives a list; a frozen config holds a tuple. A bare string would
+        # become a tuple of its letters, so it is refused rather than converted.
+        if isinstance(self.allowed_hosts, str):
+            raise ConfigError("allowed_hosts must be a list of host names")
+        if not self.allowed_hosts or not all(isinstance(h, str) for h in self.allowed_hosts):
+            raise ConfigError("allowed_hosts must list at least one host name (or '*')")
+        # Normalised the way a Host header is, so an entry like localhost:8501
+        # matches; one that never could (a URL, a wildcard) is refused here.
+        try:
+            names = tuple(dict.fromkeys(allowed_host_entry(h) for h in self.allowed_hosts))
+        except ValueError as exc:
+            raise ConfigError(f"allowed_hosts: {exc}") from exc
+        object.__setattr__(self, "allowed_hosts", names)
         limits = (self.max_batch_rows, self.max_upload_bytes, self.max_upload_columns)
         if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in limits):
             raise ConfigError("api upload limits must each be a whole number of at least 1")
@@ -225,7 +244,11 @@ def load_config(path: str | Path | None = None) -> Config:
     if not cfg_path.is_file():
         raise ConfigError(f"configuration file not found: {cfg_path}")
 
-    raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        # e.g. an unquoted * in a list, which YAML reads as an alias.
+        raise ConfigError(f"configuration file could not be parsed: {cfg_path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise ConfigError(f"configuration file is not a YAML mapping: {cfg_path}")
     return _build(raw, PROJECT_ROOT)

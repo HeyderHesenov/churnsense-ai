@@ -25,7 +25,8 @@ call, so the three cannot drift apart.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+import math
+from collections.abc import Iterable, Mapping
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -36,6 +37,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.websockets import WebSocketClose
 
 from churnsense.api.schemas import (
     BatchPredictionRow,
@@ -48,6 +50,7 @@ from churnsense.api.schemas import (
 )
 from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
+from churnsense.hosts import is_allowed_host
 from churnsense.logging_setup import configure_logging
 from churnsense.models.predict import Predictor, load_predictor, validate_upload
 
@@ -133,6 +136,56 @@ class SecurityHeaders:
             await send(message)
 
         await self.app(scope, receive, send_with_headers)
+
+
+class TrustedHosts:
+    """Answer only requests whose Host header is allowed; refuse any other.
+
+    The DNS-rebinding defence described in ``churnsense.hosts``. HTTP gets a
+    400 in the ErrorResponse shape - Starlette's TrustedHostMiddleware would
+    answer in plain text - and a WebSocket handshake is closed with 1008.
+    Without an explicit list the configured ``api.allowed_hosts`` is used;
+    the service cannot start without a readable config, so there is no
+    fallback to reason about.
+    """
+
+    def __init__(self, app: ASGIApp, allowed_hosts: Iterable[str] | None = None) -> None:
+        if isinstance(allowed_hosts, str):
+            raise TypeError("allowed_hosts must be a collection of host names, not one string")
+        self.app = app
+        self._allowed = tuple(allowed_hosts) if allowed_hosts is not None else None
+        self._refused = 0
+
+    @property
+    def allowed_hosts(self) -> tuple[str, ...]:
+        if self._allowed is not None:
+            return self._allowed
+        return load_config().api.allowed_hosts
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+
+        host = Headers(scope=scope).get("host")
+        if is_allowed_host(host, self.allowed_hosts):
+            await self.app(scope, receive, send)
+            return
+
+        # Logged on the 1st, 10th, 100th... refusal: a rebound page can loop
+        # requests, and every one of them must not become a log line.
+        self._refused += 1
+        if math.log10(self._refused).is_integer():
+            # %r: the header is the caller's text and must not forge log lines.
+            logger.warning(
+                "refused %d request(s) for unknown hosts; latest %r", self._refused, host
+            )
+        if scope["type"] == "websocket":
+            await WebSocketClose(code=1008)(scope, receive, send)
+        else:
+            await _error_response(400, "Invalid host header", error="invalid_host")(
+                scope, receive, send
+            )
 
 
 class BodySizeLimit:
@@ -240,8 +293,10 @@ app = FastAPI(
     ),
     lifespan=lifespan,
 )
+# The last added is the outermost: security headers, then the host check (so a
+# rebound request is refused before anything else runs), then the body limit.
 app.add_middleware(BodySizeLimit)
-# Added last, so outermost: the body limit's own 413s get the headers too.
+app.add_middleware(TrustedHosts)
 app.add_middleware(SecurityHeaders)
 
 

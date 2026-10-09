@@ -72,6 +72,31 @@ def test_upload_limits_are_validated(overrides: dict):
         ApiConfig(**{**base, **overrides})
 
 
+@pytest.mark.parametrize(
+    "hosts", [[], [""], "localhost", [None], ["http://my.host"], ["*.streamlit.app"]]
+)
+def test_allowed_hosts_are_validated(hosts):
+    with pytest.raises(ConfigError):
+        ApiConfig(max_batch_rows=10, max_upload_bytes=1024, allowed_hosts=hosts)
+
+
+def test_allowed_hosts_are_normalised_on_load():
+    api = ApiConfig(1, 1024, allowed_hosts=["LocalHost:8501", " 127.0.0.1 ", "localhost", "*"])
+    assert api.allowed_hosts == ("localhost", "127.0.0.1", "*")
+
+
+def test_a_yaml_syntax_error_is_a_config_error(tmp_path: Path):
+    """An unquoted * in a list is a YAML alias, and used to escape as a raw traceback."""
+    bad = tmp_path / "config.yaml"
+    bad.write_text("api:\n  allowed_hosts: [*]\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="could not be parsed"):
+        load_config(bad)
+
+
+def test_allowed_hosts_load_as_a_tuple_of_loopback_names(cfg: Config):
+    assert cfg.api.allowed_hosts == ("localhost", "127.0.0.1")
+
+
 def test_the_config_layer_knows_the_contract_width():
     """CONTRACT_WIDTH is written out to keep pandas out of config; it must not drift."""
     from churnsense.config import CONTRACT_WIDTH

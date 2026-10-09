@@ -17,6 +17,9 @@ from churnsense.data.split import make_splits
 from churnsense.models.predict import load_predictor
 from churnsense.models.train import save_artifact, train_all
 
+#: TestClient's default host, "testserver", is not an allowed host.
+LOCAL = "http://localhost"
+
 
 @pytest.fixture(scope="module")
 def artifacts(clean_frame, cfg: Config, tmp_path_factory):
@@ -33,7 +36,7 @@ def client(artifacts, monkeypatch_session):
     from churnsense.api import main as api_main
 
     monkeypatch_session.setattr(api_main, "ARTIFACTS_DIR", artifacts)
-    with TestClient(api_main.app) as test_client:
+    with TestClient(api_main.app, base_url=LOCAL) as test_client:
         yield test_client
 
 
@@ -196,7 +199,7 @@ def test_service_reports_unavailable_rather_than_guessing(tmp_path, monkeypatch)
 
     monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
     api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app) as unloaded:
+    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
         assert unloaded.get("/health").json()["model_loaded"] is False
         assert unloaded.post("/predict", json={}).status_code in (422, 503)
 
@@ -206,7 +209,7 @@ def test_unavailable_model_is_a_503_in_the_documented_shape(tmp_path, monkeypatc
 
     monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
     api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app) as unloaded:
+    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
         response = unloaded.post("/predict", json=payload)
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
@@ -440,6 +443,91 @@ def test_predict_rejects_non_finite_numbers(client, payload, value):
     body = json.dumps({**payload, "MonthlyCharges": value})
     response = client.post("/predict", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize("host", ["attacker.example", "attacker.example:8000", "localhost.evil"])
+def test_a_request_for_a_foreign_host_is_refused(client, host: str):
+    """DNS rebinding: the browser calls 127.0.0.1 but names the attacker's host."""
+    response = client.get("/health", headers={"host": host})
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_host"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("host", ["localhost", "localhost:8000", "127.0.0.1:8001", "LOCALHOST"])
+def test_the_loopback_names_are_answered(client, host: str):
+    assert client.get("/health", headers={"host": host}).status_code == 200
+
+
+def test_a_request_without_a_host_is_refused():
+    from churnsense.api.main import TrustedHosts
+
+    reached = []
+
+    async def app(scope, receive, send):
+        reached.append(scope)
+
+    sent: list[dict] = []
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "http", "method": "GET", "path": "/health", "headers": []}
+    import asyncio
+
+    asyncio.run(TrustedHosts(app, ["localhost"])(scope, None, send))
+    assert reached == []
+    assert sent[0]["status"] == 400
+
+
+def test_a_websocket_for_a_foreign_host_is_closed_unaccepted():
+    import asyncio
+
+    from churnsense.api.main import TrustedHosts
+
+    reached, sent = [], []
+
+    async def app(scope, receive, send):
+        reached.append(scope)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        sent.append(message)
+
+    scope = {"type": "websocket", "path": "/ws", "headers": [(b"host", b"attacker.example")]}
+    asyncio.run(TrustedHosts(app, ["localhost"])(scope, receive, send))
+    assert reached == []
+    assert sent == [{"type": "websocket.close", "code": 1008, "reason": ""}]
+
+
+def test_one_host_given_as_a_string_is_a_type_error():
+    """Not a tuple of its letters, which would refuse every request."""
+    from churnsense.api.main import TrustedHosts
+
+    with pytest.raises(TypeError):
+        TrustedHosts(lambda *_: None, "localhost")
+
+
+def test_refusals_are_logged_sparsely(caplog):
+    """A rebound page can loop requests; the log gets the 1st, 10th, 100th."""
+    import asyncio
+
+    from churnsense.api.main import TrustedHosts
+
+    async def app(scope, receive, send):
+        pass
+
+    async def send(message):
+        pass
+
+    guard = TrustedHosts(app, ["localhost"])
+    scope = {"type": "http", "method": "GET", "path": "/", "headers": [(b"host", b"x.example")]}
+    with caplog.at_level("WARNING", logger="churnsense.api.main"):
+        for _ in range(150):
+            asyncio.run(guard(scope, None, send))
+    assert [r.args[0] for r in caplog.records] == [1, 10, 100]
 
 
 def test_openapi_schema_is_served(client):

@@ -6,12 +6,47 @@ import io
 
 import pandas as pd
 import pytest
-from app.components import neutralise_formulas
+from app.components import host_allowed, neutralise_formulas
 from app.sections.batch import with_predictions
 
 from churnsense.config import Config
 from churnsense.data import schema
 from churnsense.models.predict import validate_upload
+
+
+@pytest.mark.parametrize(
+    ("headers", "allowed"),
+    [
+        (None, True),  # AppTest / bare mode: no HTTP request behind the session
+        ({}, True),
+        ({"host": "localhost:8501"}, True),
+        ({"host": "attacker.example:8501"}, False),
+        ({"origin": "http://localhost:8501"}, False),  # headers, but no Host
+    ],
+)
+def test_the_dashboard_answers_only_its_own_host(headers, allowed: bool):
+    assert host_allowed(headers, ("localhost", "127.0.0.1")) is allowed
+
+
+def test_a_refused_host_gets_a_refusal_and_no_page(monkeypatch):
+    """main() must stop before the sidebar or any section renders.
+
+    AppTest has no HTTP request behind it, so the real check always lets it
+    through; the check is forced to refuse to exercise the refusal path. It
+    stops before the model or data load, so this needs no trained artifact.
+    """
+    from pathlib import Path
+
+    from app import components
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setattr(components, "host_allowed", lambda *_: False)
+    script = Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py"
+    at = AppTest.from_file(str(script), default_timeout=120).run()
+
+    assert any("only answers on its own address" in e.value for e in at.error)
+    assert not at.radio, "the sidebar navigation must not render"
+    assert not at.header, "no section may render"
 
 
 def _inputs(cfg: Config) -> list[str]:

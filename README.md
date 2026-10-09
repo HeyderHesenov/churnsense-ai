@@ -682,12 +682,21 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 
 > **Local by design.** There is no authentication and no rate limiting, so
 > `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would
-> listen on every interface). The dashboard also shows Streamlit's default
-> tracebacks, which is right for a local analyst tool. Before exposing either
-> beyond localhost: put authentication, TLS and rate limiting in front of it,
-> set `client.showErrorDetails = "none"` in `.streamlit/config.toml`, and
-> consider disabling the API's `/docs` (it loads Swagger UI from a CDN). None
-> of that is in scope here.
+> listen on every interface). Binding keeps other machines out but not DNS
+> rebinding, where a web page re-resolves its own name to 127.0.0.1 and the
+> browser then talks to the local server as that page; so both servers also
+> answer only Host headers listed in `api.allowed_hosts` (`localhost`,
+> `127.0.0.1`) — the API with a 400, the dashboard with a refusal message in
+> place of every page. The dashboard's check runs inside the app script, so
+> Streamlit's own transport routes (media, uploads, the WebSocket handshake)
+> still answer a rebound page, but only with that page's own session; a
+> transport-level check would need the app served through `st.App`. The
+> dashboard also shows Streamlit's default tracebacks, which is right for a
+> local analyst tool. Before exposing either beyond localhost: add the public
+> host name to `api.allowed_hosts`, put authentication, TLS and rate limiting
+> in front of it, set `client.showErrorDetails = "none"` in
+> `.streamlit/config.toml`, and consider disabling the API's `/docs` (it loads
+> Swagger UI from a CDN). None of that is in scope here.
 
 ## Limitations
 
