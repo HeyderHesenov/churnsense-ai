@@ -49,6 +49,15 @@ def test_numbers_and_ordinary_text_are_left_alone():
     assert neutralise_formulas(frame) is frame
 
 
+def test_repeated_column_names_and_categorical_columns_are_covered():
+    """Regression: a repeated name crashed the export, and categoricals were skipped."""
+    frame = pd.DataFrame([["=1", "a", "=2"]], columns=["x", "x", "band"])
+    frame["band"] = pd.Categorical(frame["band"])
+    out = neutralise_formulas(frame)
+    assert out.iloc[0].tolist() == ["'=1", "a", "'=2"]
+    assert list(out.columns) == ["x", "x", "band"]
+
+
 def test_non_strings_in_a_text_column_survive_and_the_input_is_untouched():
     frame = pd.DataFrame({"note": ["=1+1", None, 7, "plain"]})
     out = neutralise_formulas(frame)

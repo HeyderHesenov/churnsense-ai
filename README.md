@@ -639,12 +639,20 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
   with **413**: by its declared `Content-Length` without reading it, or, when
   chunked, the moment the running count crosses the limit.
 - **Uploads are validated before anything is predicted**, cheapest check
-  first: size, then row count, required columns, numeric ranges, category
-  values and target labels. An unknown category is **rejected**, not bucketed
-  — a typo must not become a confident prediction — and the same check runs
-  inside `Predictor`, so no consumer can bypass it. Error messages quote at
-  most five offending values, each cut to 40 characters, and the dashboard
-  shows them as literal text, never as Markdown.
+  first: size; then, while the file is read once with the linear `csv`
+  module, the column count (`api.max_upload_columns`), row widths and row count
+  (reading stops one row past the limit); then required columns, numeric
+  ranges, category values and target labels. pandas never parses an
+  uploaded header: its header handling is quadratic in the column count, and
+  a 4.7 MB header of 560,000 empty columns held a CPU for more than five
+  minutes (now refused in well under a second). A row wider than the header
+  is refused wherever it is — pandas would have shifted every value in the
+  file one column along without a word when that row came first — and
+  columns outside the data contract are never built. An unknown category is
+  **rejected**, not bucketed — a typo must not become a confident prediction
+  — and the same check runs inside `Predictor`, so no consumer can bypass it.
+  Error messages quote at most five offending values, each cut to 40
+  characters, and the dashboard shows them as literal text, never as Markdown.
 - **Exports cannot carry spreadsheet formulas.** The scored batch file keeps
   only `customerID`, `Churn`, the model's inputs and its outputs; any other
   uploaded column is dropped rather than echoed back. Every dashboard export

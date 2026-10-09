@@ -68,8 +68,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
 
     st.markdown(
         "Upload a CSV of customers to score them with the shipped model. The file "
-        "is validated before anything is predicted: column names, value ranges, "
-        "category values, row count and file size."
+        "is validated before anything is predicted: file size, column count, "
+        "column names, value ranges, category values and row count."
     )
 
     with st.expander("What the file must contain"):
@@ -78,7 +78,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         )
         st.markdown(
             f"- **{len(required)} required columns**, exactly as named below\n"
-            f"- at most **{cfg.api.max_batch_rows:,} rows** and "
+            f"- at most **{cfg.api.max_batch_rows:,} rows**, "
+            f"**{cfg.api.max_upload_columns:,} columns** and "
             f"**{cfg.api.max_upload_bytes / 1_048_576:.0f} MB**\n"
             "- `customerID` and `Churn` are optional; if present they are carried "
             "through to the output and ignored by the model (`Churn` must then be "
@@ -99,6 +100,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
 
     try:
         cleaned = validate_upload(upload.getvalue(), cfg)
+        # Scored inside the try: the model checks its own feature columns too,
+        # and if the config has drifted from the artifact that check fails here.
+        scored = with_predictions(cleaned, model.predict_frame(cleaned), cfg)
     except SchemaValidationError as error:
         st.error("The file could not be used.")
         st.markdown(f"**{error.args[0].split(':')[0]}**")
@@ -118,8 +122,6 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     except ChurnSenseError:
         st.error("The file could not be processed. Check that it is a valid CSV.")
         return
-
-    scored = with_predictions(cleaned, model.predict_frame(cleaned), cfg)
 
     ui.kpi_row(
         [

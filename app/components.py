@@ -186,14 +186,21 @@ def neutralise_formulas(frame: pd.DataFrame) -> pd.DataFrame:
     apostrophe is the standard defence, applied to cells and column names
     alike. Only text is touched: a negative number is data, not a formula.
 
+    Columns are visited by position, so repeated names are handled, and
+    categorical columns are checked like text: risk bands are categorical.
+
     Returns ``frame`` itself when nothing needs changing - the common case,
     and this runs on every rerun for every export button on a page.
     """
-    changed: dict[object, pd.Series] = {}
-    for column in frame.select_dtypes(include=["object", "string"]).columns:
-        values = frame[column]
+    changed: dict[int, pd.Series] = {}
+    for position in range(frame.shape[1]):
+        values = frame.iloc[:, position]
+        if isinstance(values.dtype, pd.CategoricalDtype):
+            values = values.astype(object)
+        elif not (values.dtype == object or isinstance(values.dtype, pd.StringDtype)):
+            continue
         if (fixed := _neutralised(values)) is not values:
-            changed[column] = fixed
+            changed[position] = fixed
 
     names = pd.Series(frame.columns, dtype=object)
     safe_names = _neutralised(names)
@@ -201,8 +208,8 @@ def neutralise_formulas(frame: pd.DataFrame) -> pd.DataFrame:
         return frame
 
     safe = frame.copy()
-    for column, values in changed.items():
-        safe[column] = values
+    for position, values in changed.items():
+        safe.isetitem(position, values)
     safe.columns = safe_names.tolist()
     return safe
 

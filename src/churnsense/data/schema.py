@@ -234,7 +234,9 @@ def validate_frame(
     required = list(columns) if columns is not None else [c for c in RAW_COLUMNS if c != TARGET]
     problems: list[str] = []
 
-    if df.empty:
+    # len(), not .empty: rows with none of the expected columns are "missing
+    # columns", which .empty would misreport as "no rows".
+    if len(df) == 0:
         raise SchemaValidationError("input contains no rows")
 
     missing = [c for c in required if c not in df.columns]

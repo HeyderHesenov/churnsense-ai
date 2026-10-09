@@ -379,8 +379,8 @@ def predict_batch(
         model_key=predictor.model_key,
         predictions=[
             BatchPredictionRow(
-                # The frame keeps read_csv's index, so this is the row's
-                # position in the uploaded file, not in some filtered copy.
+                # The frame's index is the row's 0-based position among the
+                # file's data rows (blank lines skipped), not in a filtered copy.
                 row=int(index),
                 churn_probability=float(row.churn_probability),
                 risk_band=str(row.risk_band),

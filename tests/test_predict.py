@@ -7,6 +7,8 @@ pin the behaviour that makes that safe.
 
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,7 +18,12 @@ from churnsense.data import schema
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
-from churnsense.models.predict import Predictor, load_predictor, validate_upload
+from churnsense.models.predict import (
+    Predictor,
+    _read_contract_columns,
+    load_predictor,
+    validate_upload,
+)
 from churnsense.models.train import save_artifact, train_all
 
 
@@ -170,8 +177,149 @@ def test_an_oversized_upload_is_refused_before_parsing(cfg: Config):
 
 
 def test_an_upload_with_too_many_rows_is_refused(cfg: Config, demo_csv):
-    with pytest.raises(SchemaValidationError, match="rows"):
+    with pytest.raises(SchemaValidationError, match=r"more than 10 data rows \(about 121 lines\)"):
         validate_upload(demo_csv.read_bytes(), cfg, max_rows=10)
+
+
+def test_the_row_limit_must_be_positive(cfg: Config, demo_csv):
+    with pytest.raises(ValueError, match="max_rows"):
+        validate_upload(demo_csv.read_bytes(), cfg, max_rows=0)
+
+
+def _wide(columns: int) -> bytes:
+    return ",".join(f"c{i}" for i in range(columns)).encode()
+
+
+@pytest.fixture
+def pandas_must_not_parse(monkeypatch):
+    """Fail if an upload reaches pandas' CSV parser, whose header handling is quadratic."""
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("an upload reached pd.read_csv")
+
+    monkeypatch.setattr(pd, "read_csv", refuse)
+
+
+@pytest.mark.parametrize(
+    ("build", "message"),
+    [
+        # Built per test, not at import: the first is 4.7 MB. It is the original
+        # finding, more than five minutes of CPU before the fix.
+        pytest.param(lambda: _wide(560_000) + b"\n,\n", "560,000 columns", id="header"),
+        pytest.param(lambda: b"\n\n" + _wide(50_000), "50,000 columns", id="blank-lines-first"),
+        pytest.param(lambda: b"   \t\r\n" + _wide(50_000), "50,000 columns", id="whitespace"),
+        # These three got past a comma-counting guard that ran before pandas.
+        pytest.param(lambda: b'"x\n",' + _wide(50_000), "50,001 columns", id="quoted-break"),
+        pytest.param(lambda: b"\xef\xbb\xbf\n" + _wide(50_000), "50,000 columns", id="bom-blank"),
+        pytest.param(
+            lambda: b"customerID\n" + b"," * 500_000 + b"\n",
+            "data row 1 has 500,001 fields but the header has 1",
+            id="wide-first-data-row",
+        ),
+    ],
+)
+def test_a_wide_upload_is_refused_as_it_is_read(
+    cfg: Config, pandas_must_not_parse, build, message: str
+):
+    payload = build()
+    assert len(payload) <= cfg.api.max_upload_bytes, "must pass the size cap to test width"
+    with pytest.raises(SchemaValidationError, match=message):
+        validate_upload(payload, cfg)
+
+
+def test_a_semicolon_separated_file_is_named_as_such(cfg: Config, demo_csv):
+    """Excel in comma-decimal locales (az-AZ among them) saves ';'-separated CSV."""
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    with pytest.raises(SchemaValidationError, match="semicolon-separated"):
+        validate_upload(frame.to_csv(index=False, sep=";").encode(), cfg)
+
+
+def test_a_bom_after_a_blank_line_does_not_rename_the_first_column(cfg: Config, demo_csv):
+    cleaned = validate_upload(b"\n\xef\xbb\xbf" + demo_csv.read_bytes(), cfg)
+    assert "customerID" in cleaned.columns
+
+
+def test_an_unquoted_comma_in_the_first_row_is_refused_not_shifted(cfg: Config, demo_csv):
+    """Regression: pandas read one surplus field there as an index, shifting every value."""
+    lines = demo_csv.read_bytes().split(b"\n")
+    lines[1] = lines[1].replace(b"DEMO-", b"DEMO,", 1)
+    with pytest.raises(
+        SchemaValidationError, match="data row 1 has 22 fields but the header has 21"
+    ):
+        validate_upload(b"\n".join(lines), cfg)
+
+
+def test_a_wide_row_anywhere_is_refused_with_its_number(cfg: Config, demo_csv):
+    payload = demo_csv.read_bytes() + b"," * 500_000 + b"\n"
+    with pytest.raises(SchemaValidationError, match="data row 121 has 500,001 fields"):
+        validate_upload(payload, cfg)
+
+
+@pytest.mark.parametrize("junk", [b'""\n', b"\x0c\n", b"\xef\xbb\xbf\n\n"])
+def test_a_junk_first_line_does_not_displace_the_header(cfg: Config, demo_csv, junk: bytes):
+    """One tokenizer decides what a blank line is, so the header is never misread."""
+    assert len(validate_upload(junk + demo_csv.read_bytes(), cfg)) == 120
+
+
+def test_a_repeated_contract_column_is_refused(cfg: Config, demo_csv):
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    doubled = pd.concat([frame, frame[["tenure"]]], axis=1)
+    with pytest.raises(SchemaValidationError, match="more than once: tenure"):
+        validate_upload(_csv(doubled), cfg)
+
+
+def test_an_export_with_many_extra_columns_is_scored_and_trimmed(cfg: Config, demo_csv):
+    """Extra columns are dropped, not rejected - and never built into a frame."""
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    extra = pd.DataFrame({f"crm_{i}": "x" for i in range(300)}, index=frame.index)
+    cleaned = validate_upload(_csv(pd.concat([frame, extra], axis=1)), cfg)
+    assert len(cleaned) == len(frame)
+    assert not any(column.startswith("crm_") for column in cleaned.columns)
+
+
+def test_columns_the_served_model_needs_survive_a_config_ablation(cfg: Config, demo_csv):
+    """Regression: the kept columns came from the config, not the contract.
+
+    With `include_total_charges: false` in the config but the shipped model
+    still using TotalCharges, an upload that carried it lost it on the way in.
+    """
+    ablated = dataclasses.replace(
+        cfg, features=dataclasses.replace(cfg.features, include_total_charges=False)
+    )
+    assert "TotalCharges" in validate_upload(demo_csv.read_bytes(), ablated).columns
+
+
+def test_a_file_of_only_unknown_columns_reports_the_missing_ones(cfg: Config):
+    with pytest.raises(SchemaValidationError) as excinfo:
+        validate_upload(b"a,b\n1,2\n3,4\n", cfg)
+    assert "missing columns" in " ".join(excinfo.value.problems)
+
+
+@pytest.mark.parametrize("terminator", ["\r\n", "\r"])
+def test_other_line_endings_are_read_like_newlines(cfg: Config, demo_csv, terminator: str):
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    payload = frame.to_csv(index=False, lineterminator=terminator).encode()
+    assert len(validate_upload(payload, cfg)) == len(frame)
+
+
+def test_the_reader_returns_what_pandas_would(cfg: Config, demo_csv):
+    """Same strings, same order, for every contract column of a well-formed file."""
+    ours = _read_contract_columns(demo_csv.read_bytes(), cfg, limit=10_000)
+    theirs = pd.read_csv(demo_csv, dtype=str, keep_default_na=False, na_values=[])
+    assert ours.equals(theirs[list(ours.columns)])
+
+
+def test_an_upload_that_is_not_utf8_is_refused_without_a_crash(cfg: Config):
+    payload = "customerID,Contract\nDEMO-1,Ünïcödé\n".encode("utf-16")
+    with pytest.raises(SchemaValidationError, match="could not be read"):
+        validate_upload(payload, cfg)
+
+
+def test_an_over_long_field_is_named_as_the_reason(cfg: Config, demo_csv):
+    lines = demo_csv.read_bytes().split(b"\n")
+    lines[1] = lines[1].replace(b"DEMO-", b'"' + b"x" * 200_000 + b'"', 1)
+    with pytest.raises(SchemaValidationError, match="field longer than"):
+        validate_upload(b"\n".join(lines), cfg)
 
 
 def test_an_upload_missing_feature_columns_is_refused(cfg: Config, demo_csv):

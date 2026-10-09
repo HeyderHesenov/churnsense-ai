@@ -17,8 +17,10 @@ is worse than an honest outage.
 
 from __future__ import annotations
 
+import csv
 import io
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -158,6 +160,69 @@ def load_predictor(artifacts_dir: Path | str | None = None) -> Predictor:
     return Predictor(model=model, meta=meta, source=directory, config=cfg)
 
 
+_UNREADABLE = "file could not be read as CSV. Expected a comma-separated file with a header row."
+_CONTRACT_COLUMNS = frozenset(schema.RAW_COLUMNS)
+
+
+def _has_content(record: list[str]) -> bool:
+    """False for a blank or whitespace-only line, which is skipped, not read as a row."""
+    return len(record) > 1 or bool(record and record[0].strip())
+
+
+def _read_contract_columns(payload: bytes, cfg: Config, limit: int) -> pd.DataFrame:
+    """Tokenise the upload once, with the csv module, keeping only contract columns.
+
+    One tokenizer decides what the header and every row are. pandas never sees
+    the untrusted header: its header handling is quadratic in the column
+    count, and a 4.7 MB header of 560,000 empty columns held a CPU for more
+    than five minutes. An earlier guard pre-checked widths with a second
+    tokenizer, and every rule the two read differently - quoting, a BOM, which
+    lines count as blank - was a way past it. The csv module is linear, and a
+    column outside the raw contract is never built: the model could not use it.
+
+    Every row must be as wide as the header or narrower (missing trailing
+    fields read as empty). A wider row is refused wherever it is: pandas would
+    have turned surplus fields in the first data row into an index and
+    shifted every value in the file one column along, without a word.
+    """
+    reader = csv.reader(io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8-sig", newline=""))
+    records = filter(_has_content, reader)
+    header = next(records, None)
+    if header is None:
+        raise SchemaValidationError("file is empty")
+    # utf-8-sig drops a BOM only at the very start; after a blank line it would
+    # silently rename the first column and drop it as unknown.
+    header[0] = header[0].removeprefix("﻿")
+    if len(header) == 1 and ";" in header[0]:
+        raise SchemaValidationError(
+            "file looks semicolon-separated; save it as comma-separated CSV (UTF-8)"
+        )
+    if len(header) > cfg.api.max_upload_columns:
+        raise SchemaValidationError(
+            f"file has {len(header):,} columns; the limit is {cfg.api.max_upload_columns:,}"
+        )
+    counts = Counter(header)
+    if repeated := sorted(c for c in counts if counts[c] > 1 and c in _CONTRACT_COLUMNS):
+        raise SchemaValidationError(f"column(s) appear more than once: {', '.join(repeated)}")
+
+    keep = [(i, name) for i, name in enumerate(header) if name in _CONTRACT_COLUMNS]
+    rows: list[list[str]] = []
+    for number, record in enumerate(records, start=1):
+        if len(record) > len(header):
+            raise SchemaValidationError(
+                f"data row {number:,} has {len(record):,} fields but the header has "
+                f"{len(header):,}; check for an unquoted comma"
+            )
+        if number > limit:
+            lines = max(payload.count(b"\n"), payload.count(b"\r"))
+            raise SchemaValidationError(
+                f"file has more than {limit:,} data rows (about {lines:,} lines); "
+                f"split it into files of at most {limit:,} rows"
+            )
+        rows.append([record[i] if i < len(record) else "" for i, _ in keep])
+    return pd.DataFrame(rows, columns=[name for _, name in keep], dtype=str)
+
+
 def validate_upload(
     payload: bytes,
     cfg: Config | None = None,
@@ -166,38 +231,39 @@ def validate_upload(
 ) -> pd.DataFrame:
     """Parse and validate an uploaded CSV before it reaches the model.
 
-    Checks run cheapest-first: the size cap is enforced on the raw bytes, so a
-    hostile 2 GB file is rejected without ever being parsed. Parser errors are
-    caught and rewritten, because pandas error text can contain file paths and
-    internal state that should not be shown to a user.
+    Checks run cheapest-first: the size cap on the raw bytes, then - while the
+    file is read, by ``_read_contract_columns`` - the column count, row widths
+    and row count, then the values. Reader errors are caught and rewritten,
+    because their text can carry internal state that should not reach a user.
     """
     cfg = cfg or load_config()
     limit = max_rows if max_rows is not None else cfg.api.max_batch_rows
+    if limit < 1:
+        raise ValueError(f"max_rows must be at least 1, got {limit}")
 
     if len(payload) > cfg.api.max_upload_bytes:
         raise SchemaValidationError(
             f"file is too large: {len(payload) / 1_048_576:.1f} MB exceeds the "
             f"{cfg.api.max_upload_bytes / 1_048_576:.0f} MB limit"
         )
-    if not payload.strip():
-        raise SchemaValidationError("file is empty")
-
     try:
-        frame = pd.read_csv(io.BytesIO(payload), dtype=str, keep_default_na=False, na_values=[])
-    except Exception as exc:
+        frame = _read_contract_columns(payload, cfg, limit)
+    except (csv.Error, UnicodeDecodeError) as exc:
         logger.warning("rejected upload: %s: %s", exc.__class__.__name__, exc)
-        raise SchemaValidationError(
-            "file could not be read as CSV. Expected a comma-separated file with a header row."
-        ) from exc
+        if "field limit" in str(exc):
+            raise SchemaValidationError(
+                f"file has a field longer than {csv.field_size_limit():,} characters"
+            ) from exc
+        raise SchemaValidationError(_UNREADABLE) from exc
 
-    if frame.empty:
+    # len(), not .empty: a file of only unknown columns has rows but no columns.
+    if len(frame) == 0:
         raise SchemaValidationError("file contains a header but no data rows")
-    if len(frame) > limit:
-        raise SchemaValidationError(f"file has {len(frame):,} rows; the limit is {limit:,}")
 
     required = schema.model_input_columns(
         cfg.features.drop_columns, cfg.features.include_total_charges
     )
+
     # Clean *before* validating values. The real IBM file stores a blank for
     # TotalCharges on zero-tenure customers, so validating the raw text would
     # reject the project's own dataset as containing non-numeric charges.

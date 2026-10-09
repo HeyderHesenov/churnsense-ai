@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from churnsense.data.schema import RAW_COLUMNS
 from churnsense.exceptions import ConfigError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -142,8 +143,23 @@ class Business:
 
 @dataclass(frozen=True, slots=True)
 class ApiConfig:
+    """Limits on what one upload may cost. Shared by the API and the dashboard."""
+
     max_batch_rows: int
     max_upload_bytes: int
+    # Defaulted so a config written before this limit existed still loads.
+    max_upload_columns: int = 1000
+
+    def __post_init__(self) -> None:
+        limits = (self.max_batch_rows, self.max_upload_bytes, self.max_upload_columns)
+        if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in limits):
+            raise ConfigError("api upload limits must each be a whole number of at least 1")
+        # Below the raw contract's width the project's own template is refused.
+        if self.max_upload_columns < len(RAW_COLUMNS):
+            raise ConfigError(
+                f"max_upload_columns must be at least {len(RAW_COLUMNS)}, the width of the "
+                "raw data contract"
+            )
 
 
 @dataclass(frozen=True, slots=True)

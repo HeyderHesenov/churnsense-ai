@@ -89,6 +89,10 @@ business:
 api:
   max_batch_rows: 10000
   max_upload_bytes: 5242880           # 5 MiB
+  # A cap on header width; why it exists is in predict._read_contract_columns.
+  # Unknown columns are dropped, never built, so 1,000 columns x 2,400 rows
+  # (4.8 MB) reads in under 0.1 s. Must be at least the raw contract's 21.
+  max_upload_columns: 1000
 
 logging:
   level: INFO

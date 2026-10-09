@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from churnsense.config import Business, Config, Split, load_config
+from churnsense.config import ApiConfig, Business, Config, Split, load_config
 from churnsense.exceptions import ConfigError
 
 
@@ -53,6 +53,23 @@ def test_business_assumptions_are_validated(overrides: dict):
     }
     with pytest.raises(ConfigError):
         Business(**{**base, **overrides})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"max_batch_rows": 0},
+        {"max_upload_bytes": 0},
+        {"max_upload_columns": 0},
+        {"max_batch_rows": 10_000.5},
+        {"max_upload_columns": True},
+        {"max_upload_columns": 10},  # narrower than the raw contract: every upload refused
+    ],
+)
+def test_upload_limits_are_validated(overrides: dict):
+    base = {"max_batch_rows": 10, "max_upload_bytes": 1024, "max_upload_columns": 30}
+    with pytest.raises(ConfigError):
+        ApiConfig(**{**base, **overrides})
 
 
 def test_customer_value_applies_horizon_and_margin():
