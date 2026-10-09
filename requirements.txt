@@ -86,7 +86,7 @@ nest-asyncio2==1.7.4
 notebook==7.6.3
 notebook_shim==0.2.4
 numba==0.68.0
-numpy==2.3.5
+numpy==2.5.3
 opentelemetry-api==1.45.1
 packageurl-python==0.17.6
 packaging==26.3
