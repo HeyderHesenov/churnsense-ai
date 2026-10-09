@@ -19,8 +19,7 @@ from churnsense.config import Config
 from churnsense.data import schema
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
-from churnsense.exceptions import SchemaValidationError
-from churnsense.features.preprocess import align_to_contract, build_preprocessor_for
+from churnsense.features.preprocess import build_preprocessor_for
 
 
 @pytest.fixture(scope="module")
@@ -68,8 +67,9 @@ def test_transform_is_deterministic(xy):
     np.testing.assert_array_equal(first, pre.transform(X))
 
 
-def test_unseen_category_does_not_crash_serving(xy, cfg: Config):
-    """An unknown category must degrade gracefully, not take the service down."""
+def test_unseen_category_does_not_crash_the_encoder(xy, cfg: Config):
+    """Defence in depth: Predictor rejects unknown categories before they get
+    here, but a caller that bypasses it must get zeros, not a crash."""
     X, y = xy
     splits = make_splits(X, y, cfg)
     pre = build_preprocessor_for(list(X.columns), scale_numeric=True).fit(splits.X_train)
@@ -104,22 +104,6 @@ def test_columns_outside_the_contract_are_dropped(xy):
     pre = build_preprocessor_for(list(X.columns), scale_numeric=True)
     baseline = pre.fit_transform(X)
     assert pre.transform(with_extra).shape[1] == baseline.shape[1]
-
-
-def test_align_to_contract_reorders_without_changing_values(xy):
-    X, _ = xy
-    columns = list(X.columns)
-    shuffled = X[columns[::-1]]
-    aligned = align_to_contract(shuffled, columns)
-    assert list(aligned.columns) == columns
-    pd.testing.assert_frame_equal(aligned, X[columns])
-
-
-def test_align_to_contract_names_the_missing_columns(xy):
-    X, _ = xy
-    with pytest.raises(SchemaValidationError) as excinfo:
-        align_to_contract(X.drop(columns=["tenure", "Contract"]), list(X.columns))
-    assert set(excinfo.value.problems) == {"tenure", "Contract"}
 
 
 def test_numeric_gaps_are_imputed_rather_than_propagated(xy):

@@ -142,8 +142,6 @@ class Business:
 
 @dataclass(frozen=True, slots=True)
 class ApiConfig:
-    host: str
-    port: int
     max_batch_rows: int
     max_upload_bytes: int
 

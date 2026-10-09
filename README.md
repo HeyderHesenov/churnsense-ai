@@ -104,25 +104,31 @@ and batch scoring **cannot** disagree.
 
 - `train_all()` takes training and validation data only — the test partition is
   not a parameter, so no tuning path can reach it. A test asserts the signature.
-- Preprocessing is a `Pipeline` step, so it is refitted on every CV fold and
-  cannot be fitted on data outside it.
+- Preprocessing is a `Pipeline` step, so it is refitted inside every CV fold —
+  in the hyper-parameter search *and* in the calibration folds — and cannot be
+  fitted on data outside it. A test checks each calibration fold's scaler.
+- Inputs are validated on that same single path, so an unknown category or an
+  impossible number is rejected by the library, the dashboard and the API
+  alike, never silently encoded into a confident score.
 - The decision threshold lives in `model_meta.json`, so all three consumers
   read the same operating point.
 
 ## Quick start
 
-Requires **Python 3.11+** (developed and tested on 3.12.13). If your default
-`python3` is older, pass a newer one — `make setup` checks before it creates
-anything and tells you which interpreters it can find:
+Requires **Python 3.12+** (developed on 3.12.13; the fast test suite also passes
+on 3.13.5). The floor comes from the lock: shap 0.52, scipy 1.18 and
+contourpy 1.4 no longer support 3.11. If your default `python3` is older, pass
+a newer one — `make setup` checks before it creates anything and tells you
+which interpreters it can find:
 
 ```bash
 make setup PYTHON=python3.12
 ```
 
 ```bash
-make setup      # .venv + pinned install
+make setup      # .venv from the lock in requirements.txt
 make data       # download the dataset and verify its SHA-256
-make all        # eda → train → evaluate → explain
+make all        # data → eda → train → explain → evaluate
 make app        # dashboard  → http://localhost:8501
 make api        # API        → http://localhost:8000/docs
 ```
@@ -209,12 +215,17 @@ also a concrete argument for a model that can express non-linearity.
 
 **`gender` carries no signal: bias-corrected Cramér's V = 0.0000.** It is
 excluded from the model as a protected attribute, and the exclusion costs
-nothing measurable. See [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
+nothing measurable: putting it back changes cross-validated PR-AUC by
+−0.0010 against a fold-to-fold standard deviation of 0.0244 (the ablation in
+[`reports/model_comparison.md`](reports/model_comparison.md)). See
+[`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
 
 **`TotalCharges` is near-redundant**, correlating r = 0.9996 with
 `tenure × MonthlyCharges`. This is collinearity, **not leakage** — all three are
-known at prediction time. It is kept, and the consequence (unstable
-coefficients in the linear model) is documented rather than hidden.
+known at prediction time. It is kept: dropping it costs −0.0039 CV PR-AUC, inside
+the fold noise, so this is a judgement call — made explicitly, with the
+consequence (unstable coefficients in the linear model) documented rather than
+hidden.
 
 ## Modelling
 
@@ -263,7 +274,9 @@ retention team.
 ### Calibration
 
 Isotonic calibration was fitted, **measured, and kept because it helped**:
-expected calibration error on validation fell from **0.1441 → 0.0288**.
+expected calibration error on validation fell from **0.1441 → 0.0274**.
+It is fitted with 5-fold cross-validation on the training partition, and each
+fold refits the *whole* pipeline — preprocessing included — on its own rows.
 
 Calibration is a headline concern here, not a tidiness exercise — the retention
 simulator multiplies a predicted probability by a customer's value, so the
@@ -276,7 +289,7 @@ raw scores, so the calibrated model behaves very differently at the same cut:
 |---|---|---|
 | Precision | 0.5095 | **0.6723** |
 | Recall | 0.7888 | **0.5321** |
-| Brier | 0.1678 | **0.1380** |
+| Brier | 0.1678 | **0.1379** |
 
 `model_meta.json` reports the **shipped** model's own metrics. Publishing the
 candidate's numbers for a calibrated artifact would describe a model that never
@@ -284,7 +297,7 @@ ships; a test enforces the distinction.
 
 > **Probabilities are clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4`.**
 > Isotonic calibration is a step function, so its terminal bins assigned exactly
-> 0.000 to 210 customers and exactly 1.000 to five. No model fitted on 4,225
+> 0.000 to 210 customers and exactly 1.000 to four. No model fitted on 4,225
 > rows can claim certainty, and a probability of exactly 1 has infinite log-odds.
 > ε is the finest rate the calibration sample can express, not a round number,
 > and sits three orders of magnitude below the operating threshold, so no
@@ -304,27 +317,33 @@ Produced by `make evaluate`, which is the only place the test partition is read.
 **Test partition: 1,409 customers, 374 churned (26.5 %). Threshold 0.36, fixed
 on validation before this partition was touched.**
 
+> **Disclosure.** The audit that moved calibration inside the cross-validation
+> folds and rebuilt the explainer also re-ran `make evaluate`, so this partition
+> has now been scored twice in the project's history. Both fixes were chosen on
+> principle, before the second scoring, and no decision used either result.
+> The earlier figures differed by at most 0.003 (recall 0.7005 → 0.7032).
+
 | Metric | Test |
 |---|---|
-| Precision | **0.5516** |
-| Recall | **0.7005** |
-| F1 | 0.6172 |
-| ROC-AUC | **0.8425** |
-| PR-AUC (average precision) | **0.6254** |
-| Brier score | 0.1384 |
-| Expected calibration error | **0.0264** |
-| Accuracy | 0.7693 |
+| Precision | **0.5525** |
+| Recall | **0.7032** |
+| F1 | 0.6188 |
+| ROC-AUC | **0.8422** |
+| PR-AUC (average precision) | **0.6251** |
+| Brier score | 0.1385 |
+| Expected calibration error | **0.0275** |
+| Accuracy | 0.7700 |
 
 |  | Predicted stay | Predicted churn |
 |---|---|---|
 | **Actually stayed** | 822 | 213 |
-| **Actually churned** | 112 | **262** |
+| **Actually churned** | 111 | **263** |
 
 Accuracy is listed last deliberately. Predicting "nobody churns" scores
 **73.5 %** on this partition and is worth nothing — which is the whole reason
 this project headlines PR-AUC, precision and recall instead.
 
-PR-AUC of 0.6254 against a no-skill baseline of 0.265 is a **2.4× lift**.
+PR-AUC of 0.6251 against a no-skill baseline of 0.265 is a **2.4× lift**.
 
 ### The false-positive / false-negative trade
 
@@ -334,7 +353,8 @@ threshold:
 - A **false negative** is a customer who leaves without ever being offered
   anything. The cost is their remaining margin — hundreds of dollars.
 - A **false positive** is an offer to someone who was going to stay. The cost is
-  one offer — $50 under the default assumptions, plus some discount leakage.
+  one offer — $50 under the default assumptions. (Any discount such a customer
+  then keeps is real but not modelled; see the model card.)
 
 At roughly 10:1, recall is worth buying with precision, and the optimum sits
 well below 0.5.
@@ -357,8 +377,8 @@ offer cost **$50**, success rate **30 %**, horizon **12 months**, gross margin
 | Threshold | Flagged | Precision | Recall | Simulated net benefit |
 |---|---|---|---|---|
 | 0.30 | 511 | 0.548 | 0.749 | $26,579 |
-| **0.36** | **448** | **0.580** | **0.700** | **$26,547** |
-| 0.50 | 296 | 0.670 | 0.532 | $23,924 |
+| **0.36** | **448** | **0.580** | **0.695** | **$26,547** |
+| 0.50 | 296 | 0.672 | 0.532 | $23,924 |
 
 ### Why 0.36 and not the peak at 0.30
 
@@ -373,7 +393,7 @@ business's own unit of account rather than an invented epsilon, and it scales
 automatically with the offer. Same discipline as the model selection, same
 reason.
 
-Choosing 0.36 over 0.30 moved test precision from 0.5307 to **0.5516**.
+Choosing 0.36 over 0.30 moved test precision from 0.5296 to **0.5525**.
 
 > For reference only, and then discarded: the threshold that would have been
 > optimal *on the test partition* is reported in the final evaluation. Using it
@@ -385,24 +405,33 @@ Choosing 0.36 over 0.30 moved test precision from 0.5307 to **0.5516**.
 `make explain` caches global SHAP importance; the dashboard reads the cache
 rather than recomputing on every interaction.
 
-**The shipped pipeline is explained, never a convenient inner estimator.** The
-selected model is wrapped in `CalibratedClassifierCV`, so explaining the
-uncalibrated classifier would attribute a probability nobody is served. A test
-asserts the explanation's probability equals the model's. One model-agnostic
-Permutation explainer covers every model family, **seeded** — an unseeded
-explainer changes a customer's explanation on every dashboard refresh while the
-prediction stays put.
+**The shipped model is explained, never a convenient inner estimator.** The
+explainer calls the artifact's own `predict_proba` — preprocessing, calibration
+and clamp included — so contributions plus the base value reproduce the served
+probability exactly; a test checks that sum. One model-agnostic Permutation
+explainer covers every model family.
+
+**Raw features, enough permutations, a fixed seed.** The 18 raw columns are
+explained directly (categories passed as codes and decoded inside the model
+call), so a masked feature swaps a whole value instead of half of a one-hot
+pair. Each customer gets 10 sampled feature orderings. An earlier version used
+one ordering over the one-hot matrix, and changing nothing but the seed moved
+the top three drivers for over a third of customers; the mean seed-to-seed
+spread is now about 0.3 percentage points against 1 point with one ordering.
+The seed is fixed so a refresh never changes an explanation, and all pages
+share one 100-customer training background, so "an average customer" means the
+same thing everywhere.
 
 **Measured global importance** (300 validation customers, 100-customer
-background):
+training background):
 
 | Feature | Mean \|SHAP\| | Share |
 |---|---|---|
-| Tenure (months) | 0.1497 | 18.0 % |
-| Monthly charges | 0.1430 | 17.2 % |
-| Internet service | 0.1217 | 14.6 % |
-| Contract type | 0.0724 | 8.7 % |
-| Total charges to date | 0.0690 | 8.3 % |
+| Tenure (months) | 0.1488 | 18.4 % |
+| Monthly charges | 0.1366 | 16.8 % |
+| Internet service | 0.1185 | 14.6 % |
+| Contract type | 0.0707 | 8.7 % |
+| Total charges to date | 0.0675 | 8.3 % |
 
 **This ranking disagrees with the EDA's univariate ranking, and both are
 published.** Contract type is the strongest single signal on its own
@@ -458,7 +487,7 @@ curl -s -X POST http://localhost:8000/predict \
 
 ```json
 {
-  "churn_probability": 0.804955658153,
+  "churn_probability": 0.802979373568,
   "risk_band": "Critical",
   "flagged": true,
   "threshold": 0.36,
@@ -472,9 +501,15 @@ curl -s -X POST http://localhost:8000/predict/batch \
   -F "file=@tests/fixtures/demo_customers.csv"
 ```
 
-**Verified consistency.** That same customer scores `0.804955658153` through the
-dashboard form, through `POST /predict`, and through the library. All 120 rows
-of the demo file match the batch endpoint to `0.00e+00`.
+Every uploaded row is scored — duplicates included — and each prediction
+carries `row`, its 0-based position in the file, so results can be joined back
+even when the file has no `customerID`.
+
+**Verified consistency.** That same customer scores `0.802979373568` through
+`POST /predict` and through the library; the dashboard form calls the same
+`Predictor.predict_one`. On all 120 rows of the demo file the batch endpoint
+matches the library to `0.00e+00`, and `POST /predict` row by row to `4e-16`
+(the JSON float round trip).
 
 **Behaviour under failure.** With no artifact the API returns **503** and says
 so; it never produces a placeholder score. Unhandled exceptions return a generic
@@ -489,16 +524,18 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**246 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**263 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
-............................................................ [100%]
-246 passed in 35.76s
+263 passed in 82.69s
 
-$ pytest -m "not slow"          # what a clean checkout runs
-224 passed, 22 skipped
+$ pytest -m "not slow"          # what CI runs; needs no dataset
+241 passed, 22 deselected
 ```
+
+The 241 fast tests also pass on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0)
+in a separate environment resolved from the `pyproject.toml` constraints.
 
 The 22 `slow` tests drive the dashboard end to end and check that the
 numbers in this README still match `artifacts/model_meta.json`; both need a
@@ -516,10 +553,11 @@ What the tests actually defend:
 
 | Area | Example |
 |---|---|
-| Leakage | fits a scaler on a deliberately shifted training split and asserts held-out rows are transformed by the *training* statistics — behaviour, not a code-reading promise |
+| Leakage | fits a scaler on a deliberately shifted training split and asserts held-out rows are transformed by the *training* statistics; checks every calibration fold fits its own scaler — behaviour, not a code-reading promise |
 | Protocol | `train_all`'s signature cannot accept test data |
-| Consistency | API, library and batch agree to 1e-12 |
-| Honesty | served probabilities never reach exactly 0 or 1; SHAP narratives never use causal phrasing |
+| Consistency | API, library and batch agree to 1e-12; a batch with duplicate rows returns every row at its file position |
+| Input contract | unknown categories, impossible numbers and unknown target labels are rejected on every path, library included |
+| Honesty | served probabilities never reach exactly 0 or 1; SHAP contributions sum to the served probability and do not hinge on the seed; narratives never use causal phrasing |
 | Contract drift | the API's category vocabularies are compared against the training schema |
 | Arithmetic | threshold economics checked against hand-computed values on tiny inputs |
 | Dashboard | all eight sections driven through `streamlit.testing.v1.AppTest`; a section that raises on load is the cheapest bug to catch and the most embarrassing to miss |
@@ -527,33 +565,32 @@ What the tests actually defend:
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
 pytest with coverage, an end-to-end training smoke test, an API smoke test, and
-`pip-audit`, on Python 3.11 and 3.12.
+`pip-audit`, on Python 3.12 and 3.13.
 
 > **Honest status:** the CI workflow has **not been executed** — this repository
-> has no remote. Each of its steps was run locally on Python 3.12 and passes;
-> the 3.11 leg is untested, which is precisely what the matrix is there to
-> check on first push.
+> has no remote. Its test step was run locally on both Python versions and
+> passes; GitHub's runners have not seen it yet.
 
 `make audit` currently reports **no known vulnerabilities**.
 
 ### Verified in a clean checkout
 
-The whole flow was run from a fresh `git clone` into an empty directory:
+The whole flow was run from a copy of exactly the 87 tracked files — no `.venv`,
+no data, no artifacts, no caches — on 2026-10-09:
 
 ```
-make setup PYTHON=python3.12   ok
-make data                      ok   sha256 16320c9c... (identical)
+make setup PYTHON=python3.12   ok   81 s, installed from the lock
+make data                      ok   sha256 16320c9c... (matches the pin)
 make all                       ok   12 figures, 6 reports
-make test                      ok   229 passed
-make lint                      ok   59 files already formatted
+make test                      ok   263 passed
+make lint                      ok   62 files already formatted
 make audit                     ok   no known vulnerabilities
-make api  -> POST /predict     ok   0.804955658153  (identical to the value above)
-make app                       ok   HTTP 200
+POST /predict (example above)  ok   0.802979373568
 ```
 
-Every documented number reproduced exactly — same split, same selection, same
-threshold 0.36, same test metrics. The clone itself was audited too: 84 tracked
-files, no secrets, no raw data, no artifacts, no venv.
+Every report and `model_meta.json` came out identical to the ones in this
+repository except for the training timestamp and wall-clock fit times — same
+split, same selection, same threshold 0.36, same test metrics.
 
 ## Project layout
 
@@ -566,13 +603,14 @@ src/churnsense/
   eda.py                     generates reports/eda_report.md + figures
   data/      schema, download (certifi-aware), loader, split
   features/  preprocess      ColumnTransformer, built from the schema
-  models/    registry, train, predict      ← predict.py is the only inference path
+  models/    registry, train, calibration_clamp, predict
+                             ← predict.py is the only inference path, and it validates
   evaluation/ metrics, threshold, report, figures
   explainability/ shap_explain
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       215 tests + seeded synthetic fixtures
+tests/                       263 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -580,14 +618,16 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 
 ## Security
 
-- **No secrets.** `.env.example` only; `.env` is gitignored. The project uses no
-  paid APIs and no external LLM services, so there is deliberately no API-key
-  setting to leak.
+- **No secrets.** `.env.example` documents the two environment variables the
+  code reads; `.env` is gitignored. The project uses no paid APIs and no
+  external LLM services, so there is deliberately no API-key setting to leak.
 - **Uploads are validated before anything is predicted**, cheapest check first:
-  the 5 MB cap is enforced on raw bytes so a hostile file is rejected without
-  ever reaching the CSV parser. Then row count, required columns, numeric
-  ranges and category values. An unknown category is **rejected**, not bucketed
-  — a typo must not become a confident prediction.
+  the API reads at most 5 MB + 1 byte of an upload, so an oversized file is
+  refused (413) without being held in memory or reaching the CSV parser. Then
+  row count, required columns, numeric ranges, category values and target
+  labels. An unknown category is **rejected**, not bucketed — a typo must not
+  become a confident prediction — and the same check runs inside
+  `Predictor`, so no consumer can bypass it.
 - **No arbitrary deserialization.** The artifact path comes from config and is
   never caller-supplied; unpickling is equivalent to executing a file.
 - **No SQL, no `eval`,** no execution of uploaded content.
@@ -596,7 +636,7 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 - **Never a fabricated prediction.** A missing or unreadable model surfaces as
   503 / a dead-end dashboard state, never as a default score.
 - **Dependencies** are constrained in `pyproject.toml` and locked in
-  `requirements.txt`; `make audit` runs `pip-audit`.
+  `requirements.txt`, which `make setup` installs; `make audit` runs `pip-audit`.
 
 > The dashboard binds to localhost and shows Streamlit's default tracebacks,
 > which is right for a local analyst tool. Before exposing it beyond localhost,
@@ -617,8 +657,9 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 - **One global threshold leaves segments unscanned.** At 0.36 the model flags
   **no two-year-contract customer and no customer without internet** in the
   test partition. The headline recall of 0.70 is almost entirely
-  month-to-month recall. Per-segment thresholds would address it; see
-  [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
+  month-to-month recall. `make evaluate` publishes the per-segment table in
+  [`reports/final_evaluation.md`](reports/final_evaluation.md); per-segment
+  thresholds would address it — see [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
 - **No drift monitoring, no retraining schedule, no A/B framework.** A deployed
   version would need all three. None is in scope.
 - **The artifact is fitted on 60 % of the data.** Refitting on train+validation
@@ -636,4 +677,4 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
 
 ## License
 
-Code: MIT. Dataset: Apache-2.0, © IBM, not redistributed here.
+Code: [MIT](LICENSE). Dataset: Apache-2.0, © IBM, not redistributed here.

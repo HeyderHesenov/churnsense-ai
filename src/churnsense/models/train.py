@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import platform
 import time
 from dataclasses import dataclass
@@ -31,10 +32,11 @@ import numpy as np
 import pandas as pd
 import sklearn
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.model_selection import GridSearchCV, StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_val_score
 from sklearn.pipeline import Pipeline
 
 from churnsense.config import Config, load_config
+from churnsense.data import schema
 from churnsense.data.loader import features_and_target, load_clean
 from churnsense.data.split import make_splits
 from churnsense.evaluation.metrics import (
@@ -43,11 +45,16 @@ from churnsense.evaluation.metrics import (
     expected_calibration_error,
 )
 from churnsense.exceptions import ModelNotAvailableError
-from churnsense.logging_setup import get_logger
-from churnsense.models.calibration_clamp import clamp_pipeline, epsilon_for
-from churnsense.models.registry import COMPLEXITY_ORDER, DISPLAY_NAMES, iter_candidates
+from churnsense.logging_setup import configure_logging
+from churnsense.models.calibration_clamp import ProbabilityClamp, epsilon_for
+from churnsense.models.registry import (
+    COMPLEXITY_ORDER,
+    DISPLAY_NAMES,
+    build_candidate,
+    iter_candidates,
+)
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 MODEL_FILENAME = "model.joblib"
 META_FILENAME = "model_meta.json"
@@ -73,7 +80,7 @@ class TrainingOutcome:
 
     results: list[CandidateResult]
     selected_key: str
-    model: Pipeline
+    model: ProbabilityClamp
     feature_columns: list[str]
     n_train: int
     n_validation: int
@@ -128,9 +135,9 @@ def select_model(results: list[CandidateResult], cfg: Config | None = None) -> C
 
     Taking the plain argmax of validation PR-AUC is tempting and wrong when the
     field is tightly packed: on the real dataset the top three models land
-    within 0.006 of each other against a cross-validation standard deviation of
-    roughly 0.02, so the "winner" is decided by sampling noise. Re-run with a
-    different seed and the ranking reshuffles.
+    within 0.008 of each other against a standard error of about 0.011, so the
+    "winner" is decided by sampling noise. Re-run with a different seed and the
+    ranking reshuffles.
 
     The classic remedy (Breiman; Hastie et al.) is to treat every model whose
     score is within one standard error of the leader as tied, and to break the
@@ -173,6 +180,13 @@ def selection_reason(
     )
 
 
+def _folds(cfg: Config) -> StratifiedKFold:
+    """The cross-validation splitter every training-partition score uses."""
+    return StratifiedKFold(
+        n_splits=cfg.training.cv_folds, shuffle=True, random_state=cfg.random_seed
+    )
+
+
 def _tune(
     pipeline: Pipeline,
     grid: dict[str, list[Any]],
@@ -187,12 +201,11 @@ def _tune(
     A special case for the dummy would make the comparison table's first row
     incomparable with the rest.
     """
-    cv = StratifiedKFold(n_splits=cfg.training.cv_folds, shuffle=True, random_state=cfg.random_seed)
     search = GridSearchCV(
         pipeline,
         grid,
         scoring=cfg.training.scoring,
-        cv=cv,
+        cv=_folds(cfg),
         n_jobs=cfg.training.n_jobs,
         refit=True,
         error_score="raise",
@@ -209,8 +222,14 @@ def _tune(
 
 def _calibrate(
     pipeline: Pipeline, X: pd.DataFrame, y: pd.Series, cfg: Config
-) -> tuple[Pipeline, str]:
-    """Wrap the fitted classifier in cross-validated calibration.
+) -> tuple[CalibratedClassifierCV, str]:
+    """Calibrate the tuned pipeline with cross-validation on the training data.
+
+    The *whole* pipeline is calibrated, so every calibration fold refits the
+    preprocessor on that fold's own training rows - the same discipline as the
+    grid search. An earlier version put the preprocessor already fitted on all
+    of train in front of a calibrated classifier, which let each fold's
+    held-out rows shape the scaler that fold was calibrated through.
 
     Fitted with ``cv`` on the *training* data rather than ``cv="prefit"`` on
     validation: prefit calibration would consume the validation set, which is
@@ -225,14 +244,10 @@ def _calibrate(
         logger.info("training set too small for isotonic calibration; using sigmoid")
         method = "sigmoid"
 
-    classifier = CalibratedClassifierCV(
-        pipeline.named_steps["classifier"], method=method, cv=folds, n_jobs=cfg.training.n_jobs
+    calibrated = CalibratedClassifierCV(
+        pipeline, method=method, cv=folds, n_jobs=cfg.training.n_jobs
     )
-    calibrated = Pipeline(
-        [("preprocess", pipeline.named_steps["preprocess"]), ("classifier", classifier)]
-    )
-    calibrated.fit(X, y)
-    return calibrated, method
+    return calibrated.fit(X, y), method
 
 
 def train_all(
@@ -278,7 +293,7 @@ def train_all(
 
     selected = select_model(results, cfg)
     reason = selection_reason(results, selected, cfg)
-    model = fitted[selected.key]
+    model: Pipeline | CalibratedClassifierCV = fitted[selected.key]
     logger.info("selected %s - %s", selected.key, reason)
 
     # --- calibration: applied only if it measurably helps ---------------------
@@ -311,9 +326,9 @@ def train_all(
     # model_meta.json, the evaluation report, SHAP and the API all describe the
     # one function that is actually served. Applied after the calibration
     # comparison above, which must see raw probabilities to judge ECE honestly.
-    model = clamp_pipeline(model, n_calibration=len(y_train))
+    shipped = ProbabilityClamp(model, epsilon=epsilon_for(len(y_train)))
 
-    shipped_validation = evaluate(y_validation, model.predict_proba(X_validation)[:, 1])
+    shipped_validation = evaluate(y_validation, shipped.predict_proba(X_validation)[:, 1])
     if applied:
         logger.info(
             "shipped model after calibration: val_pr_auc=%.4f brier=%.4f (candidate: %.4f / %.4f)",
@@ -326,7 +341,7 @@ def train_all(
     return TrainingOutcome(
         results=results,
         selected_key=selected.key,
-        model=model,
+        model=shipped,
         feature_columns=columns,
         selection_reason=reason,
         shipped_validation=shipped_validation,
@@ -337,6 +352,53 @@ def train_all(
         calibration_applied=applied,
         calibration_method=method,
     )
+
+
+def feature_ablation(
+    frame: pd.DataFrame, y: pd.Series, selected: CandidateResult, cfg: Config | None = None
+) -> pd.DataFrame:
+    """What each configured feature decision costs, measured rather than asserted.
+
+    The selected model family, with its tuned hyper-parameters, is re-scored
+    with each decision in ``features`` reversed: ``gender`` put back in, and
+    ``TotalCharges`` flipped. Cross-validated on the training partition with
+    the grid search's own folds, so no validation or test data is spent on it.
+
+    ``frame`` must carry every candidate column, including the ones the
+    shipped model drops - the clean training rows, not the model matrix.
+    """
+    cfg = cfg or load_config()
+    drops, include = cfg.features.drop_columns, cfg.features.include_total_charges
+    variants = {"as configured": schema.model_input_columns(drops, include)}
+    if "gender" in drops:
+        kept = tuple(c for c in drops if c != "gender")
+        variants["with gender"] = schema.model_input_columns(kept, include)
+    variants[f"{'without' if include else 'with'} TotalCharges"] = schema.model_input_columns(
+        drops, not include
+    )
+
+    rows = []
+    for name, columns in variants.items():
+        pipeline = build_candidate(selected.key, columns, seed=cfg.random_seed)
+        scores = cross_val_score(
+            pipeline.set_params(**selected.best_params),
+            frame[columns],
+            y,
+            cv=_folds(cfg),
+            scoring=cfg.training.scoring,
+            n_jobs=cfg.training.n_jobs,
+        )
+        rows.append(
+            {
+                "variant": name,
+                "features": len(columns),
+                "cv_score": float(scores.mean()),
+                "cv_std": float(scores.std()),
+            }
+        )
+    table = pd.DataFrame(rows)
+    table["change"] = table["cv_score"] - table.loc[0, "cv_score"]
+    return table
 
 
 def _jsonable(value: Any) -> Any:
@@ -408,8 +470,8 @@ def save_artifact(outcome: TrainingOutcome, directory: Path, cfg: Config | None 
     return model_path
 
 
-def load_artifact(directory: Path) -> tuple[Pipeline, dict[str, Any]]:
-    """Load the trained pipeline and its metadata.
+def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
+    """Load the trained model and its metadata.
 
     Raises rather than degrading: a missing or unreadable artifact must surface
     as "no model available" everywhere, never as a default or placeholder
@@ -466,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
         help="write reports/model_comparison.md",
     )
     args = parser.parse_args(argv)
+    configure_logging()
 
     cfg = load_config()
     cfg.paths.ensure()
@@ -482,7 +545,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.report:
         from churnsense.evaluation.report import write_comparison_report
 
-        write_comparison_report(outcome, cfg)
+        ablation = feature_ablation(
+            df.loc[splits.X_train.index], splits.y_train, outcome.selected, cfg
+        )
+        write_comparison_report(outcome, cfg, ablation=ablation)
 
     print(comparison.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
     print(f"\nSelected: {outcome.selected.display_name}")

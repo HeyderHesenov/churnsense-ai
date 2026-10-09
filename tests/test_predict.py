@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from churnsense.config import Config
+from churnsense.data import schema
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
@@ -113,6 +114,33 @@ def test_an_empty_frame_is_rejected(predictor: Predictor, sample):
         predictor.predict_frame(sample.head(0))
 
 
+def test_the_library_path_rejects_an_unknown_category(predictor: Predictor, sample):
+    """The API refuses a typo; a direct predict_frame call must not score it either."""
+    rogue = sample.copy()
+    rogue.loc[rogue.index[0], "Contract"] = "Monthly"
+    with pytest.raises(SchemaValidationError, match="Contract"):
+        predictor.predict_frame(rogue)
+
+
+def test_the_library_path_rejects_an_impossible_number(predictor: Predictor, sample):
+    with pytest.raises(SchemaValidationError, match="tenure"):
+        predictor.predict_frame(sample.assign(tenure=-1))
+
+
+def test_validated_values_are_what_gets_scored(predictor: Predictor, sample):
+    """Regression: an integer SeniorCitizen - what plain read_csv produces - and
+    padded text passed validation, then crashed inside the encoder."""
+    raw_shaped = sample.assign(
+        SeniorCitizen=sample["SeniorCitizen"].astype(int),
+        Contract=" " + sample["Contract"] + " ",
+        tenure=sample["tenure"].astype(str),
+    )
+    np.testing.assert_allclose(
+        predictor.predict_frame(raw_shaped)["churn_probability"],
+        predictor.predict_frame(sample)["churn_probability"],
+    )
+
+
 def test_a_missing_artifact_never_yields_fake_predictions(tmp_path):
     with pytest.raises(ModelNotAvailableError):
         load_predictor(tmp_path / "does-not-exist")
@@ -181,6 +209,22 @@ def test_an_upload_with_the_real_file_s_blank_charges_quirk_is_accepted(cfg: Con
     assert (cleaned.loc[blanks.to_numpy(), "TotalCharges"] == 0.0).all()
 
 
+def test_an_upload_keeps_every_row_in_file_order(cfg: Config, demo_csv):
+    """Regression: exact duplicates were dropped, shifting every later row."""
+    raw = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    doubled = pd.concat([raw.head(1), raw.head(4)], ignore_index=True)
+    cleaned = validate_upload(_csv(doubled), cfg)
+    assert list(cleaned.index) == list(range(5))
+    assert (cleaned[schema.ID_COLUMN] == doubled[schema.ID_COLUMN]).all()
+
+
+def test_an_upload_with_an_unknown_label_is_refused(cfg: Config, demo_csv):
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    frame.loc[0, schema.TARGET] = "unknown"
+    with pytest.raises(SchemaValidationError, match=schema.TARGET):
+        validate_upload(_csv(frame), cfg)
+
+
 def test_an_upload_without_the_target_or_id_is_accepted(cfg: Config, demo_csv):
     """A scoring file has no label and need not carry columns the model drops."""
     frame = pd.read_csv(demo_csv, dtype=str).drop(columns=["Churn", "customerID", "gender"])
@@ -218,9 +262,8 @@ def test_the_bound_survives_the_round_trip(predictor: Predictor):
     """The epsilon in the metadata must match the one baked into the pickle."""
     from churnsense.models.calibration_clamp import ProbabilityClamp
 
-    classifier = predictor.model.named_steps["classifier"]
-    assert isinstance(classifier, ProbabilityClamp)
-    assert classifier.epsilon == pytest.approx(predictor.epsilon)
+    assert isinstance(predictor.model, ProbabilityClamp)
+    assert predictor.model.epsilon == pytest.approx(predictor.epsilon)
 
 
 def test_a_file_without_total_charges_is_accepted_when_the_config_drops_it(cfg: Config, demo_csv):

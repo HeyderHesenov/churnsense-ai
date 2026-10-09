@@ -87,8 +87,6 @@ business:
   gross_margin: 0.65                  # margin fraction of revenue; avoids treating revenue as profit
 
 api:
-  host: 127.0.0.1
-  port: 8000
   max_batch_rows: 10000
   max_upload_bytes: 5242880           # 5 MiB
 

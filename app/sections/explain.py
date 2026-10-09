@@ -93,6 +93,11 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         )
     else:
         cached = data.report_json("shap_global.json") or {}
+        if cached.get("trained_at") != model.meta.get("trained_at"):
+            st.warning(
+                "This ranking was cached for a different training run than the model "
+                "being served. Run `make explain` to refresh it."
+            )
         ui.question("Which features move this model's predictions the most?")
         # Bounds derived from what is actually there: features.drop_columns is
         # documented as an ablation knob, and a fixed default of 12 raises
@@ -133,7 +138,12 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
 
     with st.spinner("Computing SHAP contributions..."):
         explanation = explain_customer(
-            model.model, features, row=int(position), top_k=8, seed=cfg.random_seed
+            model.model,
+            features,
+            row=int(position),
+            top_k=8,
+            background=data.shap_background(),
+            seed=cfg.random_seed,
         )
 
     left, right = st.columns([2, 1])

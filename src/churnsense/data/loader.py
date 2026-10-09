@@ -19,6 +19,7 @@ The two judgement calls made here, both measured on the real file:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,9 +28,8 @@ import pandas as pd
 from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.exceptions import DataError
-from churnsense.logging_setup import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,7 +77,10 @@ def read_raw(path: Path | None = None, cfg: Config | None = None) -> pd.DataFram
 
 
 def clean_frame(
-    df: pd.DataFrame, required_columns: list[str] | None = None
+    df: pd.DataFrame,
+    required_columns: list[str] | None = None,
+    *,
+    deduplicate: bool = True,
 ) -> tuple[pd.DataFrame, CleaningReport]:
     """Return a typed, validated copy of ``df`` plus a record of the changes.
 
@@ -85,6 +88,10 @@ def clean_frame(
     An uploaded scoring file legitimately carries only the model's feature
     columns, and demanding ``customerID`` and ``gender`` from it - neither of
     which the model uses - would reject perfectly valid input.
+
+    ``deduplicate`` is for training data only. A scoring file must come back
+    one row out per row in: two customers can share every feature value, and
+    dropping one silently shifted every later row of the batch response.
     """
     rows_in = len(df)
     df = df.copy()
@@ -94,11 +101,13 @@ def clean_frame(
     for col in object_cols:
         df[col] = df[col].str.strip()
 
-    before = len(df)
-    df = df.drop_duplicates()
-    duplicates_dropped = before - len(df)
-    if duplicates_dropped:
-        logger.warning("dropped %d exact duplicate row(s)", duplicates_dropped)
+    duplicates_dropped = 0
+    if deduplicate:
+        before = len(df)
+        df = df.drop_duplicates()
+        duplicates_dropped = before - len(df)
+        if duplicates_dropped:
+            logger.warning("dropped %d exact duplicate row(s)", duplicates_dropped)
 
     # Columns are handled if present rather than assumed. A scoring file need
     # not carry every column of the raw contract - with
@@ -147,8 +156,13 @@ def clean_frame(
     if "SeniorCitizen" in df.columns:
         df["SeniorCitizen"] = df["SeniorCitizen"].astype(str)
 
+    # Encode the label only when every value is a known one. Anything else is
+    # left as text so validate_frame reports it, instead of an unknown label
+    # quietly becoming "did not churn".
     if schema.TARGET in df.columns:
-        df[schema.TARGET] = (df[schema.TARGET] == schema.POSITIVE_LABEL).astype("int8")
+        encoded = df[schema.TARGET].map(schema.TARGET_ENCODING)
+        if encoded.notna().all():
+            df[schema.TARGET] = encoded.astype("int8")
 
     schema.validate_frame(df, columns=required_columns, require_target=schema.TARGET in df.columns)
 
@@ -193,5 +207,12 @@ def features_and_target(
     missing = [c for c in columns if c not in df.columns]
     if missing:
         raise DataError(f"clean frame is missing model-input columns: {missing}")
+    # One customer on both sides of a split would leak their label into the
+    # evaluation. Exact duplicates are already gone; a repeated ID with
+    # different values means the file is not one row per customer.
+    if schema.ID_COLUMN in df.columns and (
+        repeated := int(df[schema.ID_COLUMN].duplicated().sum())
+    ):
+        raise DataError(f"{repeated} {schema.ID_COLUMN} value(s) occur more than once")
 
     return df.loc[:, columns].copy(), df[schema.TARGET].copy()

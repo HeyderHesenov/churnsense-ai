@@ -10,7 +10,7 @@ from churnsense.config import Config
 from churnsense.data import schema
 from churnsense.data.loader import clean_frame, features_and_target, read_raw
 from churnsense.data.split import make_splits
-from churnsense.exceptions import DataError
+from churnsense.exceptions import DataError, SchemaValidationError
 
 
 def test_blank_total_charges_at_zero_tenure_becomes_zero(raw_frame: pd.DataFrame):
@@ -62,6 +62,33 @@ def test_exact_duplicates_are_dropped_and_reported(raw_frame: pd.DataFrame):
     assert len(cleaned) == len(raw_frame)
 
 
+def test_scoring_files_keep_their_duplicate_rows(raw_frame: pd.DataFrame):
+    """Two customers may share every value; a scoring file is one row out per row in."""
+    doubled = pd.concat([raw_frame.head(5), raw_frame.head(1)], ignore_index=True)
+    cleaned, report = clean_frame(doubled, deduplicate=False)
+    assert report.duplicate_rows_dropped == 0
+    assert list(cleaned.index) == list(range(6))
+
+
+@pytest.mark.parametrize("bad_label", ["maybe", "", "churned"])
+def test_an_unknown_target_label_is_rejected_not_read_as_no_churn(
+    raw_frame: pd.DataFrame, bad_label: str
+):
+    """Regression: the label used to be encoded before validation, so any
+    value other than "Yes" silently became 0 and the check could never fail."""
+    frame = raw_frame.copy()
+    frame.loc[frame.index[0], schema.TARGET] = bad_label
+    with pytest.raises(SchemaValidationError, match=schema.TARGET):
+        clean_frame(frame)
+
+
+def test_an_already_encoded_target_is_read_correctly(raw_frame: pd.DataFrame):
+    expected = raw_frame[schema.TARGET].eq("Yes").astype(int).to_numpy()
+    encoded = raw_frame.assign(**{schema.TARGET: expected.astype(str)})
+    cleaned, _ = clean_frame(encoded)
+    np.testing.assert_array_equal(cleaned[schema.TARGET].to_numpy(), expected)
+
+
 def test_clean_frame_does_not_mutate_its_input(raw_frame: pd.DataFrame):
     before = raw_frame.copy()
     clean_frame(raw_frame)
@@ -86,6 +113,16 @@ def test_features_and_target_applies_config_drops(clean_frame: pd.DataFrame, cfg
     for dropped in (*cfg.features.drop_columns, schema.TARGET, schema.ID_COLUMN):
         assert dropped not in X.columns
     assert len(X) == len(y) == len(clean_frame)
+
+
+def test_a_repeated_customer_id_cannot_become_a_training_set(
+    clean_frame: pd.DataFrame, cfg: Config
+):
+    """The same customer on both sides of a split would leak their label."""
+    frame = clean_frame.copy()
+    frame.loc[frame.index[1], schema.ID_COLUMN] = frame.loc[frame.index[0], schema.ID_COLUMN]
+    with pytest.raises(DataError, match="more than once"):
+        features_and_target(frame, cfg)
 
 
 def test_features_and_target_requires_the_target(clean_frame: pd.DataFrame, cfg: Config):

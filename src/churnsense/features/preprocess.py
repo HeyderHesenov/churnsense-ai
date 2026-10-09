@@ -22,7 +22,6 @@ set that changes nothing - noise in the artifact, and one more thing to explain.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
@@ -39,11 +38,11 @@ def build_preprocessor(
 ) -> ColumnTransformer:
     """Build the transformer for the given column split.
 
-    ``handle_unknown="infrequent_if_exist"`` is chosen over ``"error"`` so a
-    production row carrying an unseen category degrades to the infrequent
-    bucket instead of taking the service down; the API separately *reports*
-    unknown categories so the caller still learns about it. Median imputation
-    on the numeric side is a safety net for serving, not for training - the
+    Unknown categories never reach this encoder in normal use: ``Predictor``
+    validates every input against the column contract and rejects them.
+    ``handle_unknown="ignore"`` is the defence-in-depth setting for a caller
+    that bypasses ``Predictor`` - an all-zero encoding rather than a crash.
+    Median imputation on the numeric side is the same kind of safety net; the
     cleaned training data has no numeric gaps.
     """
     numeric_steps: list[tuple[str, object]] = [("impute", SimpleImputer(strategy="median"))]
@@ -56,8 +55,7 @@ def build_preprocessor(
             (
                 "cat",
                 OneHotEncoder(
-                    handle_unknown="infrequent_if_exist",
-                    min_frequency=1,
+                    handle_unknown="ignore",
                     sparse_output=False,
                     dtype=np.float32,
                 ),
@@ -73,18 +71,3 @@ def build_preprocessor_for(columns: list[str], *, scale_numeric: bool) -> Column
     """Convenience wrapper that derives the numeric/categorical split from the schema."""
     numeric, categorical = schema.split_feature_types(columns)
     return build_preprocessor(numeric, categorical, scale_numeric=scale_numeric)
-
-
-def align_to_contract(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Reindex an incoming frame onto the trained column order.
-
-    Serving inputs arrive in whatever order the caller used, sometimes with
-    extra columns. ``ColumnTransformer`` selects by name so order is not
-    strictly required, but reindexing makes the contract explicit and gives a
-    clear error for a genuinely missing column rather than a NaN column that
-    silently imputes to the median.
-    """
-    missing = [c for c in columns if c not in df.columns]
-    if missing:
-        raise schema.SchemaValidationError("input is missing required feature column(s)", missing)
-    return df.loc[:, columns]

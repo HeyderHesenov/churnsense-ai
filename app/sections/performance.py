@@ -186,10 +186,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         st.info("Partition information is unavailable.")
         return
 
-    # Through Predictor, not the raw Pipeline: predict_frame applies the
-    # column contract (a clear error instead of a raw sklearn one when the
-    # artifact and configs/config.yaml disagree) and the same clamp every
-    # other surface uses.
+    # Through Predictor, not the raw model: predict_frame applies the column
+    # contract (a clear error instead of a raw sklearn one when the artifact
+    # and configs/config.yaml disagree), exactly as every other surface does.
     test_proba = model.predict_frame(parts.X_test)["churn_probability"].to_numpy()
     metrics = evaluate(parts.y_test, test_proba, threshold=model.threshold)
 

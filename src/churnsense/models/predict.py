@@ -18,23 +18,22 @@ is worse than an honest outage.
 from __future__ import annotations
 
 import io
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from sklearn.pipeline import Pipeline
 
 from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.evaluation.threshold import assign_risk_bands
 from churnsense.exceptions import SchemaValidationError
-from churnsense.features.preprocess import align_to_contract
-from churnsense.logging_setup import get_logger
+from churnsense.models.calibration_clamp import ProbabilityClamp
 from churnsense.models.train import load_artifact
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,9 +56,9 @@ class PredictionResult:
 
 @dataclass(frozen=True, slots=True)
 class Predictor:
-    """A loaded pipeline plus the metadata needed to serve it consistently."""
+    """A loaded model plus the metadata needed to serve it consistently."""
 
-    model: Pipeline
+    model: ProbabilityClamp
     meta: dict[str, Any]
     source: Path
     config: Config
@@ -86,16 +85,29 @@ class Predictor:
     def model_key(self) -> str:
         return str(self.meta["model_key"])
 
-    def _aligned(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Select and order the trained feature columns, failing clearly if absent.
+    def _validated(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Check ``df`` against the column contract and select the trained columns.
 
-        Extra columns are dropped rather than rejected: callers legitimately
-        carry ``customerID`` and the historical label alongside the features,
-        and refusing those would make the obvious usage an error.
+        Validation lives here, on the one path every consumer shares, so the
+        dashboard form and library callers get the same rules the API enforces:
+        a missing column, an out-of-range number or an unknown category is an
+        error, never a silently encoded guess. Extra columns are dropped rather
+        than rejected - callers legitimately carry ``customerID`` and the
+        historical label alongside the features.
+
+        Values are then coerced the way validation read them - categories as
+        stripped text, numerics as numbers - so what was checked is what is
+        scored. Without it a plain ``read_csv`` frame, whose ``SeniorCitizen``
+        is an integer, passed validation and then crashed inside the encoder.
         """
-        if df.empty:
-            raise SchemaValidationError("input contains no rows")
-        return align_to_contract(df, self.feature_columns)
+        schema.validate_frame(df, columns=self.feature_columns)
+        features = df.loc[:, self.feature_columns].copy()
+        for column in features.columns:
+            if column in schema.ALLOWED_CATEGORIES:
+                features[column] = features[column].astype(str).str.strip()
+            else:
+                features[column] = pd.to_numeric(features[column])
+        return features
 
     def predict_frame(self, df: pd.DataFrame, threshold: float | None = None) -> pd.DataFrame:
         """Score a frame. Returns probability, risk band and the flag decision.
@@ -106,7 +118,7 @@ class Predictor:
         """
         cut = self.threshold if threshold is None else float(threshold)
         # Already clamped by the artifact itself; see calibration_clamp.
-        probabilities = self.model.predict_proba(self._aligned(df))[:, 1]
+        probabilities = self.model.predict_proba(self._validated(df))[:, 1]
 
         bands = assign_risk_bands(probabilities, self.config)
         return pd.DataFrame(
@@ -129,21 +141,6 @@ class Predictor:
             flagged=bool(row["flagged"]),
             threshold=self.threshold if threshold is None else float(threshold),
         )
-
-    def unseen_categories(self, df: pd.DataFrame) -> dict[str, list[str]]:
-        """Category values the model never saw in training.
-
-        Reported rather than rejected: the encoder handles them, but a caller
-        deserves to know its prediction rests on an unfamiliar input.
-        """
-        found: dict[str, list[str]] = {}
-        for column, allowed in schema.ALLOWED_CATEGORIES.items():
-            if column not in df.columns or column not in self.feature_columns:
-                continue
-            unexpected = sorted(set(df[column].astype(str)) - set(allowed))
-            if unexpected:
-                found[column] = unexpected
-        return found
 
 
 @lru_cache(maxsize=4)
@@ -206,7 +203,8 @@ def validate_upload(
     # reject the project's own dataset as containing non-numeric charges.
     # clean_frame handles each column only if present, so a missing one
     # surfaces from validate_frame as a SchemaValidationError (-> 422) rather
-    # than as a KeyError (-> 500).
+    # than as a KeyError (-> 500). No deduplication: every uploaded row is
+    # scored and keeps its position in the file.
     from churnsense.data.loader import clean_frame
 
-    return clean_frame(frame, required_columns=required)[0]
+    return clean_frame(frame, required_columns=required, deduplicate=False)[0]

@@ -109,6 +109,19 @@ def _partition_labels(index: pd.Index) -> pd.Series:
 
 
 @st.cache_data(show_spinner=False)
+def shap_background() -> pd.DataFrame | None:
+    """The reference customers every SHAP explanation is measured against.
+
+    The same training-partition sample ``make explain`` uses, so "relative to
+    an average customer" means one thing on every page.
+    """
+    from churnsense.explainability.shap_explain import background_sample
+
+    parts = splits()
+    return None if parts is None else background_sample(parts.X_train, config().random_seed)
+
+
+@st.cache_data(show_spinner=False)
 def shap_importance() -> pd.DataFrame | None:
     from churnsense.explainability.shap_explain import load_cached_importance
 

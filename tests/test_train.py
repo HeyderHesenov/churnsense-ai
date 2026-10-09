@@ -13,12 +13,12 @@ import json
 import numpy as np
 import pytest
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.pipeline import Pipeline
 
 from churnsense.config import Config
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
 from churnsense.exceptions import ModelNotAvailableError
+from churnsense.models.calibration_clamp import ProbabilityClamp
 from churnsense.models.registry import MODEL_KEYS
 from churnsense.models.train import (
     TrainingOutcome,
@@ -51,9 +51,22 @@ def test_every_candidate_is_evaluated(outcome: TrainingOutcome):
     assert [r.key for r in outcome.results] == list(MODEL_KEYS)
 
 
-def test_selection_maximises_validation_average_precision(outcome: TrainingOutcome):
-    best = max(outcome.results, key=lambda r: r.validation.average_precision)
-    assert outcome.selected_key == best.key
+def test_selection_follows_the_one_standard_error_rule(outcome: TrainingOutcome, cfg: Config):
+    """Replaces a test that asserted a plain argmax - the rule the code does
+    *not* implement - and so only passed when the two happened to agree.
+
+    Checked from the outside: the winner sits within one standard error of the
+    validation leader, and no simpler candidate does.
+    """
+    from churnsense.models.registry import COMPLEXITY_ORDER
+
+    leader = max(outcome.results, key=lambda r: r.validation.average_precision)
+    cutoff = leader.validation.average_precision - leader.cv_std / np.sqrt(cfg.training.cv_folds)
+    tied = {r.key for r in outcome.results if r.validation.average_precision >= cutoff}
+
+    assert outcome.selected_key in tied
+    simpler = COMPLEXITY_ORDER[: COMPLEXITY_ORDER.index(outcome.selected_key)]
+    assert not tied & set(simpler)
 
 
 def test_the_baseline_is_not_selected(outcome: TrainingOutcome):
@@ -85,13 +98,33 @@ def test_calibration_decision_is_measured_not_assumed(outcome: TrainingOutcome):
         outcome.calibrated_ece is not None and outcome.calibrated_ece < outcome.uncalibrated_ece
     )
     if outcome.calibration_applied:
-        # The shipped pipeline wraps its classifier in the probability clamp,
-        # so the calibrator is one level in.
-        from churnsense.models.calibration_clamp import ProbabilityClamp
+        # The shipped model is the probability clamp around the calibrator.
+        assert isinstance(outcome.model, ProbabilityClamp)
+        assert isinstance(outcome.model.estimator, CalibratedClassifierCV)
 
-        classifier = outcome.model.named_steps["classifier"]
-        assert isinstance(classifier, ProbabilityClamp)
-        assert isinstance(classifier.estimator, CalibratedClassifierCV)
+
+def test_calibration_refits_preprocessing_inside_every_fold(splits, cfg: Config):
+    """Leak-free calibration, checked by behaviour rather than by reading code.
+
+    Each calibration fold must carry its own preprocessor, fitted on that
+    fold's training rows. The earlier recipe shared one scaler fitted on the
+    whole partition, so every fold had seen its own held-out rows.
+    """
+    from churnsense.models.registry import build_candidate
+    from churnsense.models.train import _calibrate
+
+    tuned = build_candidate("logistic_regression", list(splits.X_train.columns), seed=0)
+    calibrated, _ = _calibrate(
+        tuned.fit(splits.X_train, splits.y_train), splits.X_train, splits.y_train, cfg
+    )
+
+    means = [
+        fold.estimator.named_steps["preprocess"].named_transformers_["num"]["scale"].mean_[0]
+        for fold in calibrated.calibrated_classifiers_
+    ]
+    full = splits.X_train["tenure"].mean()  # tenure is the first numeric column
+    assert len(set(np.round(means, 9))) == len(means), "each fold must fit its own scaler"
+    assert all(abs(m - full) > 1e-9 for m in means), "no fold may reuse the full-partition fit"
 
 
 def test_cv_scores_are_finite(outcome: TrainingOutcome):
@@ -121,7 +154,7 @@ def test_saved_artifact_round_trips(outcome: TrainingOutcome, splits, tmp_path):
         model.predict_proba(splits.X_val)[:, 1],
         outcome.model.predict_proba(splits.X_val)[:, 1],
     )
-    assert isinstance(model, Pipeline)
+    assert isinstance(model, ProbabilityClamp)
     assert meta["model_key"] == outcome.selected_key
 
 
@@ -266,3 +299,39 @@ def test_reported_validation_metrics_describe_the_shipped_model(outcome, splits,
     assert reported["precision"] == pytest.approx(actual.precision, abs=1e-9)
     assert reported["recall"] == pytest.approx(actual.recall, abs=1e-9)
     assert reported["average_precision"] == pytest.approx(actual.average_precision, abs=1e-9)
+
+
+# --- feature decisions ------------------------------------------------------
+
+
+def test_feature_ablation_reverses_each_configured_decision(
+    clean_frame, splits, outcome: TrainingOutcome, cfg: Config
+):
+    """The documentation's "excluding gender costs nothing" must be a measurement."""
+    from churnsense.models.train import feature_ablation
+
+    table = feature_ablation(
+        clean_frame.loc[splits.X_train.index], splits.y_train, outcome.selected, cfg
+    )
+
+    assert list(table["variant"]) == ["as configured", "with gender", "without TotalCharges"]
+    assert table.loc[0, "change"] == 0.0
+    assert list(table["features"]) == [18, 19, 17]
+    assert np.isfinite(table["cv_score"]).all()
+
+
+def test_the_comparison_report_publishes_the_ablation(
+    clean_frame, splits, outcome: TrainingOutcome, cfg: Config, tmp_path
+):
+    from churnsense.evaluation.report import write_comparison_report
+    from churnsense.models.train import feature_ablation
+
+    ablation = feature_ablation(
+        clean_frame.loc[splits.X_train.index], splits.y_train, outcome.selected, cfg
+    )
+    text = write_comparison_report(outcome, cfg, ablation=ablation, directory=tmp_path).read_text()
+
+    assert "## Feature decisions, measured" in text
+    assert "with gender" in text
+    calibrated_label = "Shipped (calibrated" in text
+    assert calibrated_label == outcome.calibration_applied

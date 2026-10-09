@@ -30,7 +30,7 @@ that answers "what if the offer only works 20 % of the time".
 
 ### Q3. How do you know it is worth anything?
 
-Measured on the held-out test partition: PR-AUC **0.6254** against a no-skill
+Measured on the held-out test partition: PR-AUC **0.6251** against a no-skill
 baseline of **0.265** — a **2.4× lift**. At the chosen threshold it catches
 **70 %** of churners while flagging a third of the book.
 
@@ -129,7 +129,8 @@ reported metrics match the persisted model.
 
 **The certainty bug.** The dashboard displayed **"100.0 %"** churn probability
 for a real customer. Isotonic calibration is a step function; its terminal bins
-assigned exactly 1.000 to five customers and exactly 0.000 to 210. No model
+assigned exactly 1.000 to five customers and exactly 0.000 to 210 (four and
+210 after the audit's retrain). No model
 fitted on 4,225 rows can claim certainty, and a probability of exactly 1 has
 infinite log-odds, which breaks any downstream expected-value arithmetic.
 Probabilities are now clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4` —
@@ -141,13 +142,16 @@ Because the business layer multiplies a predicted probability by a customer's
 value. A model that *ranks* perfectly but reports 0.9 for customers who churn
 60 % of the time produces a confident, wrong budget.
 
-Isotonic calibration cut expected calibration error from **0.1441 to 0.0288**
-on validation, and it holds on test at **0.0264**. I fitted it, measured it,
+Isotonic calibration cut expected calibration error from **0.1441 to 0.0274**
+on validation, and it holds on test at **0.0275**. I fitted it, measured it,
 and kept it *because* it helped — the code keeps the uncalibrated model
 otherwise.
 
 It is fitted with `cv=5` on train, not `cv="prefit"` on validation, because
-prefit would consume the validation set I still need for the threshold.
+prefit would consume the validation set I still need for the threshold. Each
+calibration fold refits the whole pipeline — the first version reused the
+preprocessor fitted on all of train, a small leak an audit caught (effect on
+validation ECE: 0.0288 → 0.0274).
 
 ---
 
@@ -179,18 +183,19 @@ the noise-chasing mistake once, recognised it the second time.
 - A **false negative** is a customer who leaves without ever being offered
   anything. Cost: their remaining margin, hundreds of dollars.
 - A **false positive** is an offer to someone who was staying. Cost: one offer,
-  $50 by default, plus discount leakage.
+  $50 by default — plus any discount they keep, which the simulation does not
+  model.
 
 Roughly 10:1, so recall is worth buying with precision, and the optimum sits
-well below 0.5. At 0.36 on test: **262 churners caught, 112 missed, 213
+well below 0.5. At 0.36 on test: **263 churners caught, 111 missed, 213
 unnecessary offers**.
 
-I would not hide that third number. 213 of 475 flagged customers were going to
+I would not hide that third number. 213 of 476 flagged customers were going to
 stay anyway — that is the honest price of 70 % recall.
 
 ### Q12. Your test and validation numbers differ. Why?
 
-Validation PR-AUC 0.6433, test 0.6254; validation ROC-AUC 0.8377, test 0.8425.
+Validation PR-AUC 0.6441, test 0.6251; validation ROC-AUC 0.8375, test 0.8422.
 Different directions, both small — ordinary sampling variation across two
 1,409-row partitions.
 
@@ -220,7 +225,7 @@ Both, measuring different things — and both are published.
 | Feature | Univariate (Cramér's V) | SHAP |
 |---|---|---|
 | Contract type | **1st** (0.410) | 4th (8.7 %) |
-| Tenure | 2nd (0.352) | **1st** (18.0 %) |
+| Tenure | 2nd (0.352) | **1st** (18.4 %) |
 
 Contract is the strongest signal *on its own*. But it overlaps heavily with
 tenure — long-tenure customers are the ones on long contracts — so inside a
@@ -259,7 +264,7 @@ Measured on test at 0.36:
 
 | Segment | n | Churn rate | Flagged | Recall |
 |---|---|---|---|---|
-| Month-to-month | 773 | 42.6 % | 466 | 0.784 |
+| Month-to-month | 773 | 42.6 % | 467 | 0.787 |
 | One year | 300 | 12.0 % | 9 | 0.111 |
 | Two year | 336 | 2.7 % | **0** | **0.000** |
 | No internet | 312 | 8.0 % | **0** | **0.000** |
@@ -293,8 +298,11 @@ call it. `predict_one` is implemented *in terms of* `predict_frame` rather than
 beside it, because a separate single-row path is exactly how a form and a batch
 job start disagreeing in the third decimal.
 
-Verified live: the same customer scores **0.804955658153** through all three,
-and all 120 rows of the demo file match the batch endpoint to **0.00e+00**.
+Verified live: the same customer scores **0.802979373568** through the library
+and `POST /predict`, and on all 120 rows of the demo file the batch endpoint
+matches the library to **0.00e+00**. Validation lives on that same path, so a
+value the API would reject cannot be scored through the dashboard or the
+library either.
 
 ### Q19. What happens if the model file is missing?
 
@@ -349,6 +357,20 @@ unpatched 2021 build. The migration also lifted `shap` 0.49 → 0.52, and the
 pipeline reproduced bit-identical results across it — which is better evidence
 of reproducibility than anything I could have asserted.
 
+### Q23. What did reviewing your own finished project turn up?
+
+Defects every test had passed. The worst: batch scoring dropped duplicate rows
+and renumbered the rest, so the API attributed probabilities to the wrong
+customers; calibration reused a preprocessor fitted on all of train inside its
+own CV folds; and per-customer SHAP rested on a single sampled ordering — with
+only the seed changed, the top three drivers moved for 37.5 % of customers.
+The documentation also cited a gender ablation that no code had ever run.
+
+Each was reproduced first, fixed, and pinned with a test that fails on the old
+code. The leak and the SHAP fix changed the model, so the test set was scored
+a second time; I disclose that, and both fixes were decided before it. Full
+table in `docs/PROJECT_WALKTHROUGH.md` §10.
+
 ---
 
 ## Quick reference
@@ -360,6 +382,6 @@ of reproducibility than anything I could have asserted.
 | Selected model | Logistic Regression (`C=10`), isotonic-calibrated |
 | Selection rule | One-standard-error, tie broken on simplicity |
 | Threshold | 0.36, validation-chosen, one-offer indifference band |
-| Test | P 0.5516 · R 0.7005 · F1 0.6172 · ROC-AUC 0.8425 · PR-AUC 0.6254 · ECE 0.0264 |
+| Test | P 0.5525 · R 0.7032 · F1 0.6188 · ROC-AUC 0.8422 · PR-AUC 0.6251 · ECE 0.0275 |
 | Baseline | PR-AUC 0.2654, ROC-AUC 0.500 |
 | Tests | 246 passing (224 without data), Python 3.12.13 |

@@ -2,11 +2,11 @@
 # Every target runs through .venv so results do not depend on an activated shell.
 
 # Interpreter used to CREATE the venv. Override when the default python3 is
-# too old: `make setup PYTHON=python3.12`. The project needs >= 3.11 because
-# pydantic 2.x calls typing.ForwardRef(is_class=...), added in 3.10.1, and
-# shap >= 0.50 requires 3.11 — see docs/PROJECT_WALKTHROUGH.md.
+# too old: `make setup PYTHON=python3.12`. The project needs >= 3.12 because
+# the locked environment pins shap 0.52, scipy 1.18 and contourpy 1.4, which
+# all dropped 3.11 — see docs/PROJECT_WALKTHROUGH.md.
 PYTHON ?= python3
-MIN_PYTHON := 3.11
+MIN_PYTHON := 3.12
 
 PY := .venv/bin/python
 PIP := $(PY) -m pip
@@ -18,14 +18,15 @@ help:  ## Show the available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
 	 | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
-setup: check-python  ## Create .venv and install the project with dev + notebook extras
+setup: check-python  ## Create .venv from the lock (requirements.txt), dev + notebook tools included
 	$(PYTHON) -m venv .venv
-	$(PIP) install --upgrade pip setuptools wheel
-	$(PIP) install -e ".[dev,notebook]"
+	$(PIP) install --upgrade pip
+	$(PIP) install -r requirements.txt
+	$(PIP) install -e . --no-deps
 	@echo "Done. Next: make data"
 
 check-python:  ## Verify $(PYTHON) is new enough, before anything is created
-	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 11) else 1)' \
+	@$(PYTHON) -c 'import sys; raise SystemExit(0 if sys.version_info[:2] >= (3, 12) else 1)' \
 	  2>/dev/null || { \
 	    echo ""; \
 	    echo "  '$(PYTHON)' is $$($(PYTHON) -V 2>&1 | cut -d" " -f2), but this project needs >= $(MIN_PYTHON)."; \
@@ -34,7 +35,7 @@ check-python:  ## Verify $(PYTHON) is new enough, before anything is created
 	    echo "      make setup PYTHON=python3.12"; \
 	    echo ""; \
 	    printf "  Found on PATH:"; \
-	    for v in 3.11 3.12 3.13; do command -v python$$v >/dev/null && printf " python%s" $$v; done; \
+	    for v in 3.12 3.13; do command -v python$$v >/dev/null && printf " python%s" $$v; done; \
 	    echo ""; echo ""; \
 	    exit 1; \
 	  }

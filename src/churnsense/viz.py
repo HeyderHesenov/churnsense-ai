@@ -22,12 +22,11 @@ meaning alone. That pairing is the documented mitigation, not an oversight.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Final
 
-from churnsense.logging_setup import get_logger
-
-_logger = get_logger(__name__)
+_logger = logging.getLogger(__name__)
 
 # --- Surfaces and ink -------------------------------------------------------
 PAGE_BG: Final = "#0d1117"

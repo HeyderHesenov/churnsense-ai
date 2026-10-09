@@ -107,7 +107,7 @@ def _economics_chart(
     figure.add_vline(x=chosen, line_dash="dash", line_color=viz.ACCENT_ALT, line_width=2)
     figure.update_layout(
         xaxis_title="Decision threshold",
-        yaxis_title="Simulated net benefit (USD)",
+        yaxis_title=f"Simulated net benefit ({business.currency})",
         showlegend=False,
         margin={"l": 8, "r": 8, "t": 34, "b": 8},
     )

@@ -115,3 +115,27 @@ def test_the_sweep_table_in_the_report_has_no_missing_rows(evaluated, cfg: Confi
     assert thresholds == ["0.10", "0.20", "0.30", "0.40", "0.50", "0.60", "0.70", "0.80"], (
         f"the highlight table is missing rows: {thresholds}"
     )
+
+
+def test_performance_is_broken_down_by_segment(evaluated, cfg: Config):
+    """The per-segment table the model card quotes must be generated, not typed."""
+    from churnsense.evaluation.report import SEGMENT_COLUMNS
+
+    evaluation, _, splits = evaluated
+    segments = evaluation.segments
+    for column in SEGMENT_COLUMNS:
+        part = segments[segments["dimension"] == column]
+        assert set(part["segment"]) == set(splits.X_test[column])
+        assert part["customers"].sum() == len(splits.X_test)
+        assert part["flagged"].sum() == evaluation.test_metrics.flagged
+
+
+def test_the_report_publishes_the_segment_table(evaluated, cfg: Config, tmp_path):
+    from churnsense.evaluation.report import write_final_report
+
+    evaluation, _, _ = evaluated
+    text = write_final_report(
+        evaluation, {"display_name": "Test Model"}, cfg, directory=tmp_path
+    ).read_text()
+    assert "### Performance by segment" in text
+    assert "| nan |" not in text.lower()

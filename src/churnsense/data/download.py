@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import logging
 import ssl
 import urllib.error
 import urllib.request
@@ -27,9 +28,9 @@ import certifi
 
 from churnsense.config import Config, load_config
 from churnsense.exceptions import DataError
-from churnsense.logging_setup import get_logger
+from churnsense.logging_setup import configure_logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _CHUNK = 1 << 16
 _TIMEOUT_SECONDS = 60
@@ -54,7 +55,7 @@ def _manual_instructions(cfg: Config) -> str:
         "The same file is also published on Kaggle as 'Telco Customer Churn' "
         "(WA_Fn-UseC_-Telco-Customer-Churn.csv) and is identical in content.\n\n"
         "If the failure was a TLS certificate error, running\n"
-        '  "/Applications/Python 3.10/Install Certificates.command"\n'
+        '  "/Applications/Python 3.x/Install Certificates.command"\n'
         "installs the CA roots your Python build is missing and fixes it permanently."
     )
 
@@ -143,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Download and verify the raw churn dataset.")
     parser.add_argument("--force", action="store_true", help="re-download even if the file exists")
     args = parser.parse_args(argv)
+    configure_logging()
     try:
         path = download_dataset(force=args.force)
     except DataError as exc:

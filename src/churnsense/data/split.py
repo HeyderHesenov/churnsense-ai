@@ -18,15 +18,15 @@ docs/PROJECT_WALKTHROUGH.md.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from churnsense.config import Config, load_config
-from churnsense.logging_setup import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)

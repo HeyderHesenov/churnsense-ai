@@ -13,6 +13,7 @@ touched test data, and the final report runs once, after selection is closed.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from churnsense.evaluation.metrics import (
     evaluate,
     expected_calibration_error,
     reliability_table,
+    segment_performance,
 )
 from churnsense.evaluation.threshold import (
     DISCLAIMER,
@@ -34,10 +36,10 @@ from churnsense.evaluation.threshold import (
     recommend_threshold,
     sweep_thresholds,
 )
-from churnsense.logging_setup import get_logger
+from churnsense.logging_setup import configure_logging
 from churnsense.models.train import TrainingOutcome
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def _markdown_table(frame: pd.DataFrame, floats: str = "{:.4f}") -> str:
@@ -45,7 +47,10 @@ def _markdown_table(frame: pd.DataFrame, floats: str = "{:.4f}") -> str:
     formatted = frame.copy()
     for column in formatted.columns:
         if pd.api.types.is_float_dtype(formatted[column]):
-            formatted[column] = formatted[column].map(floats.format)
+            # NaN means "undefined here" (e.g. precision with nothing flagged).
+            formatted[column] = formatted[column].map(
+                lambda v: "—" if pd.isna(v) else floats.format(v)
+            )
         elif pd.api.types.is_bool_dtype(formatted[column]):
             formatted[column] = formatted[column].map({True: "**yes**", False: ""})
     header = "| " + " | ".join(str(c) for c in formatted.columns) + " |"
@@ -54,11 +59,71 @@ def _markdown_table(frame: pd.DataFrame, floats: str = "{:.4f}") -> str:
     return "\n".join([header, rule, *rows])
 
 
-def write_comparison_report(outcome: TrainingOutcome, cfg: Config | None = None) -> Path:
+#: Dimensions the final report breaks test performance down by.
+SEGMENT_COLUMNS: tuple[str, ...] = ("Contract", "InternetService")
+
+
+def _ablation_section(ablation: pd.DataFrame | None, scoring: str) -> str:
+    if ablation is None:
+        return "Not computed in this run (`make train --no-report` skips it)."
+    table = ablation.rename(
+        columns={
+            "variant": "Feature set",
+            "features": "Columns",
+            "cv_score": f"CV {scoring}",
+            "cv_std": "CV std",
+            "change": "Change vs configured",
+        }
+    )
+    return f"""Two columns are handled by configuration rather than left to the model:
+`gender` is excluded as a protected attribute, and `TotalCharges` is kept despite
+being nearly collinear with `tenure x MonthlyCharges`. Each decision is reversed
+below for the selected model with its tuned hyper-parameters, cross-validated on
+the training partition with the same folds as the search.
+
+{_markdown_table(table)}
+
+Read each change against the CV standard deviation beside it: the score varies
+from fold to fold by about that much, so a smaller change is not a measurable
+difference."""
+
+
+def _shipped_section(outcome: TrainingOutcome) -> str:
+    selected, shipped = outcome.selected.validation, outcome.shipped_validation
+    if outcome.calibration_applied:
+        label = f"Shipped (calibrated, {outcome.calibration_method})"
+        reading = f"""Ranking barely moves (ROC-AUC {selected.roc_auc:.4f} -> {shipped.roc_auc:.4f}). The
+calibrated model averages a monotone map over each cross-validation refit, so it
+can reorder customers only slightly. What moves is the *operating point*:
+class-weighted training inflates raw scores, so the same 0.5 cut flags
+{selected.flagged:,} validation customers before calibration and {shipped.flagged:,}
+after. Reporting the candidate's precision and recall for the shipped model
+would therefore have described a different decision rule."""
+    else:
+        label = "Shipped"
+        reading = """Calibration was not applied, so the shipped model is the candidate behind
+the probability clamp; the two columns differ only where the clamp binds."""
+    return f"""| Metric | Candidate (uncalibrated) | **{label}** |
+|---|---|---|
+| PR-AUC | {selected.average_precision:.4f} | **{shipped.average_precision:.4f}** |
+| ROC-AUC | {selected.roc_auc:.4f} | **{shipped.roc_auc:.4f}** |
+| Precision @ 0.5 | {selected.precision:.4f} | **{shipped.precision:.4f}** |
+| Recall @ 0.5 | {selected.recall:.4f} | **{shipped.recall:.4f}** |
+| Brier | {selected.brier:.4f} | **{shipped.brier:.4f}** |
+
+{reading}"""
+
+
+def write_comparison_report(
+    outcome: TrainingOutcome,
+    cfg: Config | None = None,
+    ablation: pd.DataFrame | None = None,
+    directory: Path | None = None,
+) -> Path:
     """Write ``reports/model_comparison.md`` from an actual training run."""
     cfg = cfg or load_config()
+    directory = Path(directory) if directory else cfg.paths.reports_dir
     selected, dummy = outcome.selected, next(r for r in outcome.results if r.key == "dummy")
-    shipped = outcome.shipped_validation
     table = outcome.comparison_frame().rename(
         columns={
             "model": "Model",
@@ -132,7 +197,7 @@ anyone else. It is in the table to fix the floor, and because its
 
 Cross-validated and validation scores are reported side by side. A large gap
 between them is the signal to distrust the selection; here the selected model
-scores {selected.cv_score:.4f} in 5-fold CV on train and
+scores {selected.cv_score:.4f} in {cfg.training.cv_folds}-fold CV on train and
 {selected.validation.average_precision:.4f} on the held-out validation set.
 
 ### Calibration
@@ -146,24 +211,11 @@ of the time would produce confident, wrong budgets.
 
 ### The model that actually ships
 
-The comparison table scores each *candidate* before calibration. Calibration
-changes the probabilities, so the persisted pipeline is scored separately and
-it is those numbers that `model_meta.json` reports:
+The comparison table scores each *candidate* before calibration. The persisted
+model is scored separately, and it is those numbers that `model_meta.json`
+reports:
 
-| Metric | Candidate (uncalibrated) | **Shipped (calibrated)** |
-|---|---|---|
-| PR-AUC | {selected.validation.average_precision:.4f} | **{shipped.average_precision:.4f}** |
-| ROC-AUC | {selected.validation.roc_auc:.4f} | **{shipped.roc_auc:.4f}** |
-| Precision @ 0.5 | {selected.validation.precision:.4f} | **{shipped.precision:.4f}** |
-| Recall @ 0.5 | {selected.validation.recall:.4f} | **{shipped.recall:.4f}** |
-| Brier | {selected.validation.brier:.4f} | **{shipped.brier:.4f}** |
-
-Ranking barely moves, which is expected - isotonic calibration is monotone, so
-it cannot reorder customers. What moves sharply is the *operating point*:
-`class_weight="balanced"` pushes raw scores upward, so an uncalibrated 0.5
-flags far more customers than a calibrated 0.5 does. Reporting the candidate's
-precision and recall for the shipped model would therefore have been wrong by a
-wide margin in both directions.
+{_shipped_section(outcome)}
 
 That is also why the threshold is treated as a separate business decision
 rather than left at 0.5 - see `reports/final_evaluation.md`.
@@ -179,14 +231,19 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
 - Stratified 60/20/20 split, seed {cfg.random_seed}.
 - {cfg.training.cv_folds}-fold stratified cross-validation on the training
   partition for hyper-parameter search.
-- Preprocessing lives inside each `Pipeline`, so it is refitted on every CV fold
-  and can never be fitted on data outside the fold.
+- Preprocessing lives inside each `Pipeline`, so it is refitted on every CV fold -
+  in the grid search and in the calibration folds alike - and can never be
+  fitted on data outside the fold.
 - Class imbalance handled by `class_weight`, not resampling: at roughly 1:2.8
   the imbalance is moderate, and weighting keeps the probability scale
   interpretable for the business layer.
 - The artifact is fitted on the training partition only. Refitting on
   train+validation would use more data but would mean the estimator had seen
   the data its own calibration and threshold were tuned on.
+
+## Feature decisions, measured
+
+{_ablation_section(ablation, cfg.training.scoring)}
 
 ## What this comparison does not tell you
 
@@ -196,7 +253,7 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
 - These numbers describe one public snapshot of one operator. They do not
   transfer to another book of business without retraining and recalibration.
 """
-    path = cfg.paths.reports_dir / "model_comparison.md"
+    path = directory / "model_comparison.md"
     path.write_text(content, encoding="utf-8")
     logger.info("wrote %s", path.name)
     return path
@@ -226,6 +283,7 @@ class FinalEvaluation:
     test_optimal_threshold: float
     test_ece: float
     reliability: pd.DataFrame
+    segments: pd.DataFrame
 
     @property
     def tuning_gain(self) -> dict[str, float]:
@@ -279,6 +337,17 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
         ).threshold,
         test_ece=expected_calibration_error(splits.y_test, test_proba),
         reliability=reliability_table(splits.y_test, test_proba),
+        segments=pd.concat(
+            {
+                column: segment_performance(
+                    splits.y_test, test_proba, splits.X_test[column], threshold
+                )
+                for column in SEGMENT_COLUMNS
+            },
+            names=["dimension"],
+        )
+        .reset_index(level=0)
+        .reset_index(drop=True),
     )
     logger.info(
         "test: pr_auc=%.4f roc_auc=%.4f precision=%.4f recall=%.4f ece=%.4f",
@@ -289,6 +358,20 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
         evaluation.test_ece,
     )
     return evaluation
+
+
+def _unscanned_note(segments: pd.DataFrame) -> str:
+    """Name the segments the operating point leaves entirely unflagged."""
+    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
+    if unscanned.empty:
+        return "Every segment has at least one flagged customer at this threshold."
+    names = ", ".join(f"{row.segment} ({row.dimension})" for row in unscanned.itertuples())
+    return (
+        f"**No customer is flagged in: {names}.** Their {int(unscanned['churners'].sum()):,} "
+        "churners would receive nothing from a campaign driven by this score. That is a "
+        "property of one global operating point, not of the ranking - a segment with no "
+        "flags is *not scanned*, which is different from *no risk*."
+    )
 
 
 def write_final_report(
@@ -381,6 +464,30 @@ would be missed.
 | F1 | {half.f1:.4f} | {m.f1:.4f} | {gain["f1"]:+.4f} |
 | Customers flagged | {half.flagged:,} | {m.flagged:,} | {m.flagged - half.flagged:+,} |
 
+### Performance by segment at threshold {evaluation.threshold:.2f}
+
+An aggregate recall can hide a segment the model never flags. Precision is
+shown as "—" where nothing in the segment was flagged: undefined, not zero.
+
+{
+        _markdown_table(
+            evaluation.segments.rename(
+                columns={
+                    "dimension": "Dimension",
+                    "segment": "Segment",
+                    "customers": "Customers",
+                    "churners": "Churners",
+                    "churn_rate": "Churn rate",
+                    "flagged": "Flagged",
+                    "precision": "Precision",
+                    "recall": "Recall",
+                }
+            )
+        )
+    }
+
+{_unscanned_note(evaluation.segments)}
+
 For reference only: the threshold that would have been optimal *on this test
 partition* is {evaluation.test_optimal_threshold:.2f}, against the
 {evaluation.threshold:.2f} chosen on validation. That number is reported and
@@ -409,8 +516,8 @@ value - campaign cost.
 
 {_markdown_table(highlights, "{:,.2f}")}
 
-The optimum sits at **{evaluation.threshold:.2f}**, not at 0.5. That is the
-whole point of treating the threshold as a business parameter: a missed churner
+The recommended operating point is **{evaluation.threshold:.2f}**, not 0.5. That is
+the whole point of treating the threshold as a business parameter: a missed churner
 costs a customer's remaining margin, while a false positive costs one offer.
 Those are not symmetric, so the cut that balances them is not the cut that
 balances the probability.
@@ -485,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
     from churnsense.models.train import META_FILENAME, load_artifact
 
     argparse.ArgumentParser(description="Final test-set evaluation.").parse_args(argv)
+    configure_logging()
     cfg = load_config()
     cfg.paths.ensure()
 

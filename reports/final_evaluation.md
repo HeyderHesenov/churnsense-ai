@@ -16,14 +16,14 @@ partition was read.
 
 | Metric | Value |
 |---|---|
-| Precision | 0.5516 |
-| Recall | 0.7005 |
-| F1 | 0.6172 |
-| ROC-AUC | 0.8425 |
-| PR-AUC (average precision) | 0.6254 |
-| Brier score | 0.1384 |
-| Expected calibration error | 0.0264 |
-| Accuracy | 0.7693 |
+| Precision | 0.5525 |
+| Recall | 0.7032 |
+| F1 | 0.6188 |
+| ROC-AUC | 0.8422 |
+| PR-AUC (average precision) | 0.6251 |
+| Brier score | 0.1385 |
+| Expected calibration error | 0.0275 |
+| Accuracy | 0.7700 |
 
 Accuracy is last on purpose. Predicting "nobody churns" would score
 73.5% on this partition and be worth nothing.
@@ -33,19 +33,35 @@ Accuracy is last on purpose. Predicting "nobody churns" would score
 |  | Predicted stay | Predicted churn |
 |---|---|---|
 | **Actually stayed** | 822 | 213 |
-| **Actually churned** | 112 | 262 |
+| **Actually churned** | 111 | 263 |
 
-475 customers would be flagged for intervention. 112 churners
+476 customers would be flagged for intervention. 111 churners
 would be missed.
 
 ### What tuning the threshold bought
 
 | Metric | At 0.50 (default) | At 0.36 (tuned) | Change |
 |---|---|---|---|
-| Precision | 0.6582 | 0.5516 | -0.1066 |
-| Recall | 0.5561 | 0.7005 | +0.1444 |
-| F1 | 0.6029 | 0.6172 | +0.0143 |
-| Customers flagged | 316 | 475 | +159 |
+| Precision | 0.6603 | 0.5525 | -0.1078 |
+| Recall | 0.5561 | 0.7032 | +0.1471 |
+| F1 | 0.6038 | 0.6188 | +0.0150 |
+| Customers flagged | 315 | 476 | +161 |
+
+### Performance by segment at threshold 0.36
+
+An aggregate recall can hide a segment the model never flags. Precision is
+shown as "—" where nothing in the segment was flagged: undefined, not zero.
+
+| Dimension | Segment | Customers | Churners | Churn rate | Flagged | Precision | Recall |
+|---|---|---|---|---|---|---|---|
+| Contract | Month-to-month | 773 | 329 | 0.4256 | 467 | 0.5546 | 0.7872 |
+| Contract | One year | 300 | 36 | 0.1200 | 9 | 0.4444 | 0.1111 |
+| Contract | Two year | 336 | 9 | 0.0268 | 0 | — | 0.0000 |
+| InternetService | DSL | 484 | 97 | 0.2004 | 92 | 0.5217 | 0.4948 |
+| InternetService | Fiber optic | 613 | 252 | 0.4111 | 384 | 0.5599 | 0.8532 |
+| InternetService | No | 312 | 25 | 0.0801 | 0 | — | 0.0000 |
+
+**No customer is flagged in: Two year (Contract), No (InternetService).** Their 34 churners would receive nothing from a campaign driven by this score. That is a property of one global operating point, not of the ranking - a segment with no flags is *not scanned*, which is different from *no risk*.
 
 For reference only: the threshold that would have been optimal *on this test
 partition* is 0.27, against the
@@ -75,17 +91,17 @@ value - campaign cost.
 
 | Threshold | Flagged | Precision | Recall | Campaign cost | Retained value | Net benefit |
 |---|---|---|---|---|---|---|
-| 0.10 | 889 | 0.39 | 0.93 | 44,450.00 | 62,085.35 | 17,635.35 |
+| 0.10 | 857 | 0.40 | 0.92 | 42,850.00 | 61,621.91 | 18,771.91 |
 | 0.20 | 710 | 0.45 | 0.86 | 35,500.00 | 58,796.83 | 23,296.83 |
 | 0.30 | 511 | 0.55 | 0.75 | 25,550.00 | 52,129.00 | 26,579.00 |
-| 0.40 | 384 | 0.61 | 0.63 | 19,200.00 | 44,815.80 | 25,615.80 |
+| 0.40 | 371 | 0.61 | 0.61 | 18,550.00 | 43,804.33 | 25,254.33 |
 | 0.50 | 296 | 0.67 | 0.53 | 14,800.00 | 38,724.31 | 23,924.31 |
-| 0.60 | 175 | 0.71 | 0.33 | 8,750.00 | 24,891.16 | 16,141.16 |
-| 0.70 | 99 | 0.79 | 0.21 | 4,950.00 | 15,682.45 | 10,732.45 |
+| 0.60 | 171 | 0.74 | 0.34 | 8,550.00 | 25,022.32 | 16,472.32 |
+| 0.70 | 102 | 0.77 | 0.21 | 5,100.00 | 15,917.03 | 10,817.03 |
 | 0.80 | 49 | 0.76 | 0.10 | 2,450.00 | 7,882.41 | 5,432.41 |
 
-The optimum sits at **0.36**, not at 0.5. That is the
-whole point of treating the threshold as a business parameter: a missed churner
+The recommended operating point is **0.36**, not 0.5. That is
+the whole point of treating the threshold as a business parameter: a missed churner
 costs a customer's remaining margin, while a false positive costs one offer.
 Those are not symmetric, so the cut that balances them is not the cut that
 balances the probability.
@@ -94,12 +110,12 @@ balances the probability.
 
 | Quantity | Value |
 |---|---|
-| Customers flagged | 475 |
-| Of those, real churners | 262 |
-| Churners missed | 112 |
-| Simulated campaign cost | $23,750 |
-| Simulated retained value | $47,345 |
-| **Simulated net benefit** | **$23,595** |
+| Customers flagged | 476 |
+| Of those, real churners | 263 |
+| Churners missed | 111 |
+| Simulated campaign cost | $23,800 |
+| Simulated retained value | $47,605 |
+| **Simulated net benefit** | **$23,805** |
 
 These are simulated figures for a 1,409-customer partition of a published
 sample dataset. They are not a forecast of any company's results, and the
@@ -107,20 +123,20 @@ offer-success assumption in particular is an input, not an estimate.
 
 ## Calibration on test
 
-Expected calibration error **0.0264**, Brier score
-**0.1384**.
+Expected calibration error **0.0275**, Brier score
+**0.1385**.
 
 | Mean predicted | Observed rate | Customers | Gap |
 |---|---|---|---|
-| 0.0337 | 0.0370 | 541 | 0.0033 |
-| 0.1364 | 0.1509 | 159 | 0.0146 |
-| 0.2425 | 0.2834 | 187 | 0.0410 |
-| 0.3588 | 0.3619 | 105 | 0.0031 |
-| 0.4346 | 0.3069 | 101 | -0.1276 |
-| 0.5429 | 0.5682 | 132 | 0.0253 |
-| 0.6375 | 0.6829 | 82 | 0.0455 |
-| 0.7435 | 0.7414 | 58 | -0.0021 |
-| 0.8457 | 0.8077 | 26 | -0.0380 |
+| 0.0372 | 0.0436 | 573 | 0.0064 |
+| 0.1449 | 0.1532 | 124 | 0.0083 |
+| 0.2418 | 0.2804 | 189 | 0.0386 |
+| 0.3653 | 0.3307 | 127 | -0.0346 |
+| 0.4418 | 0.3333 | 81 | -0.1084 |
+| 0.5451 | 0.5704 | 135 | 0.0252 |
+| 0.6366 | 0.6974 | 76 | 0.0607 |
+| 0.7418 | 0.7333 | 60 | -0.0084 |
+| 0.8445 | 0.8077 | 26 | -0.0368 |
 | 0.9486 | 0.7222 | 18 | -0.2264 |
 
 Calibration is reported because the economics above multiply a predicted

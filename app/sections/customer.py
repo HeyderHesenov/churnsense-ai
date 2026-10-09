@@ -102,7 +102,7 @@ def _field(name: str, key_prefix: str):
     )
 
 
-def render(frame: pd.DataFrame, cfg: Config) -> None:
+def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Single customer risk")
     st.caption(
         "The same prediction path the API serves. Submitting this form and "
@@ -150,13 +150,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
 
     with right:
         ui.question("What is driving this particular estimate?")
-        # A seeded random sample, not `head(150)`: a file-order slice of the
-        # source CSV is an arbitrary subset, and "relative to an average
-        # customer" would then mean something different here than on the
-        # Explainability page. Passed as an explicit background so the
-        # customer being explained is not also inside their own baseline.
-        population = frame.loc[:, columns]
-        background = population.sample(min(150, len(population)), random_state=cfg.random_seed)
+        # The shared training-partition background, so "relative to an average
+        # customer" means the same here as on the Explainability page.
         single = pd.DataFrame([record])[columns]
         with st.spinner("Computing contributions..."):
             explanation = explain_customer(
@@ -164,7 +159,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
                 single,
                 row=0,
                 top_k=6,
-                background=background,
+                background=data.shap_background(),
                 seed=cfg.random_seed,
             )
         for sentence in narrate(explanation):

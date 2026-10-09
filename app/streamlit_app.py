@@ -34,6 +34,7 @@ from app.sections import (  # noqa: E402
     performance,
     simulator,
 )
+from churnsense.logging_setup import configure_logging  # noqa: E402
 
 SECTIONS = {
     "Executive overview": overview.render,
@@ -89,6 +90,7 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
     theme.apply()
+    configure_logging()
 
     cfg = data.config()
     choice = _sidebar()

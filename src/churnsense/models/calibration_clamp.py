@@ -2,8 +2,8 @@
 
 Isotonic calibration is a step function. Its terminal bins carry the empirical
 rate of those bins exactly, so on this dataset it assigns **0.000 to 210
-customers and 1.000 to five**. Neither is a claim a sample of 4,225 rows can
-support - the top bin held five people - and a probability of exactly 1 has
+customers and 1.000 to four** (counted over all 7,043). Neither is a claim a
+sample of 4,225 training rows can support, and a probability of exactly 1 has
 infinite log-odds, which degenerates any expected-value or log-loss
 arithmetic downstream.
 
@@ -12,8 +12,9 @@ inside ``Predictor``, which meant the evaluation report, the published test
 metrics and SHAP all saw a different function than the one actually served.
 The visible symptom was the explainability page printing "0.9999" in its
 customer dropdown and "100.0%" in the KPI tile beside it, for one customer.
-Wrapping the fitted classifier makes every consumer - including
-``model.predict_proba`` - see the same function by construction.
+The clamp wraps the whole shipped model - pipeline, calibration and all - so
+every consumer that calls ``model.predict_proba`` sees the same function by
+construction, whatever is inside.
 
 The bound is a property of the training run, so it is computed once at
 persist time and travels inside the pickle.
@@ -23,7 +24,6 @@ from __future__ import annotations
 
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.pipeline import Pipeline
 
 
 def epsilon_for(n_calibration: int) -> float:
@@ -60,8 +60,8 @@ class ProbabilityClamp(BaseEstimator, ClassifierMixin):
 
         sklearn's `check_is_fitted` scans the instance `__dict__` for
         trailing-underscore attributes, and `classes_` here is a property, so
-        without this `Pipeline.predict_proba` raises `NotFittedError` on a
-        perfectly usable model.
+        without this any sklearn check of the wrapper raises `NotFittedError`
+        on a perfectly usable model.
         """
         return True
 
@@ -76,25 +76,3 @@ class ProbabilityClamp(BaseEstimator, ClassifierMixin):
 
     def predict(self, X) -> np.ndarray:
         return (self.predict_proba(X)[:, 1] >= 0.5).astype(int)
-
-
-def clamp_pipeline(pipeline: Pipeline, *, n_calibration: int) -> Pipeline:
-    """Return ``pipeline`` with its classifier step wrapped in a clamp.
-
-    Wrapping the *step* rather than the pipeline keeps ``named_steps`` intact,
-    which matters because the SHAP explainer reaches for
-    ``named_steps["preprocess"]`` and ``named_steps["classifier"]`` - and it
-    means SHAP explains the clamped function, so its contributions reconcile
-    with the probability the user is shown.
-    """
-    return Pipeline(
-        [
-            ("preprocess", pipeline.named_steps["preprocess"]),
-            (
-                "classifier",
-                ProbabilityClamp(
-                    pipeline.named_steps["classifier"], epsilon=epsilon_for(n_calibration)
-                ),
-            ),
-        ]
-    )

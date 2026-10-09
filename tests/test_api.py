@@ -129,6 +129,38 @@ def test_batch_agrees_with_single_prediction(client, demo_csv, artifacts, cfg: C
         )
 
 
+def test_batch_rows_point_at_the_uploaded_file_even_with_duplicates(client, demo_csv, artifacts):
+    """Regression: a duplicate row was dropped and every later `row` shifted by one,
+    so the response attributed probabilities to the wrong customers."""
+    import pandas as pd
+
+    raw = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    upload = pd.concat([raw.head(1), raw.head(6)], ignore_index=True)  # rows 0 and 1 identical
+    body = client.post(
+        "/predict/batch",
+        files={"file": ("dup.csv", upload.to_csv(index=False).encode(), "text/csv")},
+    ).json()
+
+    assert body["n_scored"] == len(upload)
+    rows = {p["row"]: p["churn_probability"] for p in body["predictions"]}
+    assert sorted(rows) == list(range(len(upload)))
+    assert rows[0] == rows[1]
+
+    predictor = load_predictor(artifacts)
+    for position in (2, 6):
+        record = payload_from(upload.iloc[position])
+        expected = predictor.predict_one(record).churn_probability
+        assert rows[position] == pytest.approx(expected, abs=1e-12)
+
+
+def payload_from(row) -> dict:
+    """A raw CSV row as the JSON body /predict expects."""
+    from churnsense.data.loader import clean_frame
+
+    cleaned, _ = clean_frame(row.to_frame().T.reset_index(drop=True), deduplicate=False)
+    return cleaned.iloc[0].to_dict()
+
+
 def test_batch_rejects_a_non_csv_upload(client):
     response = client.post(
         "/predict/batch", files={"file": ("x.csv", b"\x00\x01 nonsense", "text/csv")}

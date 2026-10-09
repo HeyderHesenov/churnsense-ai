@@ -148,3 +148,29 @@ def expected_calibration_error(y_true: ArrayLike, y_proba: ArrayLike, n_bins: in
     table = reliability_table(y_true, y_proba, n_bins)
     weights = table["count"] / table["count"].sum()
     return float((weights * table["gap"].abs()).sum())
+
+
+def segment_performance(
+    y_true: ArrayLike, y_proba: ArrayLike, segments: ArrayLike, threshold: float
+) -> pd.DataFrame:
+    """Size, churn rate, flags, precision and recall for each level of ``segments``.
+
+    An aggregate recall can hide a segment the model never flags at all; this
+    is the table that shows it. Precision is NaN where nothing was flagged:
+    undefined, not zero.
+    """
+    y, p = _validated(y_true, y_proba)
+    frame = pd.DataFrame(
+        {"segment": np.asarray(segments), "churned": y == 1, "flagged": p >= threshold}
+    )
+    frame["caught"] = frame["churned"] & frame["flagged"]
+    table = frame.groupby("segment").agg(
+        customers=("churned", "size"),
+        churners=("churned", "sum"),
+        churn_rate=("churned", "mean"),
+        flagged=("flagged", "sum"),
+        caught=("caught", "sum"),
+    )
+    table["precision"] = table["caught"] / table["flagged"].where(table["flagged"] > 0)
+    table["recall"] = table["caught"] / table["churners"].where(table["churners"] > 0)
+    return table.drop(columns="caught").reset_index()

@@ -15,6 +15,7 @@ question, it does not belong here.
 from __future__ import annotations
 
 import argparse
+import logging
 from pathlib import Path
 
 import matplotlib
@@ -29,9 +30,9 @@ from churnsense import viz
 from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.data.loader import CleaningReport, load_clean
-from churnsense.logging_setup import get_logger
+from churnsense.logging_setup import configure_logging
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _FIG_W = 8.0
 
@@ -588,6 +589,7 @@ def generate_report(cfg: Config | None = None) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     argparse.ArgumentParser(description="Generate the EDA report and figures.").parse_args(argv)
+    configure_logging()
     path = generate_report()
     print(f"OK  {path}")
     return 0

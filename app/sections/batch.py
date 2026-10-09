@@ -65,7 +65,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             f"- at most **{cfg.api.max_batch_rows:,} rows** and "
             f"**{cfg.api.max_upload_bytes / 1_048_576:.0f} MB**\n"
             "- `customerID` and `Churn` are optional; if present they are carried "
-            "through to the output and ignored by the model\n"
+            "through to the output and ignored by the model (`Churn` must then be "
+            "`Yes` or `No`)\n"
+            "- every row is scored, duplicates included, in file order\n"
             "- `gender` is **not** used: it is a protected attribute with no "
             "measurable signal in this dataset, so the model never sees it"
         )
@@ -97,13 +99,6 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
 
     predictions = model.predict_frame(cleaned)
     scored = pd.concat([cleaned, predictions], axis=1)
-
-    if unseen := model.unseen_categories(cleaned):
-        st.warning(
-            "These values were not present in training, so predictions for the "
-            "affected rows rest on unfamiliar input: "
-            + "; ".join(f"**{column}**: {', '.join(values)}" for column, values in unseen.items())
-        )
 
     ui.kpi_row(
         [

@@ -1,7 +1,7 @@
 """The probability clamp belongs to the model, not to one consumer of it.
 
 Isotonic calibration saturates: on the real dataset its terminal bins assign
-exactly 0.000 to 210 customers and exactly 1.000 to five. Nothing fitted on
+exactly 0.000 to 210 customers and exactly 1.000 to four. Nothing fitted on
 4,225 rows can claim that, and a probability of exactly 1 has infinite
 log-odds.
 
@@ -18,12 +18,11 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from sklearn.pipeline import Pipeline
 
 from churnsense.config import Config
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
-from churnsense.models.calibration_clamp import ProbabilityClamp, clamp_pipeline
+from churnsense.models.calibration_clamp import ProbabilityClamp, epsilon_for
 
 
 class _Saturating:
@@ -71,8 +70,9 @@ def test_epsilon_must_leave_room_for_a_probability():
             ProbabilityClamp(_Saturating(), epsilon=bad)
 
 
-def test_clamp_pipeline_keeps_the_pipeline_shape(clean_frame, cfg: Config):
-    """SHAP and the Predictor both reach into named_steps; that must survive."""
+def test_the_clamp_wraps_a_whole_fitted_pipeline(clean_frame, cfg: Config):
+    """The shipped model is the clamp around the entire fitted pipeline, so it
+    takes raw feature frames and never serves certainty."""
     from churnsense.models.registry import build_candidate
 
     X, y = features_and_target(clean_frame, cfg)
@@ -80,32 +80,14 @@ def test_clamp_pipeline_keeps_the_pipeline_shape(clean_frame, cfg: Config):
     fitted = build_candidate("logistic_regression", list(X.columns), seed=0).fit(
         splits.X_train, splits.y_train
     )
-
-    wrapped = clamp_pipeline(fitted, n_calibration=len(splits.y_train))
-
-    assert isinstance(wrapped, Pipeline)
-    assert list(wrapped.named_steps) == ["preprocess", "classifier"]
-    assert isinstance(wrapped.named_steps["classifier"], ProbabilityClamp)
-    assert wrapped.named_steps["preprocess"] is fitted.named_steps["preprocess"]
-
-
-def test_the_wrapped_pipeline_never_serves_certainty(clean_frame, cfg: Config):
-    from churnsense.models.registry import build_candidate
-
-    X, y = features_and_target(clean_frame, cfg)
-    splits = make_splits(X, y, cfg)
-    fitted = build_candidate("logistic_regression", list(X.columns), seed=0).fit(
-        splits.X_train, splits.y_train
-    )
-    wrapped = clamp_pipeline(fitted, n_calibration=len(splits.y_train))
+    wrapped = ProbabilityClamp(fitted, epsilon=epsilon_for(len(splits.y_train)))
 
     proba = wrapped.predict_proba(splits.X_test)[:, 1]
     assert (proba > 0.0).all()
     assert (proba < 1.0).all()
+    np.testing.assert_array_equal(wrapped.classes_, fitted.classes_)
 
 
 def test_epsilon_is_derived_from_the_calibration_sample():
-    from churnsense.models.calibration_clamp import epsilon_for
-
     assert epsilon_for(4225) == pytest.approx(1.0 / (2 * 4225))
     assert epsilon_for(1) < 0.5, "must stay a valid probability bound even at n=1"

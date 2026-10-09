@@ -19,11 +19,12 @@ call, so the three cannot drift apart.
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -38,10 +39,10 @@ from churnsense.api.schemas import (
 )
 from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
-from churnsense.logging_setup import configure_logging, get_logger
+from churnsense.logging_setup import configure_logging
 from churnsense.models.predict import Predictor, load_predictor, validate_upload
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 #: Module-level so tests can point the service at a temporary artifact
 #: directory. Deliberately never taken from a request: unpickling is
@@ -70,7 +71,7 @@ def _require_predictor() -> Predictor:
     except ModelNotAvailableError as exc:
         logger.error("scoring request refused: %s", exc)
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=503,
             detail="No trained model is available. Train one with `make train`.",
         ) from exc
 
@@ -111,7 +112,7 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
         for error in exc.errors()
     ]
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=422,
         content=ErrorResponse(
             error="validation_error",
             detail="The request body did not match the expected schema.",
@@ -123,7 +124,7 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
 @app.exception_handler(SchemaValidationError)
 async def _schema_handler(request: Request, exc: SchemaValidationError) -> JSONResponse:
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=422,
         content=ErrorResponse(
             error="invalid_input", detail=str(exc), problems=exc.problems
         ).model_dump(),
@@ -135,7 +136,7 @@ async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
     """Log the detail, return none of it."""
     logger.exception("unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        status_code=500,
         content=ErrorResponse(
             error="internal_error",
             detail="The request could not be processed. The incident has been logged.",
@@ -213,22 +214,24 @@ def predict(customer: CustomerFeatures) -> PredictionResponse:
         503: {"model": ErrorResponse},
     },
 )
-async def predict_batch(
+def predict_batch(
     file: UploadFile = File(..., description="CSV with the feature columns"),
 ) -> BatchResponse:
     """Score a CSV upload.
 
-    The size limit is enforced on the bytes read, before parsing, so a hostile
-    upload is rejected without ever being handed to the CSV parser.
+    At most one byte past the size limit is read, so an oversized upload is
+    refused without being held in memory or handed to the CSV parser. A plain
+    ``def`` rather than ``async def``: parsing and scoring are CPU-bound, so
+    FastAPI runs them in its threadpool instead of on the event loop.
     """
     cfg = load_config()
     predictor = _require_predictor()
 
-    payload = await file.read()
+    payload = file.file.read(cfg.api.max_upload_bytes + 1)
     if len(payload) > cfg.api.max_upload_bytes:
         raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=(f"File exceeds the {cfg.api.max_upload_bytes / 1_048_576:.0f} MB limit."),
+            status_code=413,
+            detail=f"File exceeds the {cfg.api.max_upload_bytes / 1_048_576:.0f} MB limit.",
         )
 
     frame = validate_upload(payload, cfg)  # SchemaValidationError -> 422 via the handler
@@ -238,16 +241,17 @@ async def predict_batch(
         n_scored=len(scored),
         threshold=predictor.threshold,
         model_key=predictor.model_key,
-        unseen_categories=predictor.unseen_categories(frame),
         predictions=[
             BatchPredictionRow(
-                row=position,
+                # The frame keeps read_csv's index, so this is the row's
+                # position in the uploaded file, not in some filtered copy.
+                row=int(index),
                 churn_probability=float(row.churn_probability),
                 risk_band=str(row.risk_band),
                 flagged=bool(row.flagged),
                 threshold=predictor.threshold,
                 model_key=predictor.model_key,
             )
-            for position, row in enumerate(scored.itertuples(index=False))
+            for index, row in zip(scored.index, scored.itertuples(index=False), strict=True)
         ],
     )

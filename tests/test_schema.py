@@ -80,13 +80,12 @@ def test_validate_frame_flags_out_of_range_numerics(clean_frame: pd.DataFrame):
         schema.validate_frame(broken)
 
 
-def test_validate_frame_can_skip_category_checking(clean_frame: pd.DataFrame):
-    """Serving may prefer a warning over a rejection for an unseen category."""
-    relaxed = clean_frame.copy()
-    relaxed.loc[relaxed.index[0], "PaymentMethod"] = "Crypto"
-    schema.validate_frame(relaxed, strict_categories=False)
-    with pytest.raises(SchemaValidationError):
-        schema.validate_frame(relaxed, strict_categories=True)
+def test_validate_frame_rejects_an_unknown_category(clean_frame: pd.DataFrame):
+    """There is no lenient mode: a typo must not be encoded into a confident score."""
+    broken = clean_frame.copy()
+    broken.loc[broken.index[0], "PaymentMethod"] = "Crypto"
+    with pytest.raises(SchemaValidationError, match="PaymentMethod"):
+        schema.validate_frame(broken)
 
 
 def test_feature_labels_cover_every_model_input():

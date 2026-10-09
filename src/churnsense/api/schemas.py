@@ -104,17 +104,13 @@ class PredictionResponse(BaseModel):
 class BatchPredictionRow(PredictionResponse):
     """One row of a batch result, carrying its position in the uploaded file."""
 
-    row: int
+    row: int = Field(description="0-based position of the data row in the uploaded file")
 
 
 class BatchResponse(BaseModel):
     n_scored: int
     threshold: Annotated[float, Field(ge=0, le=1)]
     model_key: str
-    unseen_categories: dict[str, list[str]] = Field(
-        default_factory=dict,
-        description="Category values absent from training, reported for transparency",
-    )
     predictions: list[BatchPredictionRow]
 
 

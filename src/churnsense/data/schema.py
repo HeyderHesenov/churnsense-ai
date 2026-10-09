@@ -24,7 +24,9 @@ from churnsense.exceptions import SchemaValidationError
 
 TARGET: Final = "Churn"
 ID_COLUMN: Final = "customerID"
-POSITIVE_LABEL: Final = "Yes"
+# The raw file says Yes/No; 0/1 is accepted so an already-encoded file is not
+# misread. Nothing else is a label.
+TARGET_ENCODING: Final[dict[str, int]] = {"No": 0, "Yes": 1, "0": 0, "1": 1}
 
 # Numeric after cleaning. `SeniorCitizen` arrives as int64 0/1 but is a flag,
 # not a quantity, so it is modelled as a category.
@@ -198,7 +200,6 @@ def validate_frame(
     *,
     columns: list[str] | None = None,
     require_target: bool = False,
-    strict_categories: bool = True,
 ) -> None:
     """Validate a frame against the contract, collecting *all* problems.
 
@@ -209,9 +210,6 @@ def validate_frame(
         df: frame to check.
         columns: required columns. Defaults to the full raw contract.
         require_target: also require the target column to be present and binary.
-        strict_categories: reject unseen category values. Set ``False`` when
-            the downstream encoder is configured to ignore unknowns and a
-            warning is preferred over a rejection.
 
     Raises:
         SchemaValidationError: if any check fails.
@@ -244,15 +242,16 @@ def validate_frame(
         if n_out:
             problems.append(f"'{col}' has {n_out} value(s) outside the valid range [{low}, {high}]")
 
-    if strict_categories:
-        for col, allowed in ALLOWED_CATEGORIES.items():
-            if col not in df.columns or col not in required:
-                continue
-            seen = set(df[col].dropna().astype(str).str.strip().unique())
-            if unexpected := sorted(seen - set(allowed)):
-                problems.append(
-                    f"'{col}' has unexpected value(s) {unexpected[:5]}; allowed: {list(allowed)}"
-                )
+    # Unknown categories are always rejected: a typo must not be encoded into a
+    # confident score.
+    for col, allowed in ALLOWED_CATEGORIES.items():
+        if col not in df.columns or col not in required:
+            continue
+        seen = set(df[col].dropna().astype(str).str.strip().unique())
+        if unexpected := sorted(seen - set(allowed)):
+            problems.append(
+                f"'{col}' has unexpected value(s) {unexpected[:5]}; allowed: {list(allowed)}"
+            )
 
     if problems:
         raise SchemaValidationError("input data failed schema validation", problems)

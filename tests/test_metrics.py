@@ -155,3 +155,29 @@ def test_expected_calibration_error_is_large_for_a_badly_calibrated_model():
     y = np.array([0] * 500 + [1] * 500)
     proba = np.concatenate([np.full(500, 0.9), np.full(500, 0.1)])
     assert expected_calibration_error(y, proba, n_bins=10) == pytest.approx(0.9, abs=0.01)
+
+
+def test_segment_performance_is_hand_checkable():
+    from churnsense.evaluation.metrics import segment_performance
+
+    y = [1, 0, 1, 0, 1, 0]
+    p = [0.9, 0.8, 0.2, 0.1, 0.3, 0.2]
+    segments = ["a", "a", "a", "b", "b", "b"]
+    table = segment_performance(y, p, segments, threshold=0.5).set_index("segment")
+
+    assert table.loc["a", "customers"] == 3
+    assert table.loc["a", "churners"] == 2
+    assert table.loc["a", "flagged"] == 2
+    assert table.loc["a", "precision"] == pytest.approx(0.5)
+    assert table.loc["a", "recall"] == pytest.approx(0.5)
+
+
+def test_segment_precision_is_undefined_when_nothing_is_flagged():
+    """Zero would claim every flag was wrong; there were no flags."""
+    from churnsense.evaluation.metrics import segment_performance
+
+    table = segment_performance([1, 0, 1, 0], [0.9, 0.1, 0.2, 0.1], ["a", "a", "b", "b"], 0.5)
+    b = table.set_index("segment").loc["b"]
+    assert b["flagged"] == 0
+    assert np.isnan(b["precision"])
+    assert b["recall"] == 0.0

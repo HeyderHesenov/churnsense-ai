@@ -1,4 +1,10 @@
-"""Logging configuration: one function, called once per process entry point."""
+"""Logging configuration: one function, called by each process entry point.
+
+Library modules only ever call ``logging.getLogger(__name__)``. Configuring
+the root logger is the job of whatever owns the process - a ``make`` command,
+the API's startup hook, the dashboard - never a side effect of an import,
+which would reach into the logging of any program that imported the package.
+"""
 
 from __future__ import annotations
 
@@ -49,9 +55,3 @@ def configure_logging(level: str | None = None, fmt: str | None = None) -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
     _configured = True
-
-
-def get_logger(name: str) -> logging.Logger:
-    """Return a module logger, configuring logging on first use."""
-    configure_logging()
-    return logging.getLogger(name)

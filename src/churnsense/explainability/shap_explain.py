@@ -1,23 +1,27 @@
-"""SHAP explanations for the shipped pipeline.
+"""SHAP explanations for the shipped model.
 
-**The whole pipeline is explained, never a convenient inner piece.** The
-selected model may be wrapped in ``CalibratedClassifierCV``, and calibration
-changes the probability a customer is actually served. Explaining the
-uncalibrated estimator would produce a tidy attribution of a number nobody
-sees. So the explainer runs on the preprocessed matrix against the *fitted
-classifier the pipeline holds*, and additivity is checked: contributions plus
-the base value reproduce the served probability exactly.
+**The served function is explained, never a convenient inner piece.** The
+explainer calls the shipped model's own ``predict_proba`` - preprocessing,
+calibration and probability clamp included - so an attribution always
+describes the probability a customer is actually shown. SHAP's efficiency
+property makes the contributions plus the base value reproduce that
+probability exactly, and the test suite checks it.
 
-One explainer, not a branch per model family. ``shap.Explainer`` on a plain
-callable resolves to the model-agnostic Permutation explainer, which is correct
-for linear models, tree ensembles and calibrated wrappers alike. At 44 encoded
-columns it explains 200 customers in under four seconds, so the uniformity
-costs nothing worth branching for.
+**Raw features, not one-hot columns.** Categories are handed to the explainer
+as vocabulary codes and decoded back to text inside the model call, so a
+masked feature swaps a whole value. Explaining the encoded matrix instead (an
+earlier version) permuted one-hot columns independently: it scored impossible
+"two contracts at once" rows, and each feature's effect had to be re-summed
+from its dummies afterwards.
 
-SHAP values are reported on the raw feature level: the one-hot columns of a
-categorical are summed back into their source column. That is exact (SHAP is
-additive) and it is what a reader needs - nobody reasons about
-``Contract_One year`` in isolation.
+**Enough permutations to be stable.** The model-agnostic Permutation explainer
+covers every model family, but it samples feature orderings. One ordering per
+customer - the earlier setting - changed the top three drivers for over a
+third of customers when only the seed changed. At ``PERMUTATIONS`` orderings
+the measured seed-to-seed spread on the real data is about 0.3 percentage
+points per contribution, against 1 point with a single ordering; doubling the
+budget again bought little and doubled the cost. The explainer is also
+seeded, so a refresh never changes an explanation.
 
 **Attribution is not causation.** A SHAP value says how much a feature moved
 *this model's output* relative to a baseline. It does not say that changing
@@ -28,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,13 +40,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import shap
-from sklearn.pipeline import Pipeline
 
 from churnsense.config import Config, load_config
 from churnsense.data import schema
-from churnsense.logging_setup import get_logger
+from churnsense.exceptions import SchemaValidationError
+from churnsense.logging_setup import configure_logging
+from churnsense.models.calibration_clamp import ProbabilityClamp
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 CAVEAT = (
     "These are model attributions, not causal effects. They describe how each "
@@ -51,6 +57,8 @@ CAVEAT = (
 
 DEFAULT_BACKGROUND = 100
 DEFAULT_SAMPLE = 300
+#: Antithetic feature orderings sampled per explained customer.
+PERMUTATIONS = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,73 +89,74 @@ class CustomerExplanation:
     contributions: list[FeatureContribution]
 
 
-def _parts(model: Pipeline):
-    """Split the pipeline into its preprocessor and its fitted classifier."""
-    return model.named_steps["preprocess"], model.named_steps["classifier"]
+def _as_codes(X: pd.DataFrame) -> np.ndarray:
+    """Raw features as one float matrix, each category replaced by its vocabulary index."""
+    codes = np.column_stack(
+        [
+            X[column].map({value: i for i, value in enumerate(schema.ALLOWED_CATEGORIES[column])})
+            if column in schema.ALLOWED_CATEGORIES
+            else X[column]
+            for column in X.columns
+        ]
+    ).astype(float)
+    if np.isnan(codes).any():
+        raise SchemaValidationError("explanations need complete values from the column contract")
+    return codes
 
 
-def _column_owners(preprocessor) -> list[str]:
-    """Map each encoded column back to the source feature that produced it.
-
-    Matched by longest source-name prefix rather than by splitting on ``_``,
-    because category *values* contain underscores and spaces. The mapping is
-    asserted to be total: an unowned column would silently drop its
-    contribution out of the aggregate, which is exactly the kind of quiet
-    wrongness that never shows up as an error.
-    """
-    by_name = {name: columns for name, _, columns in preprocessor.transformers_}
-    numeric, categorical = list(by_name.get("num", [])), list(by_name.get("cat", []))
-
-    owners: list[str] = []
-    for encoded in preprocessor.get_feature_names_out():
-        if encoded in numeric:
-            owners.append(encoded)
-            continue
-        candidates = [c for c in categorical if encoded.startswith(f"{c}_")]
-        if not candidates:
-            raise ValueError(
-                f"encoded column '{encoded}' maps to no source feature; the "
-                "preprocessing contract and the explainer have diverged"
-            )
-        owners.append(max(candidates, key=len))
-    return owners
+def _from_codes(codes: np.ndarray, columns: list[str]) -> pd.DataFrame:
+    """Inverse of ``_as_codes``: the frame the shipped model actually scores."""
+    frame = pd.DataFrame(codes, columns=columns)
+    for column in columns:
+        if column in schema.ALLOWED_CATEGORIES:
+            vocabulary = np.asarray(schema.ALLOWED_CATEGORIES[column], dtype=object)
+            frame[column] = vocabulary[frame[column].to_numpy(dtype=int)]
+    return frame
 
 
 def _shap_values(
-    model: Pipeline, X: pd.DataFrame, background: pd.DataFrame, seed: int = 0
+    model: ProbabilityClamp,
+    X: pd.DataFrame,
+    background: pd.DataFrame,
+    seed: int = 0,
+    permutations: int = PERMUTATIONS,
 ) -> pd.DataFrame:
-    """SHAP values per *source* feature, as a frame aligned with ``X``.
+    """SHAP values per raw feature, as a frame aligned with ``X``.
 
-    The explainer is seeded. Permutation SHAP samples feature orderings, so an
-    unseeded run returns slightly different attributions each time - which would
-    mean a customer's explanation changed on every dashboard refresh while the
-    prediction stayed put. Nothing erodes trust in an explanation faster.
+    Contributions sum to the served probability minus the base value for any
+    ``permutations``; the budget only buys stability of the split between
+    features.
     """
-    preprocessor, classifier = _parts(model)
-    encoded, encoded_background = preprocessor.transform(X), preprocessor.transform(background)
-
+    columns = list(X.columns)
     explainer = shap.explainers.PermutationExplainer(
-        lambda a: classifier.predict_proba(a)[:, 1], encoded_background, seed=seed
+        lambda codes: model.predict_proba(_from_codes(codes, columns))[:, 1],
+        _as_codes(background[columns]),
+        seed=seed,
     )
-    explanation = explainer(encoded, max_evals=2 * encoded.shape[1] + 1, silent=True)
+    explanation = explainer(
+        _as_codes(X), max_evals=permutations * (2 * len(columns) + 1), silent=True
+    )
+    values = pd.DataFrame(explanation.values, index=X.index, columns=columns)
+    values.attrs["base_value"] = float(np.mean(explanation.base_values))
+    return values
 
-    per_column = pd.DataFrame(explanation.values, columns=_column_owners(preprocessor))
-    aggregated = per_column.T.groupby(level=0).sum().T  # sum one-hot columns into their source
-    aggregated.index = X.index
-    aggregated.attrs["base_value"] = float(np.mean(explanation.base_values))
-    return aggregated[[c for c in X.columns if c in aggregated.columns]]
 
+def background_sample(X: pd.DataFrame, seed: int, n: int = DEFAULT_BACKGROUND) -> pd.DataFrame:
+    """The reference population that "an average customer" means.
 
-def _background(X: pd.DataFrame, n: int, seed: int) -> pd.DataFrame:
-    return X.sample(min(n, len(X)), random_state=seed) if len(X) > n else X
+    One definition, used by the cached global ranking and by both dashboard
+    pages, so a customer's base value does not depend on where they are viewed.
+    """
+    return X.sample(n, random_state=seed) if len(X) > n else X
 
 
 def global_importance(
-    model: Pipeline,
+    model: ProbabilityClamp,
     X: pd.DataFrame,
     *,
     background: pd.DataFrame | None = None,
     seed: int = 0,
+    permutations: int = PERMUTATIONS,
 ) -> pd.DataFrame:
     """Rank features by mean absolute SHAP value over ``X``.
 
@@ -155,8 +164,8 @@ def global_importance(
     feature moves this model, which is a property of the model, not of the
     customers.
     """
-    reference = background if background is not None else _background(X, DEFAULT_BACKGROUND, seed)
-    values = _shap_values(model, X, reference, seed=seed)
+    reference = background if background is not None else background_sample(X, seed)
+    values = _shap_values(model, X, reference, seed=seed, permutations=permutations)
 
     mean_abs = values.abs().mean().sort_values(ascending=False)
     return pd.DataFrame(
@@ -170,13 +179,14 @@ def global_importance(
 
 
 def explain_customer(
-    model: Pipeline,
+    model: ProbabilityClamp,
     X: pd.DataFrame,
     row: int,
     *,
     top_k: int = 5,
     background: pd.DataFrame | None = None,
     seed: int = 0,
+    permutations: int = PERMUTATIONS,
 ) -> CustomerExplanation:
     """Explain one row's prediction, strongest contributions first.
 
@@ -186,9 +196,9 @@ def explain_customer(
     if not 0 <= row < len(X):
         raise IndexError(f"row {row} is out of range for {len(X)} customers")
 
-    reference = background if background is not None else _background(X, DEFAULT_BACKGROUND, seed)
+    reference = background if background is not None else background_sample(X, seed)
     target = X.iloc[[row]]
-    values = _shap_values(model, target, reference, seed=seed)
+    values = _shap_values(model, target, reference, seed=seed, permutations=permutations)
 
     series = values.iloc[0]
     ordered = series.reindex(series.abs().sort_values(ascending=False).index)
@@ -250,18 +260,15 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
     splits = make_splits(X, y, cfg)
 
     explained = splits.X_val.sample(min(sample, len(splits.X_val)), random_state=cfg.random_seed)
-    importance = global_importance(
-        model,
-        explained,
-        background=_background(splits.X_train, DEFAULT_BACKGROUND, cfg.random_seed),
-        seed=cfg.random_seed,
-    )
+    background = background_sample(splits.X_train, cfg.random_seed)
+    importance = global_importance(model, explained, background=background, seed=cfg.random_seed)
 
     payload = {
         "model_key": meta["model_key"],
         "trained_at": meta["trained_at"],
         "n_explained": len(explained),
-        "n_background": min(DEFAULT_BACKGROUND, len(splits.X_train)),
+        "n_background": len(background),
+        "permutations": PERMUTATIONS,
         "partition": "validation",
         "caveat": CAVEAT,
         "importance": importance.to_dict(orient="records"),
@@ -290,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         help="validation customers to explain (default: %(default)s)",
     )
     args = parser.parse_args(argv)
+    configure_logging()
     print(f"OK  {compute_and_cache(sample=args.sample)}")
     return 0
 
