@@ -10,7 +10,12 @@ from app.components import neutralise_formulas
 from app.sections.batch import with_predictions
 
 from churnsense.config import Config
+from churnsense.data import schema
 from churnsense.models.predict import validate_upload
+
+
+def _inputs(cfg: Config) -> list[str]:
+    return schema.model_input_columns(cfg.features.drop_columns, cfg.features.include_total_charges)
 
 
 def test_text_cells_a_spreadsheet_would_execute_become_text():
@@ -30,6 +35,16 @@ def test_a_trigger_after_a_semicolon_or_tab_is_defused():
         "a\t'+1",
         "'=a;'@b",
         "A;B",
+    ]
+
+
+def test_a_trigger_after_a_line_break_or_quote_is_defused():
+    """';'-Excel ends the row at a line break inside a non-first comma-CSV field."""
+    frame = pd.DataFrame({"note": ["a\n=HYPERLINK(1)", "b\r\n+1", 'c"=1']})
+    assert neutralise_formulas(frame)["note"].tolist() == [
+        "a\n'=HYPERLINK(1)",
+        "b\r\n'+1",
+        "c\"'=1",
     ]
 
 
@@ -90,7 +105,7 @@ def test_the_scored_export_keeps_only_known_columns(demo_csv, cfg: Config):
     raw['=HYPERLINK("https://example.test","x")'] = "y"
     cleaned = validate_upload(raw.to_csv(index=False).encode())
 
-    scored = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), cfg)
+    scored = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), _inputs(cfg))
 
     assert "notes" not in scored.columns
     assert not any(str(c).startswith("=") for c in scored.columns)
@@ -100,11 +115,11 @@ def test_the_scored_export_keeps_only_known_columns(demo_csv, cfg: Config):
 def test_a_scored_export_can_be_scored_again(demo_csv, cfg: Config):
     """Regression: re-uploading the export duplicated `flagged` and crashed the page."""
     cleaned = validate_upload(demo_csv.read_bytes())
-    first = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), cfg)
+    first = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), _inputs(cfg))
     exported = neutralise_formulas(first).to_csv(index=False).encode()
 
     again = validate_upload(exported)
-    second = with_predictions(again, _fake_predictions(again.index, 0.9), cfg)
+    second = with_predictions(again, _fake_predictions(again.index, 0.9), _inputs(cfg))
 
     assert not second.columns.duplicated().any()
     assert int(second["flagged"].sum()) == len(second)
@@ -116,7 +131,7 @@ def test_the_scored_export_is_neutralised_end_to_end(demo_csv, cfg: Config, valu
     raw = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
     raw.loc[0, "customerID"] = value
     cleaned = validate_upload(raw.to_csv(index=False).encode())
-    scored = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), cfg)
+    scored = with_predictions(cleaned, _fake_predictions(cleaned.index, 0.4), _inputs(cfg))
 
     text = neutralise_formulas(scored).to_csv(index=False)
     assert "=1" not in text.replace("'=1", "")

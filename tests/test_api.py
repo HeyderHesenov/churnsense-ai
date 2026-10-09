@@ -161,6 +161,20 @@ def payload_from(row) -> dict:
     return cleaned.iloc[0].to_dict()
 
 
+def test_batch_refuses_a_number_it_would_have_had_to_guess(client, demo_csv):
+    """Regression: tenure 'abc' was imputed with the training median and scored."""
+    import pandas as pd
+
+    raw = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    raw.loc[0, "tenure"] = "abc"
+    response = client.post(
+        "/predict/batch",
+        files={"file": ("c.csv", raw.to_csv(index=False).encode(), "text/csv")},
+    )
+    assert response.status_code == 422
+    assert "'tenure' has 1 missing or non-numeric value(s)" in response.json()["problems"]
+
+
 def test_batch_rejects_a_non_csv_upload(client):
     response = client.post(
         "/predict/batch", files={"file": ("x.csv", b"\x00\x01 nonsense", "text/csv")}
@@ -291,6 +305,31 @@ def test_body_limit_counts_a_streamed_body_across_messages():
     got, raised = _drive(lambda app: BodySizeLimit(app, max_bytes=8192), _post_scope(), chunks)
     assert raised is None
     assert got == 8192
+
+
+def test_body_limit_refuses_an_absurdly_long_content_length():
+    """Regression: past 4,300 digits int() raised and the request became a 500."""
+    from churnsense.api.main import BodySizeLimit
+
+    headers = [(b"content-length", b"9" * 5000)]
+    body = [{"type": "http.request", "body": b"", "more_body": False}]
+    got, raised = _drive(lambda app: BodySizeLimit(app, max_bytes=1024), _post_scope(headers), body)
+    assert raised is None
+    assert got == 0, "refused before the app read anything"
+
+
+def test_a_request_without_a_body_does_not_need_the_config(monkeypatch):
+    """GET /docs must not fail because a config file is missing."""
+    from churnsense.api import main as api_main
+
+    def missing_config():
+        raise AssertionError("the body limit read the config for a request with no body")
+
+    monkeypatch.setattr(api_main, "load_config", missing_config)
+    scope = {"type": "http", "method": "GET", "path": "/docs", "headers": []}
+    body = [{"type": "http.request", "body": b"", "more_body": False}]
+    _, raised = _drive(api_main.BodySizeLimit, scope, body)
+    assert raised is None
 
 
 @pytest.mark.parametrize("declared", ["²", "1e9", "-1", " 12", ""])

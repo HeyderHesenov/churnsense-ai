@@ -145,9 +145,10 @@ class BodySizeLimit:
     refused unread; a body without one (chunked) is counted as it streams and
     cut off the moment it crosses the limit.
 
-    Without an explicit ``max_bytes`` the limit is read from the config on
-    each request - the same cached value ``predict_batch`` reads - so the two
-    can never disagree, and importing this module does not need a config file.
+    Without an explicit ``max_bytes`` the limit is read from the config - the
+    same cached value ``predict_batch`` reads, so the two can never disagree -
+    and only when a request actually carries a body: a GET of /docs works, and
+    importing this module works, without a config file.
     """
 
     def __init__(self, app: ASGIApp, max_bytes: int | None = None) -> None:
@@ -160,18 +161,24 @@ class BodySizeLimit:
             return self._max_bytes
         return load_config().api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
 
+    def _too_large(self) -> str:
+        return f"Request body exceeds the {self.max_bytes / 1_048_576:.0f} MB limit."
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        limit = self.max_bytes
-        detail = f"Request body exceeds the {limit / 1_048_576:.0f} MB limit."
-
         # isascii: str.isdigit also accepts digits such as '²' that int() rejects.
+        # Past 18 digits a length exceeds any limit, and int() refuses a string
+        # past 4,300 digits outright.
         declared = Headers(scope=scope).get("content-length", "")
-        if declared.isascii() and declared.isdigit() and int(declared) > limit:
-            await _error_response(413, detail)(scope, receive, send)
+        if (
+            declared.isascii()
+            and declared.isdigit()
+            and (len(declared) > 18 or int(declared) > self.max_bytes)
+        ):
+            await _error_response(413, self._too_large())(scope, receive, send)
             return
 
         received = 0
@@ -179,12 +186,12 @@ class BodySizeLimit:
         async def counting_receive() -> Message:
             nonlocal received
             message = await receive()
-            if message["type"] == "http.request":
-                received += len(message.get("body", b""))
-                if received > limit:
+            if message["type"] == "http.request" and (body := message.get("body", b"")):
+                received += len(body)
+                if received > self.max_bytes:
                     # FastAPI re-raises an HTTPException met while reading the
                     # body, so this reaches the client as an ordinary 413.
-                    raise StarletteHTTPException(status_code=413, detail=detail)
+                    raise StarletteHTTPException(status_code=413, detail=self._too_large())
             return message
 
         await self.app(scope, counting_receive, send)

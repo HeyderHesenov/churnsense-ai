@@ -12,30 +12,27 @@ from churnsense import viz
 from churnsense.config import Config
 from churnsense.data import schema
 from churnsense.exceptions import ChurnSenseError, SchemaValidationError
-from churnsense.models.predict import validate_upload
+from churnsense.models.predict import ignored_columns, validate_upload
 
 
-def _template(cfg: Config) -> pd.DataFrame:
+def _template(inputs: list[str]) -> pd.DataFrame:
     """A two-row example with the exact columns an upload needs."""
-    columns = schema.model_input_columns(
-        cfg.features.drop_columns, cfg.features.include_total_charges
-    )
     rows = [schema.EXAMPLE_HIGH_RISK, schema.EXAMPLE_LOW_RISK]
-    return pd.DataFrame(rows).reindex(columns=columns)
+    return pd.DataFrame(rows).reindex(columns=inputs)
 
 
-def with_predictions(cleaned: pd.DataFrame, predictions: pd.DataFrame, cfg: Config) -> pd.DataFrame:
-    """The scored file: identifiers, the model's inputs, then its outputs.
+def with_predictions(
+    cleaned: pd.DataFrame, predictions: pd.DataFrame, inputs: list[str]
+) -> pd.DataFrame:
+    """The scored file: identifiers, the model's ``inputs``, then its outputs.
 
     Only known columns travel to the export. Anything else in the upload is
     dropped rather than echoed back, so an unexpected column - personal data,
-    or a header crafted to run as a spreadsheet formula - cannot ride along.
-    Prediction columns already in the upload (a scored export uploaded again)
-    are replaced, not duplicated: two ``flagged`` columns crashed the page.
+    or a header crafted to run as a spreadsheet formula - cannot ride along;
+    the page lists what was dropped. Prediction columns already in the upload
+    (a scored export uploaded again) are replaced, not duplicated: two
+    ``flagged`` columns crashed the page.
     """
-    inputs = schema.model_input_columns(
-        cfg.features.drop_columns, cfg.features.include_total_charges
-    )
     keep = [c for c in (schema.ID_COLUMN, schema.TARGET) if c in cleaned.columns] + inputs
     return pd.concat([cleaned[keep], predictions], axis=1)
 
@@ -65,6 +62,9 @@ def _band_summary(scored: pd.DataFrame) -> go.Figure:
 def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Batch scoring and export")
     model = data.predictor()
+    # The served model's own columns, not the config's: the two can drift
+    # until the next `make train`, and the model is what checks the file.
+    inputs = model.feature_columns
 
     st.markdown(
         "Upload a CSV of customers to score them with the shipped model. The file "
@@ -73,11 +73,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     )
 
     with st.expander("What the file must contain"):
-        required = schema.model_input_columns(
-            cfg.features.drop_columns, cfg.features.include_total_charges
-        )
         st.markdown(
-            f"- **{len(required)} required columns**, exactly as named below\n"
+            f"- **{len(inputs)} required columns**, exactly as named below\n"
             f"- at most **{cfg.api.max_batch_rows:,} rows**, "
             f"**{cfg.api.max_upload_columns:,} columns** and "
             f"**{cfg.api.max_upload_bytes / 1_048_576:.0f} MB**\n"
@@ -85,12 +82,15 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             "through to the output and ignored by the model (`Churn` must then be "
             "`Yes` or `No`); any other column is dropped from the output\n"
             "- every row is scored, duplicates included, in file order\n"
+            "- numbers must be present and numeric, and `tenure` a whole number of "
+            "months; the one blank accepted is `TotalCharges` where `tenure` is 0 "
+            "(not yet billed, read as 0.00)\n"
             "- `gender` is **not** used: it is a protected attribute with no "
             "measurable signal in this dataset, so the model never sees it"
         )
-        st.code(", ".join(required), language=None)
+        st.code(", ".join(inputs), language=None)
         ui.download_button(
-            _template(cfg), "churnsense_template.csv", "Download a template CSV", "ba_template"
+            _template(inputs), "churnsense_template.csv", "Download a template CSV", "ba_template"
         )
 
     upload = st.file_uploader("Customer CSV", type=["csv"], key="ba_upload")
@@ -98,11 +98,12 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         st.info("Upload a CSV to score it, or download the template above to start from.")
         return
 
+    payload = upload.getvalue()
     try:
-        cleaned = validate_upload(upload.getvalue(), cfg)
+        cleaned = validate_upload(payload, cfg)
         # Scored inside the try: the model checks its own feature columns too,
         # and if the config has drifted from the artifact that check fails here.
-        scored = with_predictions(cleaned, model.predict_frame(cleaned), cfg)
+        scored = with_predictions(cleaned, model.predict_frame(cleaned), inputs)
     except SchemaValidationError as error:
         st.error("The file could not be used.")
         st.markdown(f"**{error.args[0].split(':')[0]}**")
@@ -122,6 +123,15 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     except ChurnSenseError:
         st.error("The file could not be processed. Check that it is a valid CSV.")
         return
+
+    if dropped := ignored_columns(payload):
+        st.info(
+            f"{len(dropped):,} column(s) are outside the data contract: they were not "
+            "used and are not in the scored file. Join results back on `customerID`, "
+            "or by position: the scored file keeps the upload's row order."
+        )
+        # Names come from the file, so they are shown as literal text.
+        st.code(", ".join(name[:40] for name in dropped[:20]), language=None, wrap_lines=True)
 
     ui.kpi_row(
         [

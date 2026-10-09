@@ -80,6 +80,23 @@ def test_validate_frame_flags_out_of_range_numerics(clean_frame: pd.DataFrame):
         schema.validate_frame(broken)
 
 
+def test_validate_frame_counts_a_gap_however_it_got_there(clean_frame: pd.DataFrame):
+    """An already-NaN value was exempt, and clean_frame makes every typo NaN first."""
+    broken = clean_frame.copy()
+    broken["tenure"] = broken["tenure"].astype(float)
+    broken.loc[broken.index[:3], "tenure"] = float("nan")
+    with pytest.raises(SchemaValidationError, match="'tenure' has 3 missing or non-numeric"):
+        schema.validate_frame(broken)
+
+
+def test_validate_frame_requires_whole_months_of_tenure(clean_frame: pd.DataFrame):
+    broken = clean_frame.copy()
+    broken["tenure"] = broken["tenure"].astype(float)
+    broken.loc[broken.index[0], "tenure"] = 5.5
+    with pytest.raises(SchemaValidationError, match="'tenure' has 1 non-integer"):
+        schema.validate_frame(broken)
+
+
 def test_validate_frame_rejects_an_unknown_category(clean_frame: pd.DataFrame):
     """There is no lenient mode: a typo must not be encoded into a confident score."""
     broken = clean_frame.copy()
@@ -102,6 +119,34 @@ def test_quoted_values_in_problems_are_bounded(clean_frame: pd.DataFrame):
     # The user is told how much is left, not left to find out one upload at a time.
     hidden = len(broken) - 5
     assert all(f"and {hidden} more" in problem for problem in caught.value.problems)
+
+
+def test_a_target_problem_quotes_only_the_wrong_labels(clean_frame: pd.DataFrame):
+    """Valid labels used to fill the five quoted slots and hide the bad ones."""
+    broken = clean_frame.copy()
+    broken[schema.TARGET] = (["0", "1", "No", "Yes", "maybe", "x"] * len(broken))[: len(broken)]
+    with pytest.raises(SchemaValidationError) as caught:
+        schema.validate_frame(broken, require_target=True)
+    assert "unexpected labels: ['maybe', 'x']" in " ".join(caught.value.problems)
+
+
+def test_a_target_mixing_label_styles_is_named_as_such(clean_frame: pd.DataFrame):
+    broken = clean_frame.copy()
+    broken[schema.TARGET] = (["0", "Yes"] * len(broken))[: len(broken)]
+    with pytest.raises(SchemaValidationError, match="mixes Yes/No labels with 0/1"):
+        schema.validate_frame(broken, require_target=True)
+
+
+def test_missing_categories_and_labels_are_counted(clean_frame: pd.DataFrame):
+    broken = clean_frame.copy()
+    broken["Contract"] = broken["Contract"].astype(object)
+    broken.loc[broken.index[:2], "Contract"] = None
+    broken[schema.TARGET] = broken[schema.TARGET].astype(object)
+    broken.loc[broken.index[0], schema.TARGET] = None
+    with pytest.raises(SchemaValidationError) as caught:
+        schema.validate_frame(broken, require_target=True)
+    assert "'Contract' has 2 missing value(s)" in caught.value.problems
+    assert f"target '{schema.TARGET}' has 1 missing label(s)" in caught.value.problems
 
 
 def test_feature_labels_cover_every_model_input():

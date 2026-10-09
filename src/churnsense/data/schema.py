@@ -42,6 +42,10 @@ NUMERIC_BOUNDS: Final[dict[str, tuple[float, float]]] = {
     "TotalCharges": (0.0, 100_000.0),
 }
 
+#: Counts, not measurements. The API's request model types tenure as int, so
+#: a CSV upload must not be laxer: 5.5 months is a typo, not a customer.
+INTEGER_COLUMNS: Final[tuple[str, ...]] = ("tenure",)
+
 _YES_NO: Final = ("No", "Yes")
 _YES_NO_NO_INTERNET: Final = ("No", "No internet service", "Yes")
 
@@ -247,27 +251,37 @@ def validate_frame(
         if TARGET not in df.columns:
             problems.append(f"missing target column '{TARGET}'")
         else:
+            if n_missing := int(df[TARGET].isna().sum()):
+                problems.append(f"target '{TARGET}' has {n_missing} missing label(s)")
             labels = set(df[TARGET].dropna().astype(str).unique())
-            if not labels <= set(_YES_NO) and not labels <= {"0", "1"}:
-                problems.append(
-                    f"target '{TARGET}' has unexpected labels: {_quoted(sorted(labels))}"
-                )
+            if unexpected := sorted(labels - set(_YES_NO) - {"0", "1"}):
+                problems.append(f"target '{TARGET}' has unexpected labels: {_quoted(unexpected)}")
+            elif not labels <= set(_YES_NO) and not labels <= {"0", "1"}:
+                problems.append(f"target '{TARGET}' mixes Yes/No labels with 0/1")
 
     for col in (c for c in NUMERIC_COLUMNS if c in df.columns and c in required):
         values = pd.to_numeric(df[col], errors="coerce")
-        n_bad = int(values.isna().sum() - df[col].isna().sum())
-        if n_bad > 0:
-            problems.append(f"'{col}' has {n_bad} non-numeric value(s)")
+        # Every gap counts, whatever made it. clean_frame has already turned
+        # unparseable text into NaN by the time it calls this, and the
+        # pipeline's median imputer would fill any NaN in and score the guess
+        # with full confidence: 'abc' for tenure became a 7% churn risk.
+        if n_missing := int(values.isna().sum()):
+            problems.append(f"'{col}' has {n_missing} missing or non-numeric value(s)")
+        if col in INTEGER_COLUMNS and (n_frac := int((values.notna() & (values % 1 != 0)).sum())):
+            problems.append(f"'{col}' has {n_frac} non-integer value(s)")
         low, high = NUMERIC_BOUNDS[col]
         n_out = int(((values < low) | (values > high)).sum())
         if n_out:
             problems.append(f"'{col}' has {n_out} value(s) outside the valid range [{low}, {high}]")
 
     # Unknown categories are always rejected: a typo must not be encoded into a
-    # confident score.
+    # confident score. Nor may a gap: the encoder ignores what it has not seen,
+    # so a missing Contract scored as if the customer had none.
     for col, allowed in ALLOWED_CATEGORIES.items():
         if col not in df.columns or col not in required:
             continue
+        if n_missing := int(df[col].isna().sum()):
+            problems.append(f"'{col}' has {n_missing} missing value(s)")
         seen = set(df[col].dropna().astype(str).str.strip().unique())
         if unexpected := sorted(seen - set(allowed)):
             problems.append(

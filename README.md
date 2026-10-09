@@ -650,7 +650,12 @@ artifacts/                   generated: model.joblib, model_meta.json (gitignore
   file one column along without a word when that row came first — and
   columns outside the data contract are never built. An unknown category is
   **rejected**, not bucketed — a typo must not become a confident prediction
-  — and the same check runs inside `Predictor`, so no consumer can bypass it.
+  — and so is a missing or non-numeric number or a fractional `tenure`: the
+  pipeline's median imputer would otherwise have filled the gap and scored
+  the guess (`tenure = "abc"` came back as a 7% churn risk). The one blank
+  accepted is `TotalCharges` at `tenure == 0`, which is 0.00, not an
+  estimate. The same checks run inside `Predictor`, so no consumer can
+  bypass them.
   Error messages quote at most five offending values, each cut to 40
   characters, and the dashboard shows them as literal text, never as Markdown.
 - **Exports cannot carry spreadsheet formulas.** The scored batch file keeps

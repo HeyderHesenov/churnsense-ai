@@ -21,6 +21,7 @@ import csv
 import io
 import logging
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -169,6 +170,28 @@ def _has_content(record: list[str]) -> bool:
     return len(record) > 1 or bool(record and record[0].strip())
 
 
+def _records(payload: bytes) -> Iterator[list[str]]:
+    """The upload's non-blank CSV records, lazily.
+
+    Byte-order marks are removed from every line before the csv module sees
+    it. utf-8-sig drops one only at the very start of the stream; after a
+    blank line it renamed the first column - or hid inside a quoted header
+    name - and that column was dropped as unknown.
+    """
+    lines = io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8", newline="")
+    return filter(_has_content, csv.reader(line.replace("﻿", "") for line in lines))
+
+
+def ignored_columns(payload: bytes) -> list[str]:
+    """Header names in an upload that the data contract does not know.
+
+    They are dropped on reading, so the dashboard uses this to say so rather
+    than let a user's own identifier column vanish from the export unannounced.
+    """
+    header = next(_records(payload), [])
+    return [name for name in header if name not in _CONTRACT_COLUMNS]
+
+
 def _read_contract_columns(payload: bytes, cfg: Config, limit: int) -> pd.DataFrame:
     """Tokenise the upload once, with the csv module, keeping only contract columns.
 
@@ -185,14 +208,10 @@ def _read_contract_columns(payload: bytes, cfg: Config, limit: int) -> pd.DataFr
     have turned surplus fields in the first data row into an index and
     shifted every value in the file one column along, without a word.
     """
-    reader = csv.reader(io.TextIOWrapper(io.BytesIO(payload), encoding="utf-8-sig", newline=""))
-    records = filter(_has_content, reader)
+    records = _records(payload)
     header = next(records, None)
     if header is None:
         raise SchemaValidationError("file is empty")
-    # utf-8-sig drops a BOM only at the very start; after a blank line it would
-    # silently rename the first column and drop it as unknown.
-    header[0] = header[0].removeprefix("﻿")
     if len(header) == 1 and ";" in header[0]:
         raise SchemaValidationError(
             "file looks semicolon-separated; save it as comma-separated CSV (UTF-8)"
@@ -273,4 +292,6 @@ def validate_upload(
     # scored and keeps its position in the file.
     from churnsense.data.loader import clean_frame
 
-    return clean_frame(frame, required_columns=required, deduplicate=False)[0]
+    return clean_frame(
+        frame, required_columns=required, deduplicate=False, derive_total_charges=False
+    )[0]

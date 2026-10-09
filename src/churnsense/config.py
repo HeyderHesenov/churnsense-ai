@@ -19,8 +19,12 @@ from typing import Any
 
 import yaml
 
-from churnsense.data.schema import RAW_COLUMNS
 from churnsense.exceptions import ConfigError
+
+#: Columns in the raw data contract, ``len(schema.RAW_COLUMNS)``. Written out
+#: so the config layer does not import the data layer (and pandas with it);
+#: tests/test_config.py asserts the two agree.
+CONTRACT_WIDTH = 21
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
@@ -155,9 +159,9 @@ class ApiConfig:
         if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in limits):
             raise ConfigError("api upload limits must each be a whole number of at least 1")
         # Below the raw contract's width the project's own template is refused.
-        if self.max_upload_columns < len(RAW_COLUMNS):
+        if self.max_upload_columns < CONTRACT_WIDTH:
             raise ConfigError(
-                f"max_upload_columns must be at least {len(RAW_COLUMNS)}, the width of the "
+                f"max_upload_columns must be at least {CONTRACT_WIDTH}, the width of the "
                 "raw data contract"
             )
 

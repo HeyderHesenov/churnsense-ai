@@ -81,6 +81,7 @@ def clean_frame(
     required_columns: list[str] | None = None,
     *,
     deduplicate: bool = True,
+    derive_total_charges: bool = True,
 ) -> tuple[pd.DataFrame, CleaningReport]:
     """Return a typed, validated copy of ``df`` plus a record of the changes.
 
@@ -92,6 +93,11 @@ def clean_frame(
     ``deduplicate`` is for training data only. A scoring file must come back
     one row out per row in: two customers can share every feature value, and
     dropping one silently shifted every later row of the batch response.
+
+    ``derive_total_charges`` fills a blank TotalCharges on a customer with
+    tenure as tenure x MonthlyCharges. That is an estimate, so scoring turns
+    it off: an upload promises not to guess, and the blank is reported. A
+    blank at tenure 0 is filled with 0.0 either way - that is a fact.
     """
     rows_in = len(df)
     df = df.copy()
@@ -125,7 +131,12 @@ def clean_frame(
     # --- TotalCharges: the one genuinely ambiguous field ---------------------
     if "TotalCharges" in numeric:
         total, tenure = numeric["TotalCharges"], numeric.get("tenure")
-        blank = total.isna()
+        # Blank means no text at all. Text that is there but is not a number
+        # is a typo, not a gap: it stays NaN for validate_frame to report
+        # instead of being "recovered" below.
+        # Text columns were stripped above, so a blank is "" or NaN.
+        raw = df["TotalCharges"]
+        blank = raw.isna() | raw.eq("")
         n_blank = int(blank.sum())
 
         if tenure is None:
@@ -138,7 +149,7 @@ def clean_frame(
             zero_filled = int(at_zero_tenure.sum())
 
             recoverable = blank & ~tenure.eq(0)
-            if recoverable.any() and "MonthlyCharges" in numeric:
+            if derive_total_charges and recoverable.any() and "MonthlyCharges" in numeric:
                 # Not expected on the IBM file (all 11 blanks have tenure 0),
                 # but a blank with real tenure is recoverable: TotalCharges
                 # tracks tenure x MonthlyCharges at r = 0.9996 here.

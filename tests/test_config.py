@@ -72,6 +72,14 @@ def test_upload_limits_are_validated(overrides: dict):
         ApiConfig(**{**base, **overrides})
 
 
+def test_the_config_layer_knows_the_contract_width():
+    """CONTRACT_WIDTH is written out to keep pandas out of config; it must not drift."""
+    from churnsense.config import CONTRACT_WIDTH
+    from churnsense.data import schema
+
+    assert len(schema.RAW_COLUMNS) == CONTRACT_WIDTH
+
+
 def test_customer_value_applies_horizon_and_margin():
     business = Business("USD", 50.0, 0.3, 12, 0.5)
     assert business.customer_value(100.0) == pytest.approx(600.0)

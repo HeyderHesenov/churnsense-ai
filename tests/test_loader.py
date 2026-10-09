@@ -39,6 +39,26 @@ def test_blank_total_charges_with_tenure_is_derived_not_zeroed(raw_frame: pd.Dat
     assert cleaned.loc[target_row, "TotalCharges"] == pytest.approx(expected)
 
 
+def test_scoring_can_refuse_to_estimate_a_blank_total(raw_frame: pd.DataFrame):
+    """Uploads turn the estimate off: the blank is reported, not filled."""
+    frame = raw_frame.copy()
+    target_row = frame.index[frame["tenure"].astype(int) > 0][0]
+    frame.loc[target_row, "TotalCharges"] = " "
+
+    with pytest.raises(SchemaValidationError, match="'TotalCharges' has 1 missing"):
+        clean_frame(frame, derive_total_charges=False)
+
+
+def test_unparseable_total_charges_are_reported_not_recovered(raw_frame: pd.DataFrame):
+    """A typo is not a gap: even training data must not estimate over it."""
+    frame = raw_frame.copy()
+    target_row = frame.index[frame["tenure"].astype(int) > 0][0]
+    frame.loc[target_row, "TotalCharges"] = "oops"
+
+    with pytest.raises(SchemaValidationError, match="'TotalCharges' has 1 missing"):
+        clean_frame(frame)
+
+
 def test_clean_frame_produces_numeric_columns(clean_frame: pd.DataFrame):
     for column in schema.NUMERIC_COLUMNS:
         assert pd.api.types.is_numeric_dtype(clean_frame[column]), column

@@ -149,10 +149,12 @@ def model_missing(message: str) -> None:
 #: Leading characters that make a spreadsheet read a cell as a formula (OWASP).
 FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
 
-#: A trigger right after ';' or a tab. Excel in locales whose list separator is
-#: ';' (the comma-decimal ones, az-AZ among them) splits an unquoted cell there,
-#: and the piece after the split becomes a formula cell of its own.
-_SPLIT_FORMULA = re.compile(r"(?<=[;\t])(?=[=+\-@])")
+#: A trigger right after ';', a tab, a line break or a quote. Excel in locales
+#: whose list separator is ';' (the comma-decimal ones, az-AZ among them) splits
+#: a comma-CSV cell at ';', and outside a ';'-field's own quotes it ends the row
+#: at a line break and reads quotes literally - so the piece after any of these
+#: can become a formula cell of its own.
+_SPLIT_FORMULA = re.compile(r"(?<=[;\t\r\n\"])(?=[=+\-@])")
 
 
 def _defused(text: str) -> str:

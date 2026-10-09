@@ -7,6 +7,7 @@ pin the behaviour that makes that safe.
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 
 import numpy as np
@@ -21,6 +22,7 @@ from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
 from churnsense.models.predict import (
     Predictor,
     _read_contract_columns,
+    ignored_columns,
     load_predictor,
     validate_upload,
 )
@@ -134,6 +136,25 @@ def test_the_library_path_rejects_an_impossible_number(predictor: Predictor, sam
         predictor.predict_frame(sample.assign(tenure=-1))
 
 
+@pytest.mark.parametrize("value", [None, np.nan])
+def test_the_library_path_rejects_a_missing_category(predictor: Predictor, sample, value):
+    """Regression: the encoder ignored the unseen 'None' and scored the row as normal."""
+    broken = sample.copy()
+    broken["Contract"] = broken["Contract"].astype(object)
+    broken.loc[broken.index[0], "Contract"] = value
+    with pytest.raises(SchemaValidationError, match="'Contract' has 1 missing value"):
+        predictor.predict_frame(broken)
+
+
+@pytest.mark.parametrize("column", ["tenure", "MonthlyCharges", "TotalCharges"])
+def test_the_library_path_rejects_a_missing_number(predictor: Predictor, sample, column: str):
+    """A NaN reached the pipeline's median imputer and came back as a confident score."""
+    broken = sample.copy()
+    broken.loc[broken.index[0], column] = np.nan
+    with pytest.raises(SchemaValidationError, match=f"'{column}' has 1 missing"):
+        predictor.predict_frame(broken)
+
+
 def test_validated_values_are_what_gets_scored(predictor: Predictor, sample):
     """Regression: an integer SeniorCitizen - what plain read_csv produces - and
     padded text passed validation, then crashed inside the encoder."""
@@ -234,9 +255,29 @@ def test_a_semicolon_separated_file_is_named_as_such(cfg: Config, demo_csv):
         validate_upload(frame.to_csv(index=False, sep=";").encode(), cfg)
 
 
-def test_a_bom_after_a_blank_line_does_not_rename_the_first_column(cfg: Config, demo_csv):
-    cleaned = validate_upload(b"\n\xef\xbb\xbf" + demo_csv.read_bytes(), cfg)
+@pytest.mark.parametrize(
+    "prefix",
+    [b"\n\xef\xbb\xbf", b"\n\xef\xbb\xbf\n", b"\xef\xbb\xbf\xef\xbb\xbf"],
+    ids=["after-blank-line", "on-a-line-of-its-own", "doubled"],
+)
+@pytest.mark.parametrize("quoted", [False, True], ids=["plain-header", "quoted-header"])
+def test_a_stray_bom_does_not_rename_the_first_column(
+    cfg: Config, demo_csv, prefix: bytes, quoted: bool
+):
+    """Regression: the column was silently dropped as unknown, or the BOM became the header."""
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    body = frame.to_csv(index=False, quoting=csv.QUOTE_ALL if quoted else csv.QUOTE_MINIMAL)
+    cleaned = validate_upload(prefix + body.encode(), cfg)
     assert "customerID" in cleaned.columns
+    assert len(cleaned) == len(frame)
+
+
+def test_ignored_columns_names_what_the_reader_drops(demo_csv):
+    frame = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    frame["customer_id"] = "x"
+    frame["notes"] = "y"
+    assert ignored_columns(_csv(frame)) == ["customer_id", "notes"]
+    assert ignored_columns(demo_csv.read_bytes()) == []
 
 
 def test_an_unquoted_comma_in_the_first_row_is_refused_not_shifted(cfg: Config, demo_csv):
@@ -355,6 +396,37 @@ def test_an_upload_with_the_real_file_s_blank_charges_quirk_is_accepted(cfg: Con
 
     cleaned = validate_upload(_csv(raw), cfg)
     assert (cleaned.loc[blanks.to_numpy(), "TotalCharges"] == 0.0).all()
+
+
+@pytest.mark.parametrize(
+    ("changes", "problem"),
+    [
+        ({"tenure": "abc"}, "'tenure' has 1 missing or non-numeric value(s)"),
+        ({"tenure": ""}, "'tenure' has 1 missing or non-numeric value(s)"),
+        ({"MonthlyCharges": "n/a"}, "'MonthlyCharges' has 1 missing or non-numeric value(s)"),
+        ({"tenure": "5.5"}, "'tenure' has 1 non-integer value(s)"),
+        # Was "recovered" as tenure x MonthlyCharges: a typo treated as a gap.
+        (
+            {"tenure": "24", "TotalCharges": "oops"},
+            "'TotalCharges' has 1 missing or non-numeric value(s)",
+        ),
+        # A real gap, but on a billed customer only an estimate could fill it.
+        (
+            {"tenure": "24", "TotalCharges": ""},
+            "'TotalCharges' has 1 missing or non-numeric value(s)",
+        ),
+    ],
+)
+def test_an_upload_never_scores_a_guessed_number(
+    cfg: Config, demo_csv, changes: dict, problem: str
+):
+    """Regression: each of these was accepted, imputed, and scored with confidence."""
+    raw = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    for column, value in changes.items():
+        raw.loc[0, column] = value
+    with pytest.raises(SchemaValidationError) as excinfo:
+        validate_upload(_csv(raw), cfg)
+    assert problem in excinfo.value.problems
 
 
 def test_an_upload_keeps_every_row_in_file_order(cfg: Config, demo_csv):
