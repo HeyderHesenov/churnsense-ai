@@ -1,5 +1,7 @@
 # ChurnSense AI — Customer Retention Intelligence Platform
 
+[![CI](https://github.com/HeyderHesenov/churnsense-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/HeyderHesenov/churnsense-ai/actions/workflows/ci.yml)
+
 A decision-support system for telecom customer retention: it estimates churn
 probability, explains what moved each estimate, segments customers into
 operational risk bands, and lets an analyst explore the economics of a
@@ -567,9 +569,8 @@ What the tests actually defend:
 pytest with coverage, an end-to-end training smoke test, an API smoke test, and
 `pip-audit`, on Python 3.12 and 3.13.
 
-> **Honest status:** the CI workflow has **not been executed** — this repository
-> has no remote. Its test step was run locally on both Python versions and
-> passes; GitHub's runners have not seen it yet.
+CI needs no dataset and no network beyond the package index; the slow tests
+skip there because no trained artifact exists in a fresh checkout.
 
 `make audit` currently reports **no known vulnerabilities**.
 

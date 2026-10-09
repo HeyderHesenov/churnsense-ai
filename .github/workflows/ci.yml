@@ -23,9 +23,9 @@ jobs:
         python-version: ["3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -46,7 +46,8 @@ jobs:
       # real file's structure (including its blank-TotalCharges quirk) without
       # any of its data.
       - name: Test
-        run: pytest -q --cov=churnsense --cov-report=term-missing
+        # No -q here: pyproject's addopts already has one, and -qq hides the summary.
+        run: pytest --cov=churnsense --cov-report=term-missing
 
       - name: Smoke-test the training pipeline end to end
         run: |
@@ -103,8 +104,8 @@ jobs:
     name: dependency audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
