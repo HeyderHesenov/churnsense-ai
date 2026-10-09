@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to full commit SHAs (a tag can be moved; a SHA cannot),
+# with the release they belong to in a comment. Dependabot keeps both current.
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,15 +24,20 @@ jobs:
   test:
     name: test (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v7
+      # No later step pushes, so the token is not left in .git/config for
+      # every dependency's install hooks to read.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -104,12 +112,45 @@ jobs:
               print(f"OK  /health -> {body}")
           PY
 
+  # The job above tests the newest versions pyproject's ranges allow; this one
+  # tests the exact pins users get, through the same `make setup` they run.
+  # It is what validates a Dependabot bump to requirements.txt, a file no
+  # other job installs.
+  lock:
+    name: test (lock, py3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install the lock with make setup
+        run: make setup PYTHON=python
+
+      # requirements.txt is frozen on macOS and Dependabot edits one pin at a
+      # time; pip check catches a lock whose pins no longer agree.
+      - name: Check the lock is consistent
+        run: .venv/bin/python -m pip check
+
+      - name: Test
+        run: make test
+
   security:
     name: dependency audit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
