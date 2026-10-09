@@ -1,0 +1,39 @@
+# Version updates. Security updates are enabled in the repository settings and
+# open their own pull requests whenever an advisory affects a pinned version.
+#
+# Minor and patch bumps arrive as one grouped pull request per ecosystem; a
+# major bump always gets its own, so it can be read and tested on its own.
+# Every pull request has to pass CI, including the job that installs the
+# requirements.txt lock exactly as `make setup` does.
+version: 2
+
+updates:
+  # pyproject.toml (constraints) and requirements.txt (the lock).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Wait a week after a release before proposing it: most malicious or
+    # broken releases are yanked within days. Security updates ignore this.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # The actions in .github/workflows, pinned to commit SHAs.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    groups:
+      github-actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
