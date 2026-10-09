@@ -532,9 +532,13 @@ make lint     # ruff
 $ make test
 263 passed in 82.69s
 
-$ pytest -m "not slow"          # what CI runs; needs no dataset
+$ pytest -m "not slow"          # needs no dataset
 241 passed, 22 deselected
 ```
+
+On GitHub Actions — a fresh checkout with no dataset and no trained artifact —
+the full suite reports **244 passed, 19 skipped** on both Python 3.12 and 3.13:
+the slow tests that need a trained model skip cleanly.
 
 The 241 fast tests also pass on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0)
 in a separate environment resolved from the `pyproject.toml` constraints.
