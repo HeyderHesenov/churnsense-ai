@@ -528,21 +528,21 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**275 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**406 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
-275 passed in 78.93s
+406 passed in 83.44s
 
 $ pytest -m "not slow"          # needs no dataset
-253 passed, 22 deselected
+384 passed, 22 deselected
 ```
 
 On a fresh checkout with no dataset and no trained artifact — the state
-GitHub Actions runs in — the full suite reports **256 passed, 19 skipped**:
+GitHub Actions runs in — the full suite reports **387 passed, 19 skipped**:
 the slow tests that need a trained model skip cleanly.
 
-Before the security hardening added its 12 tests, the then 241 fast tests also
+Before the security hardening added its 143 tests, the then 241 fast tests also
 passed on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0) in a separate
 environment resolved from the `pyproject.toml` constraints; CI runs 3.12 and
 3.13 on every push.
@@ -621,7 +621,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       275 tests + seeded synthetic fixtures
+tests/                       406 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
