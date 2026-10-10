@@ -136,6 +136,9 @@ make app        # dashboard  → http://localhost:8501
 make api        # API        → http://localhost:8000/docs
 ```
 
+If another server already holds a port, pick a different one:
+`make api API_PORT=8001`, `make app APP_PORT=8502`.
+
 `make help` lists every target. Individual steps:
 
 ```bash
@@ -538,18 +541,18 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**413 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**414 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
-413 passed in 84.67s
+414 passed in 87.05s
 
 $ pytest -m "not slow"          # needs no dataset
-391 passed, 22 deselected
+392 passed, 22 deselected
 ```
 
 On a fresh checkout with no dataset and no trained artifact — the state
-GitHub Actions runs in — the full suite reports **394 passed, 19 skipped**:
+GitHub Actions runs in — the full suite reports **395 passed, 19 skipped**:
 the slow tests that need a trained model skip cleanly.
 
 Before the security hardening added its 143 tests, the then 241 fast tests also
@@ -636,7 +639,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       413 tests + seeded synthetic fixtures
+tests/                       414 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)

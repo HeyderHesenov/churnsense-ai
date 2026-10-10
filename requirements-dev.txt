@@ -2885,6 +2885,7 @@ scipy==1.18.1 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sy
     --hash=sha256:fdaf5ea890a6183d0565f51a61799d67081bd5b1cf03c5f4b3fd3732108625c9
     # via
     #   -c requirements.txt
+    #   -r requirements.in
     #   scikit-learn
     #   shap
 send2trash==2.1.0 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sys_platform == 'linux' \
@@ -2941,6 +2942,7 @@ starlette==1.7.0 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or
     --hash=sha256:c79f74ea63cff761804fbbfb182f1e0b440c2d07b164d24700c5a1bab5d6ff5d
     # via
     #   -c requirements.txt
+    #   -r requirements.in
     #   fastapi
     #   streamlit
 streamlit==1.65.0 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sys_platform == 'linux' \

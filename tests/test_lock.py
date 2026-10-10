@@ -5,13 +5,17 @@
 hashed locks that `make setup` and `make setup-runtime` install with
 `--require-hashes`. These tests catch the drift that pip would only report at
 install time, or never: an `.in` file that no longer matches pyproject, a pin
-without a hash, or a package locked differently in the two files.
+without a hash, a package locked differently in the two files, or code that
+imports a package pyproject never declared.
 """
 
 from __future__ import annotations
 
+import ast
 import re
+import sys
 import tomllib
+from importlib.metadata import packages_distributions
 from pathlib import Path
 
 import pytest
@@ -120,3 +124,25 @@ def test_shared_packages_are_locked_identically():
 def test_the_runtime_lock_carries_no_dev_tools():
     runtime = _lock(RUNTIME_LOCK)
     assert not [name for name in DEV_ONLY if canonicalize_name(name) in runtime]
+
+
+def _imported_distributions() -> set[str]:
+    """Distributions that the code in src/ and app/ imports directly."""
+    modules = set()
+    for path in [*ROOT.glob("src/**/*.py"), *ROOT.glob("app/**/*.py")]:
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                modules.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                modules.add(node.module.split(".")[0])
+    third_party = modules - set(sys.stdlib_module_names) - {"churnsense", "app"}
+    providers = packages_distributions()
+    return {canonicalize_name(dist) for m in third_party for dist in providers.get(m, [m])}
+
+
+def test_every_directly_imported_package_is_declared():
+    """Regression: scipy and starlette were imported but only arrived through
+    scikit-learn and fastapi, so a change in either could remove or re-range a
+    package this code calls directly."""
+    declared = {canonicalize_name(Requirement(spec).name) for spec in _project()["dependencies"]}
+    assert sorted(_imported_distributions() - declared) == []
