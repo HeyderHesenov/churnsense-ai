@@ -708,6 +708,12 @@ Found a vulnerability? Please report it privately, as described in
   `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot raises alerts
   and fix pull requests for known advisories and proposes weekly version
   updates; CodeQL scans the Python code and the workflows.
+- **`main` takes only checked, signed commits.** A ruleset blocks direct
+  pushes, force-pushes and deletion, requires the CI checks to pass, blocks
+  merging new high-severity CodeQL alerts, and requires verified signatures.
+  Commits are signed with an SSH key. A pull request lands by fast-forwarding
+  `main` to its checked head, because GitHub's rebase-and-merge rewrites
+  commits and drops their signatures.
 
 > **Local by design.** There is no authentication and no rate limiting, so
 > `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would
