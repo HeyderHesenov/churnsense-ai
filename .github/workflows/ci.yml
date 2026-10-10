@@ -113,9 +113,11 @@ jobs:
           PY
 
   # The job above tests the newest versions pyproject's ranges allow; this one
-  # tests the exact pins users get, through the same `make setup` they run.
-  # It is what validates a Dependabot bump to requirements.txt, a file no
-  # other job installs.
+  # tests the exact pins users get, through the same `make setup` they run,
+  # with every file checked against the sha256 in the lock. It is what
+  # validates a Dependabot bump to the locks, files no other job installs.
+  # It then installs the runtime lock on its own, proves the service and the
+  # dashboard run on it, and keeps that environment's SBOM.
   lock:
     name: test (lock, py3.12)
     runs-on: ubuntu-latest
@@ -129,18 +131,80 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
-      - name: Install the lock with make setup
+      - name: Install the dev lock with make setup
         run: make setup PYTHON=python
 
-      # requirements.txt is frozen on macOS and Dependabot edits one pin at a
-      # time; pip check catches a lock whose pins no longer agree.
+      # The locks are resolved for Linux and macOS together, and a Dependabot
+      # pull request may touch one file only; pip check catches pins that no
+      # longer agree with each other.
       - name: Check the lock is consistent
         run: .venv/bin/python -m pip check
 
       - name: Test
         run: make test
+
+      - name: Install the runtime lock alone and write its SBOM
+        run: make sbom PYTHON=python
+
+      # Nothing from the dev lock is on the path here: a runtime module that
+      # imports a dev-only package fails this step, not a deployment.
+      - name: Smoke-test the runtime lock alone
+        env:
+          PYTHONPATH: src:.
+        run: |
+          .venv-runtime/bin/python - <<'PY'
+          """Import every module, then run the dashboard script once."""
+          import importlib
+          import pkgutil
+
+          import app
+          import churnsense
+          from streamlit.testing.v1 import AppTest
+
+          names = [
+              m.name
+              for package in (churnsense, app)
+              for m in pkgutil.walk_packages(package.__path__, package.__name__ + ".")
+          ]
+          # streamlit_app is a script, not a library module: AppTest runs it.
+          names.remove("app.streamlit_app")
+          for name in names:
+              importlib.import_module(name)
+          print(f"OK  imported {len(names)} modules")
+
+          at = AppTest.from_file("app/streamlit_app.py", default_timeout=120).run()
+          assert not at.exception, [e.value for e in at.exception]
+          print("OK  dashboard script ran without an exception")
+          PY
+
+          # A real server rather than TestClient, which needs httpx (dev only).
+          .venv-runtime/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port 8765 &
+          server=$!
+          for _ in $(seq 30); do
+            kill -0 "$server"  # it exited: port taken or import failed
+            body=$(curl -fsS http://127.0.0.1:8765/health) && break
+            sleep 1
+          done
+          kill "$server"
+          # model_loaded is this API's own field, so another server that
+          # happens to answer on the port cannot pass for it.
+          echo "$body" | .venv-runtime/bin/python -c '
+          import json, sys
+          body = json.load(sys.stdin)
+          assert body["status"] in {"ok", "degraded"} and "model_loaded" in body, body
+          '
+          echo "OK  /health -> $body"
+
+      - name: Keep the SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: error
 
   security:
     name: dependency audit
@@ -170,13 +234,13 @@ jobs:
         run: pip-audit --skip-editable
 
       # The install above resolves pyproject's ranges as of today; users get
-      # the exact pins in requirements.txt from `make setup`. Audit those too,
-      # so a vulnerable pinned version cannot hide behind a newer resolution.
-      # --disable-pip reads the pins as written; without it pip-audit installs
-      # the whole (macOS-frozen) lock into a scratch venv first.
-      - name: pip-audit (lock)
+      # the exact pins in the locks from `make setup`. Audit those too, so a
+      # vulnerable pinned version cannot hide behind a newer resolution.
+      # --disable-pip reads the pins as written instead of installing them,
+      # and --require-hashes fails on any entry that lost its hash.
+      - name: pip-audit (locks)
         continue-on-error: true
-        run: pip-audit -r requirements.txt --no-deps --disable-pip
+        run: pip-audit -r requirements.txt -r requirements-dev.txt --require-hashes --disable-pip
 
       - name: Check that no secrets or data are committed
         run: |
