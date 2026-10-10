@@ -90,7 +90,7 @@ numpy==2.5.3
 opentelemetry-api==1.45.1
 packageurl-python==0.17.6
 packaging==26.3
-pandas==2.3.3
+pandas==3.0.6
 pandocfilters==1.5.1
 parso==0.8.7
 pexpect==4.9.0

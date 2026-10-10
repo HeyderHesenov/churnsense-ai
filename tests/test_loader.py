@@ -66,7 +66,7 @@ def test_clean_frame_produces_numeric_columns(clean_frame: pd.DataFrame):
 
 def test_senior_citizen_is_categorical_not_numeric(clean_frame: pd.DataFrame):
     """A 0/1 flag must not be scaled as if it were a magnitude."""
-    assert clean_frame["SeniorCitizen"].dtype == object
+    assert pd.api.types.is_string_dtype(clean_frame["SeniorCitizen"])
     assert set(clean_frame["SeniorCitizen"].unique()) <= {"0", "1"}
 
 
@@ -121,6 +121,17 @@ def test_whitespace_is_stripped(raw_frame: pd.DataFrame):
     cleaned, report = clean_frame(padded)
     assert "Contract" in report.stripped_columns
     assert set(cleaned["Contract"].unique()) <= set(schema.ALLOWED_CATEGORIES["Contract"])
+
+
+def test_string_dtype_text_is_cleaned_like_object_text(raw_frame: pd.DataFrame):
+    """Regression: pandas 3 reads text as ``str`` (StringDtype), not object.
+    Only object columns were stripped, so the blank " " TotalCharges at tenure
+    0 stayed a space and failed validation instead of becoming 0.0."""
+    expected, expected_report = clean_frame(raw_frame.astype(object))
+    cleaned, report = clean_frame(raw_frame.astype(pd.StringDtype(na_value=np.nan)))
+
+    assert report == expected_report
+    pd.testing.assert_frame_equal(cleaned, expected, check_dtype=False)
 
 
 def test_read_raw_gives_actionable_error_when_file_is_absent(tmp_path, cfg: Config):
