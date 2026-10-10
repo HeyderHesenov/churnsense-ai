@@ -7,7 +7,7 @@ CSV and the training matrix.
 
 The two judgement calls made here, both measured on the real file:
 
-* ``TotalCharges`` is typed ``object`` because 11 rows hold a single space.
+* ``TotalCharges`` is read as text, not a number, because 11 rows hold a single space.
   All 11 have ``tenure == 0``, so the correct value is **0.0** - the customer
   has not been billed yet. Median imputation would invent roughly $1,400 of
   spend for a brand-new customer and would distort exactly the tenure region
@@ -102,9 +102,12 @@ def clean_frame(
     rows_in = len(df)
     df = df.copy()
 
-    object_cols = [c for c in df.columns if df[c].dtype == object]
-    stripped = tuple(c for c in object_cols if df[c].str.strip().ne(df[c]).any())
-    for col in object_cols:
+    # pandas 3 reads text as `str` (StringDtype), not object; both are text.
+    text_cols = [
+        c for c in df.columns if df[c].dtype == object or isinstance(df[c].dtype, pd.StringDtype)
+    ]
+    stripped = tuple(c for c in text_cols if df[c].str.strip().ne(df[c]).any())
+    for col in text_cols:
         df[col] = df[col].str.strip()
 
     duplicates_dropped = 0
