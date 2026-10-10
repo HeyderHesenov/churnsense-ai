@@ -1,0 +1,2 @@
+Probe for the main ruleset: this commit is deliberately unsigned and must be
+rejected when pushed to main. It is never merged.
