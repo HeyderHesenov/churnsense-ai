@@ -12,6 +12,9 @@ permissions:
 
 # Actions are pinned to full commit SHAs (a tag can be moved; a SHA cannot),
 # with the release they belong to in a comment. Dependabot keeps both current.
+# The runner image is pinned too: ubuntu-latest moves to 26.04 gradually from
+# 2026-10-19, so two runs could land on different images. Dependabot does not
+# update runner labels; moving to 26.04 is a deliberate change.
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,7 +26,7 @@ env:
 jobs:
   test:
     name: test (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -120,7 +123,7 @@ jobs:
   # dashboard run on it, and keeps that environment's SBOM.
   lock:
     name: test (lock, py3.12)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,7 +211,7 @@ jobs:
 
   security:
     name: dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
