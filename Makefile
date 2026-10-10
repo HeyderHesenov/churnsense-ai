@@ -13,6 +13,11 @@ PIP := $(PY) -m pip
 UV := .venv/bin/uv
 RUNTIME := .venv-runtime
 
+# Ports for `make app` and `make api`. Override when another server already
+# holds one: `make api API_PORT=8001`. The Host allowlist ignores the port.
+APP_PORT ?= 8501
+API_PORT ?= 8000
+
 .DEFAULT_GOAL := help
 .PHONY: help setup setup-runtime check-python lock sbom data eda train evaluate explain all test lint format audit app api clean
 
@@ -113,10 +118,10 @@ audit:  ## Check installed dependencies for known vulnerabilities
 # Both servers bind to loopback: neither has authentication, and Streamlit
 # otherwise listens on every interface, i.e. to anyone on the same network.
 app:  ## Launch the Streamlit dashboard
-	.venv/bin/streamlit run app/streamlit_app.py --server.address 127.0.0.1
+	.venv/bin/streamlit run app/streamlit_app.py --server.address 127.0.0.1 --server.port $(APP_PORT)
 
 api:  ## Launch the FastAPI service
-	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port 8000 --reload
+	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port $(API_PORT) --reload
 
 clean:  ## Remove generated artifacts, reports and caches (raw data is kept)
 	rm -rf artifacts/* reports/figures/* .pytest_cache .ruff_cache
