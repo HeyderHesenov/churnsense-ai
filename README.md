@@ -118,7 +118,8 @@ and batch scoring **cannot** disagree.
 ## Quick start
 
 Requires **Python 3.12+** (developed on 3.12.13; the fast test suite also passes
-on 3.13.5). The floor comes from the lock: shap 0.52, scipy 1.18 and
+on 3.13.5) on **Linux or macOS on Apple silicon**, the platforms the lock is
+resolved for. The floor comes from the lock: shap 0.52, scipy 1.18 and
 contourpy 1.4 no longer support 3.11. If your default `python3` is older, pass
 a newer one — `make setup` checks before it creates anything and tells you
 which interpreters it can find:
@@ -128,7 +129,7 @@ make setup PYTHON=python3.12
 ```
 
 ```bash
-make setup      # .venv from the lock in requirements.txt
+make setup      # .venv from the hashed dev lock, requirements-dev.txt
 make data       # download the dataset and verify its SHA-256
 make all        # data → eda → train → explain → evaluate
 make app        # dashboard  → http://localhost:8501
@@ -146,6 +147,15 @@ make test       # pytest
 make lint       # ruff check + format --check
 make audit      # pip-audit
 make clean      # remove generated output (raw data is kept)
+```
+
+The dependencies come in two hashed locks, both compiled by `make lock` from
+the constraints in `pyproject.toml` (repeated in `requirements*.in`):
+
+```bash
+make setup-runtime   # .venv-runtime from requirements.txt: what the app and API need, nothing else
+make sbom            # sbom.cdx.json: a CycloneDX SBOM of that runtime environment
+make lock            # recompile both locks; LOCK_ARGS="--upgrade-package X" moves one pin
 ```
 
 ### If the download fails
@@ -528,18 +538,18 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**407 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**413 tests, all passing on Python 3.12.13.** Measured, not claimed:
 
 ```
 $ make test
-407 passed in 83.79s
+413 passed in 84.67s
 
 $ pytest -m "not slow"          # needs no dataset
-385 passed, 22 deselected
+391 passed, 22 deselected
 ```
 
 On a fresh checkout with no dataset and no trained artifact — the state
-GitHub Actions runs in — the full suite reports **388 passed, 19 skipped**:
+GitHub Actions runs in — the full suite reports **394 passed, 19 skipped**:
 the slow tests that need a trained model skip cleanly.
 
 Before the security hardening added its 143 tests, the then 241 fast tests also
@@ -575,10 +585,12 @@ What the tests actually defend:
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
 pytest with coverage, an end-to-end training smoke test, an API smoke test, and
-`pip-audit`, on Python 3.12 and 3.13; a third job installs the lock through
-`make setup`, runs `pip check` and the suite against those exact pins. Pull
-requests into `main` also run a dependency review, and only merge once every
-check passes.
+`pip-audit`, on Python 3.12 and 3.13. A third job installs the dev lock through
+`make setup`, checking every file against its hash, and runs `pip check` and the
+suite against those exact pins. It then installs the runtime lock on its own,
+imports every module, runs the dashboard script and starts the API on it, and
+keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
+`main` also run a dependency review, and only merge once every check passes.
 
 CI needs no dataset and no network beyond the package index; the slow tests
 skip there because no trained artifact exists in a fresh checkout.
@@ -624,7 +636,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       406 tests + seeded synthetic fixtures
+tests/                       413 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -681,12 +693,18 @@ Found a vulnerability? Please report it privately, as described in
   `Cache-Control: no-store`.
 - **Never a fabricated prediction.** A missing or unreadable model surfaces as
   503 / a dead-end dashboard state, never as a default score.
-- **Dependencies** are constrained in `pyproject.toml` and locked in
-  `requirements.txt`, which `make setup` installs; `make audit` runs `pip-audit`.
-  CI audits both the resolved environment and the lock itself, with a
-  read-only `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot
-  raises alerts and fix pull requests for known advisories and proposes
-  weekly version updates; CodeQL scans the Python code and the workflows.
+- **Dependencies** are constrained in `pyproject.toml` and locked, version
+  and sha256, in `requirements.txt` (runtime) and `requirements-dev.txt`
+  (runtime plus dev and notebook tools). `make setup` installs with
+  `--require-hashes`, so a package file that differs from the one locked is
+  refused; the build backend is locked too, and the editable install is built
+  from it without fetching anything. The runtime lock carries only what the
+  app and API import (`tests/test_lock.py` keeps dev tools out of it), and CI
+  publishes its CycloneDX SBOM on every run. `make audit` runs `pip-audit`;
+  CI audits both the resolved environment and the locks, with a read-only
+  `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot raises alerts
+  and fix pull requests for known advisories and proposes weekly version
+  updates; CodeQL scans the Python code and the workflows.
 
 > **Local by design.** There is no authentication and no rate limiting, so
 > `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would

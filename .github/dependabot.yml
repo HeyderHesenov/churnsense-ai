@@ -4,12 +4,16 @@
 # Minor and patch bumps arrive as one grouped pull request per ecosystem; a
 # major bump always gets its own, so it can be read and tested on its own.
 # Every pull request has to pass CI, including the job that installs the
-# requirements.txt lock exactly as `make setup` does.
+# hashed locks exactly as `make setup` and `make setup-runtime` do.
 version: 2
 
 updates:
-  # pyproject.toml (constraints) and requirements.txt (the lock).
-  - package-ecosystem: pip
+  # pyproject.toml and requirements*.in (constraints), and the hashed locks
+  # requirements*.txt that `make lock` compiles from them with
+  # `uv pip compile`. The uv ecosystem recompiles a lock with uv and the
+  # options in its header (--universal, --generate-hashes, --python-version),
+  # so an update keeps the hashes and the Linux-only pins.
+  - package-ecosystem: uv
     directory: /
     schedule:
       interval: weekly
