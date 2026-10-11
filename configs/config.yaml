@@ -25,8 +25,9 @@ dataset:
   expected_rows: 7043
 
 split:
-  # Stratified 60/20/20. Model selection AND threshold tuning use `validation`
-  # only; `test` is scored exactly once, at the end of the pipeline.
+  # Stratified 60/20/20. The model is selected by cross-validation on `train`;
+  # calibration and the threshold are decided on `validation`. `test` is read
+  # only by `make evaluate CONFIRM=yes` (history: docs/MODEL_CARD.md).
   test_size: 0.20
   validation_size: 0.20      # fraction of the full dataset, not of the remainder
   stratify: true

@@ -32,7 +32,9 @@ scikit-learn went 1.7.2 → 1.9.1, numpy 2.2.6 → 2.3.5.
 
 **The reassuring part:** the whole pipeline reproduced bit-identical results
 across that jump — validation PR-AUC 0.6444, calibration ECE 0.1441 → 0.0288,
-threshold 0.36, test ROC-AUC 0.8425. That is a stronger reproducibility signal
+threshold 0.36, and the same test ROC-AUC (0.8425 for the pre-audit model; that
+re-run is one of the test-partition reads listed in the model card's
+evaluation history). That is a stronger reproducibility signal
 than any assertion I could have written.
 
 **Lesson recorded:** the floor went to `>=3.11`, because a floor of 3.10 would
@@ -85,31 +87,62 @@ thing to explain.
 
 ## 4. Model selection: the one-standard-error rule
 
-The measured field:
+The measured field (5-fold CV on train; validation beside it as evidence):
 
-| Model | CV PR-AUC | CV std | Val PR-AUC |
-|---|---|---|---|
-| Logistic Regression | 0.6663 | 0.0244 | 0.6444 |
-| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.6416 |
-| Random Forest | 0.6714 | 0.0152 | 0.6365 |
+| Model | CV PR-AUC | CV std | CV SE | Val PR-AUC |
+|---|---|---|---|---|
+| Random Forest | 0.6714 | 0.0152 | 0.0068 | 0.6365 |
+| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.0066 | 0.6416 |
+| Logistic Regression | 0.6663 | 0.0244 | 0.0109 | 0.6444 |
 
 My first implementation took the argmax of validation PR-AUC. It selected
-logistic regression — the right answer, for a bad reason.
-
-The top three are within **0.008** against a standard error of **0.0109**. The
-"winner" is sampling noise. In an interview, "it beat the booster by 0.003" is
-an answer that invites the follow-up I would deserve.
+logistic regression — the right answer, for a bad reason: the three real
+models sit within 0.008 of each other on validation and within 0.005 in
+cross-validation. The "winner" is sampling noise. In an interview, "it beat the
+booster by 0.003" is an answer that invites the follow-up I would deserve.
 
 So selection became the **one-standard-error rule** (Breiman; Hastie et al.):
 treat everything within one standard error of the leader as tied, break the tie
-on simplicity. Complexity order is explicit in
+on simplicity. With every number from the same folds: the leader is Random
+Forest at 0.6714, its standard error is 0.0152 / √5 = **0.0068**, the cutoff is
+**0.6646**, and all three real models clear it — logistic regression by 0.0017.
+
+**My second implementation got the rule half wrong.** It took the leader on
+*validation* PR-AUC and subtracted a standard error computed from the
+*cross-validation* folds: a spread from one sample applied to a score from
+another. The cutoff then meant nothing in particular. Corrected on 2026-10-11:
+the leader, the standard error and the scores compared with the cutoff all come
+from the same five folds on the training partition, and validation is reported
+as evidence only — which also stops validation from doing two jobs at once
+(selecting the model *and* tuning the threshold). The corrected rule selects
+the same model, and the retrained `model.joblib` is byte-identical.
+
+Three choices inside the rule, stated rather than hidden:
+
+- **The standard deviation is the population form GridSearchCV reports**
+  (`std_test_score`, the "CV std" column). The sample form would be 12 % larger
+  with five folds; it would move the cutoff to 0.6638 and admit the same three
+  models.
+- **The folds share training rows**, so the spread of their scores understates
+  the uncertainty of a cross-validated estimate; there is no unbiased estimator
+  of that variance (Bengio and Grandvalet, 2004). The standard error is a
+  yardstick for "tied", not a confidence interval.
+- **Each CV score is the best over its own grid** (4 configurations for
+  logistic regression, 9 for the forest, 16 for the booster), which flatters the
+  larger grids a little. Leaning toward the simpler model works against that;
+  nested cross-validation would remove it at five times the compute, for a
+  decision in which all three real models are already tied. Listed in §11.
+
+Complexity order is explicit in
 `registry.COMPLEXITY_ORDER` — it encodes a judgement (fewer fitted parameters,
 a readable decision function, cheaper inference), so it belongs in code where
 it can be read and argued with.
 
 The baseline gets no exemption. It is the simplest candidate, but it reaches
 the tie set only if nothing else is meaningfully better — which would mean the
-pipeline had failed and should not ship quietly. A test covers that.
+pipeline had failed. Training then stops with `ModelSelectionError` instead of
+writing an artifact; it used to select the baseline and rely on a test to
+notice.
 
 **The same discipline reappears in threshold selection** (§6). That was not
 planned; I noticed the identical mistake and fixed it the same way.
@@ -156,10 +189,14 @@ That is a claim no model fitted on 4,225 rows can support. A probability of
 exactly 1 also has infinite log-odds, which
 degenerates any expected-value or log-loss arithmetic downstream.
 
-Probabilities are clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4`: the
-finest rate the calibration sample can express, derived rather than chosen.
-Clipping is monotone so ranking is untouched, and ε sits three orders of
-magnitude below the operating threshold so no decision changes. The UI shows
+Probabilities are clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4`:
+half of one observation in the training sample, a convention tied to the data
+rather than a round number. (An earlier version of this text called it the
+finest rate the calibration could express. It is not: with `cv=5` each isotonic
+map is fitted on its fold's held-out fifth, so a single map is coarser, and the
+shipped model averages five of them.) Clipping is monotone so ranking is
+untouched, and ε sits three orders of magnitude below the operating threshold
+so no decision depends on its exact value. The UI shows
 the extremes as `>99.9%` rather than `100.0%`.
 
 I first put the clamp in `Predictor`, the serving layer. That was the wrong
@@ -215,8 +252,17 @@ for a difference the simulation cannot resolve.
 So the indifference band is **one retention offer's cost**. That tolerance is
 the business's own unit of account, not an invented epsilon: a simulation
 cannot resolve a difference smaller than a single intervention, and the band
-widens automatically when the offer gets more expensive. Choosing 0.36 moved
-test precision 0.5296 → **0.5525**.
+widens automatically when the offer gets more expensive. (Earlier versions of
+this document quoted the test precision at 0.30 as well; no committed command
+produced that number, so it is gone.)
+
+The threshold is chosen by `make train` with the model that ships, so the
+artifact leaves training with its operating point. It used to be chosen inside
+`make evaluate`, which meant the routine command for "set the threshold" also
+scored the test partition. The comparison report also shows how far the choice
+moves with the assumed offer success rate: 0.88 at 10 %, 0.36 at 30 %, 0.22 at
+50 %. The model estimates churn *risk*; how much an offer changes it is an
+assumption, and the table makes that visible.
 
 The dashboard shades the band, because a chosen point that is visibly not the
 peak would otherwise read as a bug.
@@ -249,7 +295,7 @@ Three details that matter:
   and needed a column-ownership map to re-aggregate.
 - **Enough permutations.** That first version also used a single sampled
   ordering per customer. The audit in §10 measured what that meant: changing
-  nothing but the seed moved the top three drivers for over a third of
+  nothing but the seed moved the top three contributors for over a third of
   customers. Ten orderings cut the mean seed-to-seed spread from about 1 to
   about 0.3 percentage points; doubling again bought little and doubled the
   cost (≈0.45 s per customer on the dashboard).
@@ -341,7 +387,7 @@ fixed, and each fix has a regression test that fails on the old code.
 |---|---|---|
 | Batch scoring dropped exact-duplicate rows and renumbered the rest | a 6-row upload with one duplicate returned 5 rows; the API's `row 1` was file row 2 | scoring never deduplicates; `row` is the position in the file |
 | Calibration reused the preprocessor fitted on all of train inside its CV folds | each fold's held-out rows had shaped its scaler | the whole pipeline is calibrated; a test checks every fold's scaler |
-| Per-customer SHAP was one sampled ordering over one-hot columns | changing only the seed moved the top-3 drivers for 37.5 % of customers | raw features, 10 orderings (see §7) |
+| Per-customer SHAP was one sampled ordering over one-hot columns | changing only the seed moved the top-3 contributors for 37.5 % of customers | raw features, 10 orderings (see §7) |
 | Docs cited a gender / `TotalCharges` ablation that no code produced | no ablation existed anywhere | `make train` now runs it and publishes the table |
 | Unknown target labels became "did not churn" | the label was encoded before it was validated | unknown labels are rejected |
 | The library path skipped input validation the API enforced | a direct `predict_frame` scored a typo'd category; a plain `read_csv` frame crashed in the encoder | `Predictor` validates and coerces every input |
@@ -350,11 +396,37 @@ fixed, and each fix has a regression test that fails on the old code.
 | The lock needed Python 3.12 while the project claimed 3.11 | shap 0.52, scipy 1.18, contourpy 1.4 | floor raised; `make setup` installs the lock |
 
 The calibration and SHAP fixes changed the model, so the pipeline was re-run
-and the test partition scored a second time. Both fixes were decided on
-principle, before that scoring, and nothing was selected on it. The measured
-effect on test was in the third decimal (recall 0.7005 → 0.7032, ECE
-0.0264 → 0.0275); validation ECE improved from 0.0288 to 0.0274. Model, threshold
-and every qualitative conclusion stayed the same.
+and the test partition scored again. Both fixes were decided on principle,
+before that scoring, and nothing was selected on it. The measured effect on
+test was in the third decimal (recall 0.7005 → 0.7032, ECE 0.0264 → 0.0275);
+validation ECE improved from 0.0288 to 0.0274. Model, threshold and every
+qualitative conclusion stayed the same. This document used to call that the
+"second" scoring; it was not — see the next section.
+
+### A second review: evaluation governance (2026-10-11)
+
+A later review asked a narrower question — how often has the test partition
+actually been read? — and the answer was: far more than the documents said.
+The dashboard's performance page scored it on every visit, every local
+`make test` ran that page, and every reproducibility check ran `make all`,
+which ended in `make evaluate`. The full account is the model card's
+**Evaluation history**. What changed:
+
+| Finding | Fix |
+|---|---|
+| The one-SE rule mixed a validation leader with a CV standard error | every quantity from the same CV folds (§4) |
+| A baseline win would have shipped | `ModelSelectionError` stops training |
+| The threshold was chosen inside `make evaluate` | `make train` chooses it on validation; evaluation receives it |
+| `make all` and the dashboard read the test partition | `make dev` for development; `make evaluate CONFIRM=yes`; the dashboard shows validation; a test bans `X_test` outside the final evaluation |
+| "SHA-256 verified on every run" was true only at download | `load_clean` verifies the pin on every read; metadata records the digest of the file read |
+| Evaluation trusted that the split matched training | the metadata records a split digest and the model's own hash; mismatches are refused |
+| Segment table on test only, without uncertainty | validation table with Wilson intervals, within-segment ROC-AUC, gender and senior-citizen rows, in the report and the dashboard |
+| Impossible customers were scored | cross-field rules (add-ons ⇔ internet, lines ⇔ phone, charges ⇔ tenure) on every path |
+| EDA used every row, test labels included | EDA runs on the training partition |
+| CI dependency audits could not fail | they block; accepted advisories need a dated entry in SECURITY.md |
+
+None of it changed the model: `make train` reproduces the same `model.joblib`
+byte for byte, so the published test figures still describe what ships.
 
 ---
 
@@ -363,7 +435,9 @@ and every qualitative conclusion stayed the same.
 In rough order of value:
 
 1. **Nested cross-validation** for threshold selection, so the production model
-   can be fitted on all non-test data without compromising the operating point.
+   can be fitted on all non-test data without compromising the operating point —
+   and for model selection, which would also remove the optimistic bias of
+   taking each candidate's best grid point.
 2. **Drift monitoring** — PSI on the input distribution, rolling calibration
    error on outcomes. The model will decay as pricing and product mix move, and
    nothing here would notice.
@@ -380,4 +454,8 @@ In rough order of value:
    may be the right commercial answer, but it should be a stated decision
    rather than an emergent one.
 6. **Fairness auditing** across the attributes retained, not just the one
-   dropped.
+   dropped. A descriptive per-group check now exists on validation; an audit
+   with a stated fairness criterion, more data per group and a review of the
+   offer itself does not.
+7. **A fresh holdout.** The IBM file's test partition has been read too often
+   to count as independent; a later customer snapshot, evaluated a single time, would.

@@ -1,39 +1,60 @@
-"""The documented numbers must match the artifacts that produced them.
+"""The documented numbers must match the reports that produced them.
 
 This project's central claim is that every figure in its documentation was
 measured rather than asserted. That claim decays the moment someone retrains
-with a different seed, config or dataset and the README keeps the old
-numbers — and nothing else in the suite would notice.
+or re-evaluates and the README keeps the old numbers - and nothing else in the
+suite would notice.
 
-So the headline metrics are parsed back out of the prose and compared to
-``artifacts/model_meta.json``. Marked slow: it needs a trained artifact and
-skips cleanly without one.
+So the headline figures are parsed back out of the prose and compared to the
+tracked reports that generated them: test metrics to
+``reports/final_evaluation.md``, the selection rule and the operating point to
+``reports/model_comparison.md``. Both are in git, so this runs in CI too.
 """
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
 import pytest
 
-from churnsense.config import load_config
-
-pytestmark = pytest.mark.slow
-
 ROOT = Path(__file__).resolve().parents[1]
+DOCS = (
+    "README.md",
+    "docs/MODEL_CARD.md",
+    "docs/PROJECT_WALKTHROUGH.md",
+    "docs/INTERVIEW_PREPARATION.md",
+)
+
+
+def _table_rows(section: str) -> dict[str, str]:
+    """``| label | value |`` rows of a two-column markdown table."""
+    return {
+        label.strip("* "): value.strip("* ")
+        for label, value in re.findall(r"^\| ([^|]+?) \| ([^|]+?) \|$", section, re.M)
+    }
 
 
 @pytest.fixture(scope="module")
-def meta() -> dict:
-    path = load_config().paths.model_meta_file
-    if not path.is_file():
-        pytest.skip("needs `make train && make evaluate`")
-    data = json.loads(path.read_text())
-    if "test_metrics" not in data:
-        pytest.skip("needs `make evaluate` to record test metrics")
-    return data
+def test_report() -> dict[str, float]:
+    """The test metrics as `make evaluate` wrote them."""
+    text = (ROOT / "reports" / "final_evaluation.md").read_text()
+    rows = _table_rows(text.split("## Test-set performance")[1].split("###")[0])
+    return {
+        "precision": float(rows["Precision"]),
+        "recall": float(rows["Recall"]),
+        "roc_auc": float(rows["ROC-AUC"]),
+        "average_precision": float(rows["PR-AUC (average precision)"]),
+        "brier": float(rows["Brier score"]),
+        "threshold": float(re.search(r"Threshold \*\*([0-9.]+)\*\*", text).group(1)),
+    }
+
+
+@pytest.fixture(scope="module")
+def comparison() -> dict[str, str]:
+    """The selection rule's steps and the operating point as `make train` wrote them."""
+    text = (ROOT / "reports" / "model_comparison.md").read_text()
+    return _table_rows(text)
 
 
 def _numbers_after(text: str, label: str) -> list[float]:
@@ -56,26 +77,67 @@ def _numbers_after(text: str, label: str) -> list[float]:
         ("Brier", "brier"),
     ],
 )
-def test_readme_quotes_the_measured_test_metrics(meta: dict, label: str, key: str):
+def test_readme_quotes_the_measured_test_metrics(test_report: dict, label: str, key: str):
     readme = (ROOT / "README.md").read_text()
-    expected = round(meta["test_metrics"][key], 4)
-    assert expected in _numbers_after(readme, label), (
-        f"README does not quote the measured test {key} ({expected:.4f}); "
-        "re-run `make evaluate` and update the prose"
+    assert test_report[key] in _numbers_after(readme, label), (
+        f"README does not quote the test {key} in reports/final_evaluation.md "
+        f"({test_report[key]:.4f})"
     )
 
 
-def test_readme_quotes_the_shipped_threshold(meta: dict):
-    readme = (ROOT / "README.md").read_text()
-    assert f"{meta['threshold']:.2f}" in readme
-
-
-def test_the_model_card_quotes_the_same_metrics_as_the_readme(meta: dict):
+def test_the_model_card_quotes_the_same_test_metrics(test_report: dict):
     """Two documents, one set of numbers."""
     card = (ROOT / "docs" / "MODEL_CARD.md").read_text()
     for key in ("precision", "recall", "roc_auc", "average_precision"):
-        expected = round(meta["test_metrics"][key], 4)
-        assert str(expected) in card, f"MODEL_CARD.md is missing test {key} = {expected}"
+        assert f"{test_report[key]:.4f}" in card, f"MODEL_CARD.md is missing test {key}"
+
+
+def test_readme_quotes_the_operating_point_training_chose(comparison: dict, test_report: dict):
+    """The threshold `make train` records, which the final evaluation used."""
+    readme = (ROOT / "README.md").read_text()
+    threshold = comparison["Threshold"]
+    assert float(threshold) == pytest.approx(test_report["threshold"])
+    assert threshold in readme
+
+
+@pytest.mark.parametrize(
+    "step",
+    ["Standard error = leader's CV std / sqrt(5)", "Cutoff = leader - one standard error"],
+)
+def test_the_documents_quote_the_selection_rule_as_measured(comparison: dict, step: str):
+    """The cutoff and its standard error, as the regenerated report has them."""
+    value = comparison[step].split("=")[-1].strip()
+    for name in ("README.md", "docs/PROJECT_WALKTHROUGH.md"):
+        assert value in (ROOT / name).read_text(), f"{name} does not quote {step} = {value}"
+
+
+#: Claims about the test partition that its history contradicts.
+FALSE_HISTORY = (
+    "scored exactly once",
+    "scored **once**",
+    "scored once",
+    "single test-set scoring",
+    "only place the test partition",
+    "test was touched once",
+    "one and only test-set scoring",
+)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [*DOCS, "reports/model_comparison.md", "src/churnsense/evaluation/report.py"],
+)
+def test_nothing_claims_the_test_partition_was_scored_only_once(name: str):
+    """It was scored for several model versions and re-read by reproducibility
+    runs; docs/MODEL_CARD.md records that history. No document may say otherwise."""
+    text = (ROOT / name).read_text().lower()
+    found = [phrase for phrase in FALSE_HISTORY if phrase.lower() in text]
+    assert not found, f"{name} repeats a claim the history contradicts: {found}"
+
+
+def test_the_model_card_keeps_the_evaluation_history():
+    card = (ROOT / "docs" / "MODEL_CARD.md").read_text()
+    assert "## Evaluation history" in card
 
 
 def test_no_document_claims_a_measured_business_saving():
@@ -90,12 +152,7 @@ def test_no_document_claims_a_measured_business_saving():
         "guaranteed return",
         "increased retention by",
     ]
-    for name in (
-        "README.md",
-        "docs/MODEL_CARD.md",
-        "docs/PROJECT_WALKTHROUGH.md",
-        "docs/INTERVIEW_PREPARATION.md",
-    ):
+    for name in DOCS:
         text = (ROOT / name).read_text().lower()
         for phrase in banned:
             assert phrase not in text, f"{name} contains an unsupportable claim: {phrase!r}"

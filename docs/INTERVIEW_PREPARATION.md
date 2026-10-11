@@ -46,19 +46,29 @@ in the project is labelled SIMULATED and its assumptions are sliders.
 
 It did not, in any meaningful sense — and that is the interesting part.
 
-| Model | CV PR-AUC | CV std | Val PR-AUC |
-|---|---|---|---|
-| Logistic Regression | 0.6663 | 0.0244 | 0.6444 |
-| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.6416 |
-| Random Forest | 0.6714 | 0.0152 | 0.6365 |
+| Model | CV PR-AUC | CV std | CV SE | Val PR-AUC |
+|---|---|---|---|---|
+| Random Forest | 0.6714 | 0.0152 | 0.0068 | 0.6365 |
+| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.0066 | 0.6416 |
+| Logistic Regression | 0.6663 | 0.0244 | 0.0109 | 0.6444 |
 
-The top three sit within **0.008** against a standard error of **0.0109**. The
-ordering is sampling noise; change the seed and it reshuffles.
+The three sit within **0.005** of each other in cross-validation. The ordering
+is sampling noise.
 
 My first version took the argmax. It picked logistic regression — the right
 answer for a bad reason. I replaced it with the **one-standard-error rule**:
-everything within one standard error of the leader is tied, and the tie breaks
-on simplicity. All three real models tie, so the simplest wins.
+the leader is Random Forest at 0.6714, one standard error of its CV score is
+0.0152 / √5 = **0.0068**, so everything above **0.6646** is tied, and the tie
+breaks on simplicity. All three real models tie, so the simplest wins — by a
+margin of 0.0017.
+
+**If pushed on the rule itself:** my second version mixed samples — it took the
+leader on validation PR-AUC and subtracted a standard error computed from the
+CV folds. A later review caught it; now every quantity comes from the same five
+folds, and validation is only reported. Same model selected, byte-identical
+artifact. The remaining caveats are stated in the report: fold scores share
+rows, so the SE understates uncertainty, and each CV score is the best of its
+grid, which slightly flatters the bigger grids.
 
 That choice survives a re-run, is cheaper to serve, and is far easier to
 explain to a retention team. On tabular data with strong categorical signal, a
@@ -87,8 +97,8 @@ I report all of them. PR-AUC is what selection optimises.
 `class_weight="balanced"`, not resampling. At roughly **1 : 2.8** the imbalance
 is moderate — this is not a fraud-detection 1:1000 problem. Weighting is
 simpler, cannot leak synthetic rows across a cross-validation fold boundary,
-and leaves the probability scale interpretable, which matters because the
-business layer multiplies by it.
+and keeps the problem one calibration can fix, which matters because people
+read the probability itself.
 
 SMOTE would have added a hyper-parameter, a leakage risk, and a distorted
 probability scale, in exchange for nothing this dataset needs.
@@ -102,9 +112,12 @@ Three mechanisms, all structural rather than procedural:
 2. **`train_all()` does not accept test data.** Its signature is
    `(X_train, y_train, X_validation, y_validation)`. A test asserts no
    parameter contains "test".
-3. **Model selection, calibration and threshold all happen on validation.**
-   Test is read in exactly one function, `run_final_evaluation`, and only
-   after the threshold is already fixed.
+3. **Selection happens in cross-validation on train; calibration and the
+   threshold on validation.** Only the final evaluation module reads test — a
+   test fails if any other module in `src/` or `app/` names `X_test` — and
+   `make evaluate` refuses to run without `CONFIRM=yes`. That guard exists
+   because the old setup was not enough: the dashboard used to re-score test on
+   every visit (see Q23).
 
 The leakage test does not read the code. It fits a scaler on a training split
 where `MonthlyCharges` is a constant 100, then asserts held-out rows are
@@ -134,13 +147,17 @@ assigned exactly 1.000 to five customers and exactly 0.000 to 210 (four and
 fitted on 4,225 rows can claim certainty, and a probability of exactly 1 has
 infinite log-odds, which breaks any downstream expected-value arithmetic.
 Probabilities are now clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4` —
-the finest rate the calibration sample can express, derived rather than chosen.
+half of one observation in the training sample, a convention tied to the data
+rather than a round number.
 
 ### Q9. Why does calibration matter here?
 
-Because the business layer multiplies a predicted probability by a customer's
-value. A model that *ranks* perfectly but reports 0.9 for customers who churn
-60 % of the time produces a confident, wrong budget.
+Because people read the probability itself: the API returns it, the dashboard
+shows it, and the risk bands are fixed probability ranges. A model that *ranks*
+perfectly but reports 0.9 for customers who churn 60 % of the time puts the
+wrong customers in "Critical". (The threshold economics use observed outcomes
+on validation, so they depend on where the cut falls rather than on the scale —
+a distinction I got wrong in an earlier version of these notes.)
 
 Isotonic calibration cut expected calibration error from **0.1441 to 0.0274**
 on validation, and it holds on test at **0.0275**. I fitted it, measured it,
@@ -159,7 +176,8 @@ validation ECE: 0.0288 → 0.0274).
 
 ### Q10. How did you pick 0.36?
 
-By maximising simulated net benefit on validation — with a correction.
+On validation, as the highest threshold within one offer's cost of the best
+simulated net benefit — `make train` does it with the model that ships.
 
 | Threshold | Flagged | Precision | Net benefit |
 |---|---|---|---|
@@ -210,9 +228,11 @@ confidence intervals are wider than the decimals suggest. I would want repeated
 splits or nested CV before quoting a single figure, and I would want drift
 monitoring before trusting it past the first quarter.
 
-What I *do* trust is the protocol: test was touched once, nothing was tuned on
-it, and the pipeline reproduces identically across two Python versions and two
-scikit-learn versions.
+What I trust is narrower than a once-only holdout, because it was not one. Nothing
+was ever tuned or selected on it, and every re-run reproduced the same numbers;
+but it was read for three model versions, by reproducibility runs, and by the
+dashboard, so I present it as a re-checked estimate, not a pristine one. The
+model card lists the history. An independent number would need new data.
 
 ---
 
@@ -363,13 +383,22 @@ Defects every test had passed. The worst: batch scoring dropped duplicate rows
 and renumbered the rest, so the API attributed probabilities to the wrong
 customers; calibration reused a preprocessor fitted on all of train inside its
 own CV folds; and per-customer SHAP rested on a single sampled ordering — with
-only the seed changed, the top three drivers moved for 37.5 % of customers.
+only the seed changed, the top three contributors moved for 37.5 % of customers.
 The documentation also cited a gender ablation that no code had ever run.
 
 Each was reproduced first, fixed, and pinned with a test that fails on the old
 code. The leak and the SHAP fix changed the model, so the test set was scored
-a second time; I disclose that, and both fixes were decided before it. Full
-table in `docs/PROJECT_WALKTHROUGH.md` §10.
+again; both fixes were decided before it. Full table in
+`docs/PROJECT_WALKTHROUGH.md` §10.
+
+A second review asked how often test had really been read, and the honest
+answer was "far more than the docs said": the dashboard's performance page
+scored it on every visit, `make test` drove that page, and every
+reproducibility check ran `make all`. It also found the one-SE rule mixing a
+validation leader with a CV standard error. The fixes — `make dev`, an explicit
+`make evaluate CONFIRM=yes`, the threshold chosen in training, a test that bans
+`X_test` elsewhere, the corrected rule — changed no model: the artifact is
+byte-identical. The history is written down in the model card.
 
 ---
 
@@ -380,8 +409,8 @@ table in `docs/PROJECT_WALKTHROUGH.md` §10.
 | Dataset | IBM Telco, 7,043 × 21, 26.54 % churn, Apache-2.0 |
 | Split | Stratified 60/20/20, seed 42 |
 | Selected model | Logistic Regression (`C=10`), isotonic-calibrated |
-| Selection rule | One-standard-error, tie broken on simplicity |
-| Threshold | 0.36, validation-chosen, one-offer indifference band |
-| Test | P 0.5525 · R 0.7032 · F1 0.6188 · ROC-AUC 0.8422 · PR-AUC 0.6251 · ECE 0.0275 |
+| Selection rule | One-standard-error on 5-fold CV PR-AUC (cutoff 0.6646), tie broken on simplicity |
+| Threshold | 0.36, chosen on validation by `make train`, one-offer indifference band |
+| Test (re-used holdout, recorded 2026-10-09) | P 0.5525 · R 0.7032 · F1 0.6188 · ROC-AUC 0.8422 · PR-AUC 0.6251 · ECE 0.0275 |
 | Baseline | PR-AUC 0.2654, ROC-AUC 0.500 |
-| Tests | 414 passing (392 without data), Python 3.12.13 |
+| Tests | 497 passing (483 without data), Python 3.12.13 |

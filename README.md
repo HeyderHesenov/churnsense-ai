@@ -60,8 +60,8 @@ treats it as such and makes the trade-off explicit and adjustable.
 | Capability | Where |
 |---|---|
 | Reproducible EDA with written interpretation | `make eda` → [`reports/eda_report.md`](reports/eda_report.md) |
-| Four-model comparison with a principled selection rule | `make train` → [`reports/model_comparison.md`](reports/model_comparison.md) |
-| Single, final test-set evaluation | `make evaluate` → [`reports/final_evaluation.md`](reports/final_evaluation.md) |
+| Four-model comparison, operating point and per-segment view | `make train` → [`reports/model_comparison.md`](reports/model_comparison.md) |
+| Final evaluation on the held-out test partition (explicit opt-in) | `make evaluate CONFIRM=yes` → [`reports/final_evaluation.md`](reports/final_evaluation.md) |
 | Threshold economics under adjustable assumptions | dashboard → *Retention simulator* |
 | SHAP explanations, global and per customer | `make explain`, dashboard → *Explainability* |
 | Narrated EDA notebook (executed, outputs committed) | [`notebooks/01_eda_walkthrough.ipynb`](notebooks/01_eda_walkthrough.ipynb) |
@@ -86,7 +86,7 @@ and batch scoring **cannot** disagree.
                                           │
                                           ▼
                                    models.train
-                            4 candidates → 1-SE selection → calibration
+          4 candidates → 1-SE rule on CV → calibration → threshold (validation)
                                           │
             ┌─────────────────────────────┼───────────────────────────┐
             ▼                             ▼                           ▼
@@ -106,14 +106,19 @@ and batch scoring **cannot** disagree.
 
 - `train_all()` takes training and validation data only — the test partition is
   not a parameter, so no tuning path can reach it. A test asserts the signature.
+- Only the final evaluation may name the test partition: a test fails if any
+  other module in `src/` or `app/` reads `X_test` or `y_test`. `make dev` never
+  reaches it, and `make evaluate` refuses to run without `CONFIRM=yes`.
 - Preprocessing is a `Pipeline` step, so it is refitted inside every CV fold —
   in the hyper-parameter search *and* in the calibration folds — and cannot be
   fitted on data outside it. A test checks each calibration fold's scaler.
-- Inputs are validated on that same single path, so an unknown category or an
-  impossible number is rejected by the library, the dashboard and the API
-  alike, never silently encoded into a confident score.
-- The decision threshold lives in `model_meta.json`, so all three consumers
-  read the same operating point.
+- Inputs are validated on that same single path, so an unknown category, an
+  impossible number or an impossible combination (add-ons without internet) is
+  rejected by the library, the dashboard and the API alike, never silently
+  encoded into a confident score.
+- The decision threshold is chosen on validation by `make train` and stored in
+  `model_meta.json` beside the model's own SHA-256, so all three consumers read
+  the same operating point for the same bytes.
 
 ## Quick start
 
@@ -130,8 +135,7 @@ make setup PYTHON=python3.12
 
 ```bash
 make setup      # .venv from the hashed dev lock, requirements-dev.txt
-make data       # download the dataset and verify its SHA-256
-make all        # data → eda → train → explain → evaluate
+make dev        # data → eda → train → explain; never reads the test partition
 make app        # dashboard  → http://localhost:8501
 make api        # API        → http://localhost:8000/docs
 ```
@@ -142,15 +146,25 @@ If another server already holds a port, pick a different one:
 `make help` lists every target. Individual steps:
 
 ```bash
-make eda        # reports/eda_report.md + reports/figures/*
-make train      # trains and compares 4 models, writes artifacts/
-make evaluate   # the single test-set scoring + threshold economics
-make explain    # caches global SHAP importance
+make data       # download the dataset and verify its SHA-256
+make eda        # EDA on the training partition: reports/eda_report.md + figures
+make train      # select (CV), calibrate, set the threshold (validation); artifacts/ + reports
+make explain    # cache global SHAP importance and its figure
 make test       # pytest
 make lint       # ruff check + format --check
 make audit      # pip-audit
 make clean      # remove generated output (raw data is kept)
+
+make evaluate CONFIRM=yes   # FINAL evaluation: scores the held-out test partition
 ```
+
+**Only `make evaluate CONFIRM=yes` reads the test partition** (and `make all
+CONFIRM=yes`, which is `make dev` followed by it). Without `CONFIRM=yes` it
+refuses, and so does `python -m churnsense.evaluation.report` without
+`--confirm-test-read`. `make dev`, `make test`, the dashboard and the API never
+score it. Each final evaluation adds to the partition's history
+([model card](docs/MODEL_CARD.md#evaluation-history)), so it is a deliberate
+step, not part of the development loop.
 
 The dependencies come in two hashed locks, both compiled by `make lock` from
 the constraints in `pyproject.toml` (repeated in `requirements*.in`):
@@ -182,8 +196,9 @@ and save it to `data/raw/Telco-Customer-Churn.csv`, then re-run to verify.
 
 - **Target:** `Churn` (Yes/No) — 1,869 Yes, **26.54 %**.
 - **Pinned:** SHA-256 `16320c9c1ec72448db59aa0a26a0b95401046bef5d02fd3aeb906448e3055e91`,
-  verified on every run. An upstream change halts the pipeline rather than
-  quietly altering documented results.
+  verified every time the pipeline reads the file, not only at download, and
+  recorded in `model_meta.json` from the file actually read. A changed file
+  halts the pipeline rather than quietly altering documented results.
 - **Not committed.** `make data` fetches it; `data/raw/` is gitignored.
 
 ### Data quality, measured
@@ -204,26 +219,29 @@ the model is most sensitive to. Every cleaning action is reported by
 ## What the data says
 
 Full write-up with figures: [`reports/eda_report.md`](reports/eda_report.md).
+Everything in this section is computed on the **training partition** (4,225
+customers): modelling decisions are read off it, so it does not look at the
+validation or test labels any more than the models do.
 
 **Contract type is the strongest single signal.**
 
 | Contract | Customers | Churn rate |
 |---|---|---|
-| Month-to-month | 3,875 | **42.7 %** |
-| One year | 1,473 | 11.3 % |
-| Two year | 1,695 | 2.8 % |
+| Month-to-month | 2,326 | **43.1 %** |
+| One year | 865 | 10.8 % |
+| Two year | 1,034 | 2.5 % |
 
-A 15× spread — but customers who expect to stay are also the ones willing to
+A 17× spread — but customers who expect to stay are also the ones willing to
 sign a long contract, so part of that gap is self-selection rather than an
 effect of the contract. The snapshot cannot separate the two. What it does
 support is *targeting*.
 
-**Risk is front-loaded.** Churn runs at 56.2 % in the first three months and
-falls to 9.5 % past four years. Median tenure is 10 months for churned
-customers against 38 for retained ones.
+**Risk is front-loaded.** Churn runs at 55.7 % in the first three months and
+falls to 9.6 % past four years. Median tenure is 10 months for churned
+customers against 37 for retained ones.
 
-**Price is not monotonic.** Churn peaks at **36.4 %** in the $75–95 band and
-*falls* to 32.3 % above $95. A plain "higher price drives churn" story does not
+**Price is not monotonic.** Churn peaks at **37.2 %** in the $75–95 band and
+*falls* to 32.4 % above $95. A plain "higher price drives churn" story does not
 fit that shape — the top band is dominated by long-tenure customers holding
 several services, so price and commitment pull against each other there. It is
 also a concrete argument for a model that can express non-linearity.
@@ -232,7 +250,9 @@ also a concrete argument for a model that can express non-linearity.
 excluded from the model as a protected attribute, and the exclusion costs
 nothing measurable: putting it back changes cross-validated PR-AUC by
 −0.0010 against a fold-to-fold standard deviation of 0.0244 (the ablation in
-[`reports/model_comparison.md`](reports/model_comparison.md)). See
+[`reports/model_comparison.md`](reports/model_comparison.md)). Excluding a
+column does not make the model treat the groups alike — other columns can
+correlate with it — so recall and flag rate per gender are reported too. See
 [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
 
 **`TotalCharges` is near-redundant**, correlating r = 0.9996 with
@@ -255,36 +275,47 @@ uniform column contract:
 | `HistGradientBoostingClassifier(class_weight="balanced")` | gradient boosting |
 
 **Protocol.** Stratified 60/20/20 (4,225 / 1,409 / 1,409), seed 42, positive
-rate preserved at 0.2653 / 0.2654 / 0.2654. Hyper-parameters are searched with
-5-fold stratified CV on **train**; the model and the threshold are chosen on
-**validation**; **test** is scored exactly once, at the end.
+rate preserved at 0.2653 / 0.2654 / 0.2654. Hyper-parameters are searched, and
+the model is selected, with 5-fold stratified CV on **train**; whether
+calibration is kept and where the threshold sits are decided on
+**validation**; **test** is read only by the final evaluation — and it has
+been read more than once (see [Evaluation](#evaluation)).
 
 **Imbalance** is handled by `class_weight`, not resampling. At roughly 1 : 2.8
 the imbalance is moderate, weighting cannot leak synthetic rows across a fold
 boundary, and it leaves the probability scale interpretable — which matters
 because the business layer multiplies by it.
 
-### Measured comparison (`make train`, validation partition)
+### Measured comparison (`make train`)
 
-| Model | CV PR-AUC | CV std | Val PR-AUC | Val ROC-AUC | Selected |
-|---|---|---|---|---|---|
-| Logistic Regression | 0.6663 | 0.0244 | **0.6444** | 0.8373 | **yes** |
-| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.6416 | 0.8369 | |
-| Random Forest | 0.6714 | 0.0152 | 0.6365 | 0.8380 | |
-| Baseline (prior) | 0.2653 | 0.0005 | 0.2654 | 0.5000 | |
+Cross-validated on train (5 folds); validation scores beside them as evidence.
+
+| Model | CV PR-AUC | CV std | CV SE | Within 1 SE | Val PR-AUC | Val ROC-AUC | Selected |
+|---|---|---|---|---|---|---|---|
+| Random Forest | **0.6714** | 0.0152 | 0.0068 | yes | 0.6365 | 0.8380 | |
+| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.0066 | yes | 0.6416 | 0.8369 | |
+| Logistic Regression | 0.6663 | 0.0244 | 0.0109 | yes | 0.6444 | 0.8373 | **yes** |
+| Baseline (prior) | 0.2653 | 0.0005 | 0.0002 | | 0.2654 | 0.5000 | |
 
 ### Why logistic regression, and not "it scored highest"
 
-The top three sit within **0.008** of each other against a cross-validation
-standard error of **0.0109**. The nominal winner is decided by sampling noise;
-change the seed and the order reshuffles. "It beat the booster by 0.003" is not
-an answer that should survive a review.
+The three real models sit within **0.0051** of each other in cross-validation.
+The nominal winner is decided by sampling noise; "it beat logistic regression
+by 0.005" is not an answer that should survive a review.
 
-Selection therefore uses the **one-standard-error rule**: every model within one
-standard error of the leader is treated as tied, and the tie breaks on
-simplicity. All three real models are tied here, so the simplest wins. That
-choice survives a re-run, is cheaper to serve, and is far easier to explain to a
-retention team.
+Selection therefore uses the **one-standard-error rule**, with every number
+taken from the same five folds: the leader is Random Forest at **0.6714**, one
+standard error of its score is 0.0152 / √5 = **0.0068**, so the cutoff is
+**0.6646**. All three real models clear it — logistic regression by 0.0017 —
+and the tie breaks on simplicity. That choice is cheaper to serve and far
+easier to explain to a retention team. The baseline is far below the cutoff;
+had it ever been selected, training would have stopped with an error rather
+than ship it.
+
+An earlier version took the leader on *validation* PR-AUC and subtracted a
+standard error computed from the *cross-validation* folds — two numbers from
+different samples. It was corrected on 2026-10-11; both versions select the
+same model on this data, and the retrained artifact is byte-identical.
 
 ### Calibration
 
@@ -293,9 +324,11 @@ expected calibration error on validation fell from **0.1441 → 0.0274**.
 It is fitted with 5-fold cross-validation on the training partition, and each
 fold refits the *whole* pipeline — preprocessing included — on its own rows.
 
-Calibration is a headline concern here, not a tidiness exercise — the retention
-simulator multiplies a predicted probability by a customer's value, so the
-number has to mean what it says.
+Calibration is a headline concern here, not a tidiness exercise: the
+probability itself is what people read — the API returns it, the dashboard
+shows it, and the risk bands are fixed probability ranges — so the number has
+to mean what it says. Calibration is accepted on validation ECE, which makes
+that validation figure optimistic.
 
 It also changed the operating point sharply. `class_weight="balanced"` inflates
 raw scores, so the calibrated model behaves very differently at the same cut:
@@ -314,9 +347,10 @@ ships; a test enforces the distinction.
 > Isotonic calibration is a step function, so its terminal bins assigned exactly
 > 0.000 to 210 customers and exactly 1.000 to four. No model fitted on 4,225
 > rows can claim certainty, and a probability of exactly 1 has infinite log-odds.
-> ε is the finest rate the calibration sample can express, not a round number,
-> and sits three orders of magnitude below the operating threshold, so no
-> decision changes. Clipping is monotone, so ranking is untouched.
+> ε is half of one observation in the training sample — a convention tied to the
+> data rather than a round number — and sits three orders of magnitude below the
+> operating threshold, so no decision depends on its exact value. Clipping is
+> monotone, so ranking is untouched.
 >
 > The clamp lives **inside the persisted artifact**, not in one consumer, so
 > the reports, SHAP and the API all describe the same function. It did not,
@@ -326,17 +360,24 @@ ships; a test enforces the distinction.
 
 ## Evaluation
 
-Full report: [`reports/final_evaluation.md`](reports/final_evaluation.md).
-Produced by `make evaluate`, which is the only place the test partition is read.
+Full report: [`reports/final_evaluation.md`](reports/final_evaluation.md),
+written by `make evaluate` on 2026-10-09 for the artifact whose `model.joblib`
+has SHA-256 `02b2466d…47a9` — the file the current `make train` reproduces
+byte for byte, so these are the shipped model's figures.
 
 **Test partition: 1,409 customers, 374 churned (26.5 %). Threshold 0.36, fixed
-on validation before this partition was touched.**
+on validation before this partition was read.**
 
-> **Disclosure.** The audit that moved calibration inside the cross-validation
-> folds and rebuilt the explainer also re-ran `make evaluate`, so this partition
-> has now been scored twice in the project's history. Both fixes were chosen on
-> principle, before the second scoring, and no decision used either result.
-> The earlier figures differed by at most 0.003 (recall 0.7005 → 0.7032).
+> **The test partition is a re-used holdout, not an untouched one.** It was
+> scored for two versions of the model (before and after the 2026-10-09 audit,
+> recall 0.7005 → 0.7032) and re-read by later full-pipeline runs that checked
+> reproducibility; until 2026-10-11 the dashboard's performance page also
+> re-scored it on every visit, and so did every local `make test`. Every re-run
+> reproduced the same numbers, and no model, threshold or feature choice was
+> made on them — but the code cannot prove a history, so it is written down:
+> [model card, "Evaluation history"](docs/MODEL_CARD.md#evaluation-history).
+> Read these figures as a re-checked estimate. A genuinely independent one
+> needs data this project has never seen, such as a later customer snapshot.
 
 | Metric | Test |
 |---|---|
@@ -408,7 +449,13 @@ business's own unit of account rather than an invented epsilon, and it scales
 automatically with the offer. Same discipline as the model selection, same
 reason.
 
-Choosing 0.36 over 0.30 moved test precision from 0.5296 to **0.5525**.
+The threshold is chosen by `make train`, on validation, with the model that
+ships, and stored with it; the final evaluation receives it and cannot move it.
+How the choice moves with the one assumption nobody can measure — the offer
+success rate — is tabulated in
+[`reports/model_comparison.md`](reports/model_comparison.md): from 0.88 at an
+assumed 10 % to 0.22 at 50 %. A high churn risk does not mean an offer would
+keep that customer; the model estimates risk, not the effect of an offer.
 
 > For reference only, and then discarded: the threshold that would have been
 > optimal *on the test partition* is reported in the final evaluation. Using it
@@ -431,33 +478,37 @@ explained directly (categories passed as codes and decoded inside the model
 call), so a masked feature swaps a whole value instead of half of a one-hot
 pair. Each customer gets 10 sampled feature orderings. An earlier version used
 one ordering over the one-hot matrix, and changing nothing but the seed moved
-the top three drivers for over a third of customers; the mean seed-to-seed
+the top three contributors for over a third of customers; the mean seed-to-seed
 spread is now about 0.3 percentage points against 1 point with one ordering.
 The seed is fixed so a refresh never changes an explanation, and all pages
 share one 100-customer training background, so "an average customer" means the
 same thing everywhere.
 
 **Measured global importance** (300 validation customers, 100-customer
-training background):
+training background), in percentage points of churn probability — the unit of
+the per-customer waterfall:
 
-| Feature | Mean \|SHAP\| | Share |
+| Feature | Mean \|SHAP\| (pp) | Share |
 |---|---|---|
-| Tenure (months) | 0.1488 | 18.4 % |
-| Monthly charges | 0.1366 | 16.8 % |
-| Internet service | 0.1185 | 14.6 % |
-| Contract type | 0.0707 | 8.7 % |
-| Total charges to date | 0.0675 | 8.3 % |
+| Tenure (months) | 14.9 | 18.4 % |
+| Monthly charges | 13.7 | 16.8 % |
+| Internet service | 11.9 | 14.6 % |
+| Contract type | 7.1 | 8.7 % |
+| Total charges to date | 6.7 | 8.3 % |
 
 **This ranking disagrees with the EDA's univariate ranking, and both are
 published.** Contract type is the strongest single signal on its own
-(Cramér's V 0.410, rank 1) but only fourth here, because it overlaps heavily
+(Cramér's V 0.419 on the training partition, rank 1) but only fourth here, because it overlaps heavily
 with tenure and its *unique* multivariate contribution is smaller. Reconciling
 the two into one convenient story would have meant hiding one of them.
 
 Per-customer explanations are rendered as a signed waterfall plus plain
 sentences. Wording is a correctness requirement, not a style choice: the test
 suite asserts that causal phrasing ("causes", "will prevent", "guarantees")
-never appears.
+never appears. SHAP describes this model's output, not why customers leave,
+and the permutation explainer masks features independently, so it also
+evaluates combinations no real customer has (add-ons without internet); read
+contributions as attributions under that approximation.
 
 ## Dashboard
 
@@ -465,9 +516,16 @@ never appears.
 make app     # http://localhost:8501
 ```
 
-Eight sections: executive overview, customer explorer, drivers and segments,
-model performance, explainability, single-customer scoring, retention
-simulator, batch scoring and export.
+Eight sections: executive overview, customer explorer, churn patterns, model
+performance, explainability, single-customer scoring, retention simulator,
+batch scoring and export.
+
+*Model performance* computes everything live on the **validation** partition —
+the comparison chart shows the CV scores, one standard error and the cutoff the
+selection rule used, and a per-segment table with 95 % intervals names any
+segment the threshold leaves unscanned. The test result appears only as the
+figure `make evaluate` recorded with the artifact; the dashboard never scores
+the test partition.
 
 Every chart carries the business question it answers as a visible caption. A
 chart that could not be given one was deleted rather than kept as decoration.
@@ -541,29 +599,30 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**414 tests, all passing on Python 3.12.13.** Measured, not claimed:
+**497 tests, all passing on Python 3.12.13** (2026-10-11). Measured, not
+claimed:
 
 ```
 $ make test
-414 passed in 87.05s
+497 passed in 157.55s
 
 $ pytest -m "not slow"          # needs no dataset
-392 passed, 22 deselected
+483 passed, 14 deselected
 ```
 
-On a fresh checkout with no dataset and no trained artifact — the state
-GitHub Actions runs in — the full suite reports **395 passed, 19 skipped**:
-the slow tests that need a trained model skip cleanly.
+On a fresh copy of the tracked files with no dataset and no trained artifact —
+the state GitHub Actions runs in — the full suite reports **483 passed, 14
+skipped**: the dashboard tests that need a trained model skip cleanly.
 
 Before the security hardening added its 143 tests, the then 241 fast tests also
 passed on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0) in a separate
 environment resolved from the `pyproject.toml` constraints; CI runs 3.12 and
 3.13 on every push.
 
-The 22 `slow` tests drive the dashboard end to end and check that the
-numbers in this README still match `artifacts/model_meta.json`; both need a
-trained artifact and **skip cleanly** without one, verified by hiding
-`artifacts/` and `data/raw/` and re-running. Everything else needs **no
+The 14 `slow` tests drive the dashboard end to end; they need a trained
+artifact and the dataset and **skip cleanly** without them. The documentation
+checks run everywhere, because they compare this README with the tracked
+reports rather than with a local artifact. Everything else needs **no
 dataset and no network**. `tests/conftest.py` generates
 seeded synthetic data that reproduces the real file's *structure* — the same
 columns and vocabularies, the "No internet service" dependency, the
@@ -577,18 +636,20 @@ What the tests actually defend:
 | Area | Example |
 |---|---|
 | Leakage | fits a scaler on a deliberately shifted training split and asserts held-out rows are transformed by the *training* statistics; checks every calibration fold fits its own scaler — behaviour, not a code-reading promise |
-| Protocol | `train_all`'s signature cannot accept test data |
+| Protocol | `train_all`'s signature cannot accept test data; no module but the final evaluation names `X_test`; `make evaluate` refuses without `CONFIRM=yes`; a changed split is refused |
+| Selection | the one-SE rule on hand-built cases: clear winner, ties, the cutoff boundary, simplicity tie-break, order independence, invalid results, a baseline win stops training |
 | Consistency | API, library and batch agree to 1e-12; a batch with duplicate rows returns every row at its file position |
-| Input contract | unknown categories, impossible numbers and unknown target labels are rejected on every path, library included |
+| Input contract | unknown categories, impossible numbers, impossible combinations and unknown target labels are rejected on every path, library included |
 | Honesty | served probabilities never reach exactly 0 or 1; SHAP contributions sum to the served probability and do not hinge on the seed; narratives never use causal phrasing |
 | Contract drift | the API's category vocabularies are compared against the training schema |
 | Arithmetic | threshold economics checked against hand-computed values on tiny inputs |
 | Dashboard | all eight sections driven through `streamlit.testing.v1.AppTest`; a section that raises on load is the cheapest bug to catch and the most embarrassing to miss |
-| Documentation drift | the headline metrics in this README are parsed back out and compared to `model_meta.json`, so prose cannot outlive a retrain |
+| Documentation drift | the headline metrics, the selection cutoff and the threshold in this README are parsed back out and compared to the tracked reports that produced them; no document may claim the test partition was read only once |
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
-pytest with coverage, an end-to-end training smoke test, an API smoke test, and
-`pip-audit`, on Python 3.12 and 3.13. A third job installs the dev lock through
+pytest with coverage, an end-to-end training smoke test and an API smoke test
+on Python 3.12 and 3.13, and a blocking `pip-audit` over the resolved
+environment and both locks. A third job installs the dev lock through
 `make setup`, checking every file against its hash, and runs `pip check` and the
 suite against those exact pins. It then installs the runtime lock on its own,
 imports every module, runs the dashboard script and starts the API on it, and
@@ -598,14 +659,18 @@ keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
 CI needs no dataset and no network beyond the package index; the slow tests
 skip there because no trained artifact exists in a fresh checkout.
 
-`make audit` currently reports **no known vulnerabilities**.
+`make audit` and the lock audit reported **no known vulnerabilities** on
+2026-10-11. A finding fails the required `dependency audit` check; the
+exception procedure is in [SECURITY.md](SECURITY.md#dependency-audits).
 
 ### Verified in a clean checkout
 
 The whole flow was run from a copy of exactly the 87 tracked files — no `.venv`,
 no data, no artifacts, no caches — on 2026-10-09, before the security
 hardening of the same day (whose test counts are the ones under
-[Testing](#testing)):
+[Testing](#testing)). That run predates `make dev`: its `make all` ended with
+`make evaluate`, so it is one of the test-partition re-reads recorded in the
+model card's evaluation history.
 
 ```
 make setup PYTHON=python3.12   ok   81 s, installed from the lock
@@ -639,7 +704,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       414 tests + seeded synthetic fixtures
+tests/                       497 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -663,7 +728,9 @@ Found a vulnerability? Please report it privately, as described in
   first: size; then, while the file is read once with the linear `csv`
   module, the column count (`api.max_upload_columns`), row widths and row count
   (reading stops one row past the limit); then required columns, numeric
-  ranges, category values and target labels. pandas never parses an
+  ranges, category values, combinations no real customer has (add-ons
+  without internet, multiple lines without a phone line, charges without
+  tenure) and target labels. pandas never parses an
   uploaded header: its header handling is quadratic in the column count, and
   a 4.7 MB header of 560,000 empty columns held a CPU for more than five
   minutes (now refused in well under a second). A row wider than the header
@@ -716,20 +783,25 @@ Found a vulnerability? Please report it privately, as described in
   commits and drops their signatures.
 
 > **Local by design.** There is no authentication and no rate limiting, so
-> `make app` and `make api` both bind to `127.0.0.1` (Streamlit alone would
-> listen on every interface). Binding keeps other machines out but not DNS
-> rebinding, where a web page re-resolves its own name to 127.0.0.1 and the
-> browser then talks to the local server as that page; so both servers also
-> answer only Host headers listed in `api.allowed_hosts` (`localhost`,
-> `127.0.0.1`) — the API with a 400, the dashboard with a refusal message in
-> place of every page. The dashboard's check runs inside the app script, so
-> Streamlit's own transport routes (media, uploads, the WebSocket handshake)
-> still answer a rebound page, but only with that page's own session; a
-> transport-level check would need the app served through `st.App`. The
-> dashboard also shows Streamlit's default tracebacks, which is right for a
-> local analyst tool. Before exposing either beyond localhost: add the public
-> host name to `api.allowed_hosts`, put authentication, TLS and rate limiting
-> in front of it, set `client.showErrorDetails = "none"` in
+> both servers bind to `127.0.0.1`: the API through `make api`, the dashboard
+> through `.streamlit/config.toml`, so even a bare `streamlit run` does not
+> listen on the network (Streamlit's own default is every interface). Binding
+> keeps other machines out but not DNS rebinding, where a web page re-resolves
+> its own name to 127.0.0.1 and the browser then talks to the local server as
+> that page; so both servers also answer only Host headers listed in
+> `api.allowed_hosts` (`localhost`, `127.0.0.1`). The API refuses others with a
+> 400, and refuses a browser request whose `Origin` is another site with a 403 —
+> the Host of such a request is a genuine `localhost`, and a multipart upload
+> needs no CORS preflight, so without it any page the user visits could make
+> the API score files in a loop. The dashboard refuses a rebound WebSocket
+> handshake through Streamlit's own `server.allowedHosts` (kept equal to
+> `api.allowed_hosts` by a test) and re-checks inside every page; Streamlit's
+> media and upload routes are outside that option but are keyed to a session,
+> which a rebound page can no longer open. The dashboard also shows
+> Streamlit's default tracebacks, which is right for a local analyst tool.
+> Before exposing either beyond localhost: add the public host name to
+> `api.allowed_hosts` and `server.allowedHosts`, put authentication, TLS and
+> rate limiting in front of it, set `client.showErrorDetails = "none"` in
 > `.streamlit/config.toml`, and consider disabling the API's `/docs` (it loads
 > Swagger UI from a CDN). None of that is in scope here.
 
@@ -745,11 +817,24 @@ Found a vulnerability? Please report it privately, as described in
 - **No time dimension.** Churn is labelled at a single cut, with no event dates.
   Nothing here is a survival or time-to-event analysis.
 - **One global threshold leaves segments unscanned.** At 0.36 the model flags
-  **no two-year-contract customer and no customer without internet** in the
-  test partition. The headline recall of 0.70 is almost entirely
-  month-to-month recall. `make evaluate` publishes the per-segment table in
-  [`reports/final_evaluation.md`](reports/final_evaluation.md); per-segment
-  thresholds would address it — see [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
+  **no two-year-contract customer and no customer without internet** — on
+  validation (35 churners between them) and in the recorded test result alike.
+  Recall is 0.80 for month-to-month customers and 0.05 for one-year ones
+  (95 % interval 0.01–0.18). Within those segments the model still ranks
+  customers (ROC-AUC 0.75–0.79 on validation): the global cut simply sits above
+  their scores. `make train` publishes the per-segment table with intervals in
+  [`reports/model_comparison.md`](reports/model_comparison.md), and the
+  dashboard shows it. Per-segment thresholds would change who is contacted; that
+  is a business-policy decision, documented in the
+  [model card](docs/MODEL_CARD.md), not one the code makes.
+- **Group differences are measured, not certified away.** On validation the
+  model catches 0.735 of churners among women and 0.658 among men (95 %
+  intervals 0.67–0.79 and 0.59–0.72, overlapping), and flags senior citizens at
+  twice the rate of others, in line with their churn rate (41.9 % vs 23.6 %).
+  This is a descriptive check of one sample, not a fairness audit.
+- **The test partition is re-used.** Its history is in the
+  [model card](docs/MODEL_CARD.md#evaluation-history); an independent estimate
+  needs new data.
 - **No drift monitoring, no retraining schedule, no A/B framework.** A deployed
   version would need all three. None is in scope.
 - **The artifact is fitted on 60 % of the data.** Refitting on train+validation
