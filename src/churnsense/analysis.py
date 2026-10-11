@@ -178,14 +178,6 @@ def service_addon_rates(df: pd.DataFrame, *, target: str = schema.TARGET) -> pd.
     product decision against a non-purchase and call the difference an add-on
     effect.
     """
-    addons = [
-        "OnlineSecurity",
-        "OnlineBackup",
-        "DeviceProtection",
-        "TechSupport",
-        "StreamingTV",
-        "StreamingMovies",
-    ]
     subscribers = df[df["InternetService"].ne("No")]
     rows = [
         {
@@ -195,7 +187,7 @@ def service_addon_rates(df: pd.DataFrame, *, target: str = schema.TARGET) -> pd.
             "n_with": int(subscribers[col].eq("Yes").sum()),
             "n_without": int(subscribers[col].eq("No").sum()),
         }
-        for col in addons
+        for col in schema.ADDON_COLUMNS
         if col in subscribers.columns
     ]
     out = pd.DataFrame(rows)

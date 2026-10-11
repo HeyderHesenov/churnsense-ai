@@ -119,7 +119,11 @@ def _addon_dumbbell(frame: pd.DataFrame) -> go.Figure:
 
 def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Contract, tenure, payment and pricing")
-    st.caption("Observed churn across the dimensions a retention team can actually act on.")
+    st.caption(
+        "Observed churn across every customer in the snapshot, on the dimensions a "
+        "retention team can target. These are associations in one historical "
+        "snapshot, not effects of the dimensions themselves."
+    )
 
     tabs = st.tabs(["Lifecycle", "Pricing", "Products", "Concentration"])
 
