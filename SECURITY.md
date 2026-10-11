@@ -30,6 +30,38 @@ reporter unless they ask not to be named.
 Please keep the details private until a fix is available or we have agreed
 that none is coming.
 
+## Dependency audits
+
+CI audits the dependencies on every pull request and every push to `main`:
+`pip-audit` over the environment the test jobs resolve, and over both hashed
+locks exactly as pinned. The job is a required check, so **any known
+vulnerability blocks merging** - `pip-audit` reports no severities, so there is
+no "low enough to ignore" tier. Dependabot alerts and security updates cover
+the same locks between pull requests, and the dependency review blocks a pull
+request that would add a vulnerable version.
+
+When a fix exists, the dependency is upgraded (`make lock
+LOCK_ARGS="--upgrade-package <name>"`). When none does, the advisory is assessed
+and either the dependency is removed or the advisory is accepted explicitly:
+its ID goes on both `pip-audit` steps in `.github/workflows/ci.yml` as
+`--ignore-vuln <ID>`, and a row is added below. An entry without a reason and a
+review date is not accepted.
+
+| Advisory | Package | Why it does not affect this project | Owner | Review by |
+|---|---|---|---|---|
+| *(none)* | | | | |
+
+Accepted advisories are reviewed by their date and removed as soon as a fixed
+version is available.
+
+## Secrets
+
+GitHub secret scanning and push protection are enabled for the repository, so
+a recognised credential is blocked at push time and alerted on if it lands.
+The project needs no credentials: `.env.example` lists the only two
+environment variables it reads, neither of them secret. If a credential is
+ever committed, treat it as exposed: revoke it first, then clean the history.
+
 ## Scope
 
 In scope: the code in this repository — the FastAPI service

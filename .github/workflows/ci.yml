@@ -228,12 +228,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
-      # Advisory, not blocking: a new CVE in a transitive dependency should
-      # surface in the log, not break an unrelated pull request.
+      # Blocking. This job is a required check, so a known vulnerability fails
+      # the pull request instead of scrolling past in a log. pip-audit reports
+      # no severities, so every advisory blocks; one that is assessed and
+      # accepted is listed with --ignore-vuln on both steps, with its reason
+      # and review date in SECURITY.md ("Dependency audits"). None is today.
       # --skip-editable: the project installs itself editable and is not on
       # PyPI, which pip-audit would otherwise report as un-auditable.
       - name: pip-audit
-        continue-on-error: true
         run: pip-audit --skip-editable
 
       # The install above resolves pyproject's ranges as of today; users get
@@ -242,10 +244,12 @@ jobs:
       # --disable-pip reads the pins as written instead of installing them,
       # and --require-hashes fails on any entry that lost its hash.
       - name: pip-audit (locks)
-        continue-on-error: true
         run: pip-audit -r requirements.txt -r requirements-dev.txt --require-hashes --disable-pip
 
-      - name: Check that no secrets or data are committed
+      # A file-presence check, not a secret scan: GitHub secret scanning with
+      # push protection covers credentials (see SECURITY.md). This keeps the
+      # gitignored local files - .env, the raw dataset, model artifacts - out.
+      - name: Check that no .env, raw data or model artifact is tracked
         run: |
           set -e
           test ! -f .env || (echo "::error::.env is committed" && exit 1)
@@ -257,4 +261,4 @@ jobs:
             echo "::error::a model artifact is committed; it is build output"
             exit 1
           fi
-          echo "OK  no secrets, raw data or artifacts in the index"
+          echo "OK  no .env, raw data or model artifact in the index"
