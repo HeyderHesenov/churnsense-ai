@@ -11,6 +11,7 @@ header is the one thing that gives it away, so it is checked against a list.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from urllib.parse import urlsplit
 
 
 def hostname(header: str) -> str:
@@ -51,3 +52,21 @@ def is_allowed_host(header: str | None, allowed: Iterable[str]) -> bool:
     if "*" in allowed:
         return True
     return bool(header) and hostname(header) in allowed
+
+
+def is_allowed_origin(origin: str | None, allowed: Iterable[str]) -> bool:
+    """Whether a browser's ``Origin`` header names one of the ``allowed`` hosts.
+
+    Browsers attach an Origin to every POST and to every cross-origin fetch, so
+    a page on another site that fires uploads at the local API is recognisable
+    even though its Host header is a legitimate ``localhost``. A request with
+    no Origin comes from a non-browser client (curl, Python) or a same-origin
+    navigation and passes. ``null`` - sandboxed frames, ``file://`` pages - and
+    anything that is not a plain http(s) origin is refused.
+    """
+    if origin is None:
+        return True
+    parts = urlsplit(origin.strip())
+    if parts.scheme not in {"http", "https"} or "@" in parts.netloc or parts.path:
+        return False
+    return is_allowed_host(parts.netloc, allowed)

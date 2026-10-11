@@ -56,6 +56,12 @@ CATEGORY_ALIASES: dict[str, object] = {
 }
 
 
+def _bounded(column: str, *, description: str | None = None) -> Field:
+    """The range the training contract enforces, read from it rather than restated."""
+    low, high = columns.NUMERIC_BOUNDS[column]
+    return Field(ge=low, le=high, description=description)
+
+
 class CustomerFeatures(BaseModel):
     """One customer's features, exactly as the trained pipeline expects them."""
 
@@ -68,7 +74,7 @@ class CustomerFeatures(BaseModel):
     SeniorCitizen: SeniorFlag = Field(description="1 if the customer is a senior citizen")
     Partner: YesNo
     Dependents: YesNo
-    tenure: Annotated[int, Field(ge=0, le=120, description="Months with the company")]
+    tenure: Annotated[int, _bounded("tenure", description="Months with the company")]
     PhoneService: YesNo
     MultipleLines: MultipleLinesValue
     InternetService: InternetServiceValue
@@ -81,8 +87,8 @@ class CustomerFeatures(BaseModel):
     Contract: ContractValue
     PaperlessBilling: YesNo
     PaymentMethod: PaymentMethodValue
-    MonthlyCharges: Annotated[float, Field(ge=0, le=1000)]
-    TotalCharges: Annotated[float, Field(ge=0, le=100_000)]
+    MonthlyCharges: Annotated[float, _bounded("MonthlyCharges")]
+    TotalCharges: Annotated[float, _bounded("TotalCharges")]
 
 
 class PredictionResponse(BaseModel):

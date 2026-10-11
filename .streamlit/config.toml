@@ -13,6 +13,14 @@ font = "sans serif"
 headless = true
 fileWatcherType = "auto"
 maxUploadSize = 5          # MB; mirrors api.max_upload_bytes in configs/config.yaml
+# Loopback only, so a bare `streamlit run app/streamlit_app.py` is as private
+# as `make app`. Streamlit otherwise listens on every interface, and the
+# dashboard has no authentication.
+address = "127.0.0.1"
+# Host names whose WebSocket handshake Streamlit accepts: the DNS-rebinding
+# defence at the transport, before any session starts. Mirrors
+# api.allowed_hosts in configs/config.yaml (tests/test_config.py keeps them equal).
+allowedHosts = ["localhost", "127.0.0.1"]
 
 [browser]
 gatherUsageStats = false

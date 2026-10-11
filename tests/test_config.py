@@ -152,3 +152,31 @@ def test_non_mapping_config_is_rejected(tmp_path: Path):
 
 def test_load_config_is_cached(cfg: Config):
     assert load_config() is cfg
+
+
+def _streamlit_server() -> dict:
+    import tomllib
+
+    from churnsense.config import PROJECT_ROOT
+
+    with (PROJECT_ROOT / ".streamlit" / "config.toml").open("rb") as fh:
+        return tomllib.load(fh)["server"]
+
+
+def test_the_dashboard_listens_on_loopback_however_it_is_started():
+    """`make app` passes --server.address, but a bare `streamlit run` reads only
+    this file - and Streamlit's own default is every interface."""
+    assert _streamlit_server()["address"] == "127.0.0.1"
+
+
+def test_the_dashboard_and_the_api_answer_the_same_host_names(cfg: Config):
+    """Streamlit checks the WebSocket handshake, the app checks every page and
+    the API every request; one list, or a name works on one surface only."""
+    from churnsense.hosts import allowed_host_entry
+
+    hosts = {allowed_host_entry(h) for h in _streamlit_server()["allowedHosts"]}
+    assert hosts == set(cfg.api.allowed_hosts)
+
+
+def test_the_dashboard_upload_limit_matches_the_api(cfg: Config):
+    assert _streamlit_server()["maxUploadSize"] * 1024 * 1024 == cfg.api.max_upload_bytes

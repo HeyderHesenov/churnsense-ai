@@ -49,6 +49,17 @@ INTEGER_COLUMNS: Final[tuple[str, ...]] = ("tenure",)
 _YES_NO: Final = ("No", "Yes")
 _YES_NO_NO_INTERNET: Final = ("No", "No internet service", "Yes")
 
+#: Services sold only with an internet connection. Without one, the raw file
+#: records each of them as "No internet service".
+ADDON_COLUMNS: Final[tuple[str, ...]] = (
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+)
+
 ALLOWED_CATEGORIES: Final[dict[str, tuple[str, ...]]] = {
     "gender": ("Female", "Male"),
     "SeniorCitizen": ("0", "1"),
@@ -216,6 +227,47 @@ def _quoted(values: list[str]) -> str:
     return f"{shown}" + (f" and {hidden} more" if hidden else "")
 
 
+def _inconsistencies(df: pd.DataFrame, required: list[str]) -> list[str]:
+    """Combinations of values no real customer can have.
+
+    Each rule holds on every one of the 7,043 rows of the IBM file, so the
+    model has never seen a row that breaks one; scoring it would be confident
+    extrapolation from an impossible customer. Offending rows are counted, not
+    quoted. Gaps are skipped here because they are reported on their own.
+    """
+    present = set(required) & set(df.columns)
+
+    def text(column: str) -> pd.Series:
+        return df[column].astype(str).str.strip()
+
+    problems: list[str] = []
+    if "InternetService" in present:
+        no_internet = text("InternetService").eq("No")
+        for column in (c for c in ADDON_COLUMNS if c in present):
+            if n := int((text(column).eq("No internet service") != no_internet).sum()):
+                problems.append(
+                    f"'{column}' contradicts 'InternetService' in {n} row(s): it is "
+                    "'No internet service' exactly when InternetService is 'No'"
+                )
+    if {"PhoneService", "MultipleLines"} <= present:
+        no_phone = text("PhoneService").eq("No")
+        if n := int((text("MultipleLines").eq("No phone service") != no_phone).sum()):
+            problems.append(
+                f"'MultipleLines' contradicts 'PhoneService' in {n} row(s): it is "
+                "'No phone service' exactly when PhoneService is 'No'"
+            )
+    if {"tenure", "TotalCharges"} <= present:
+        tenure = pd.to_numeric(df["tenure"], errors="coerce")
+        total = pd.to_numeric(df["TotalCharges"], errors="coerce")
+        known = tenure.notna() & total.notna()
+        if n := int((known & (tenure.eq(0) != total.eq(0))).sum()):
+            problems.append(
+                f"'TotalCharges' contradicts 'tenure' in {n} row(s): a customer has been "
+                "billed nothing exactly when their tenure is 0"
+            )
+    return problems
+
+
 def validate_frame(
     df: pd.DataFrame,
     *,
@@ -287,6 +339,8 @@ def validate_frame(
             problems.append(
                 f"'{col}' has unexpected value(s) {_quoted(unexpected)}; allowed: {list(allowed)}"
             )
+
+    problems.extend(_inconsistencies(df, required))
 
     if problems:
         raise SchemaValidationError("input data failed schema validation", problems)

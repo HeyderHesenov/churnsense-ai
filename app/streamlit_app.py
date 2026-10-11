@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 SECTIONS = {
     "Executive overview": overview.render,
     "Customer explorer": explorer.render,
-    "Drivers and segments": drivers.render,
+    "Churn patterns": drivers.render,
     "Model performance": performance.render,
     "Explainability": explain.render,
     "Single customer": customer.render,

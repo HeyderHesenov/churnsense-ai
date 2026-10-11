@@ -50,7 +50,7 @@ from churnsense.api.schemas import (
 )
 from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
-from churnsense.hosts import is_allowed_host
+from churnsense.hosts import is_allowed_host, is_allowed_origin
 from churnsense.logging_setup import configure_logging
 from churnsense.models.predict import Predictor, load_predictor, validate_upload
 
@@ -80,6 +80,7 @@ MULTIPART_OVERHEAD_BYTES = 64 * 1024
 #: changed between Python 3.12 and 3.13 - a contract must not depend on that.
 HTTP_ERROR_CODES = {
     400: "bad_request",
+    403: "forbidden",
     404: "not_found",
     405: "method_not_allowed",
     413: "payload_too_large",
@@ -139,11 +140,17 @@ class SecurityHeaders:
 
 
 class TrustedHosts:
-    """Answer only requests whose Host header is allowed; refuse any other.
+    """Answer only requests whose Host - and Origin, if any - is allowed.
 
     The DNS-rebinding defence described in ``churnsense.hosts``. HTTP gets a
     400 in the ErrorResponse shape - Starlette's TrustedHostMiddleware would
     answer in plain text - and a WebSocket handshake is closed with 1008.
+
+    A browser request whose ``Origin`` is another site is refused with 403. Its
+    Host is a genuine ``localhost``, so the Host check alone lets it through,
+    and a multipart POST needs no CORS preflight: any page the user visits
+    could otherwise make this service score 10,000-row files in a loop. The
+    page could not read the answers; it could still burn the CPU.
     Without an explicit list the configured ``api.allowed_hosts`` is used;
     the service cannot start without a readable config, so there is no
     fallback to reason about.
@@ -167,25 +174,32 @@ class TrustedHosts:
             await self.app(scope, receive, send)
             return
 
-        host = Headers(scope=scope).get("host")
-        if is_allowed_host(host, self.allowed_hosts):
+        headers = Headers(scope=scope)
+        host, origin = headers.get("host"), headers.get("origin")
+        if not is_allowed_host(host, self.allowed_hosts):
+            refusal = 400, "Invalid host header", "invalid_host", host
+        elif not is_allowed_origin(origin, self.allowed_hosts):
+            refusal = 403, "Requests from other sites are not accepted", "forbidden_origin", origin
+        else:
             await self.app(scope, receive, send)
             return
 
-        # Logged on the 1st, 10th, 100th... refusal: a rebound page can loop
-        # requests, and every one of them must not become a log line.
+        status, detail, error, offending = refusal
+        # Logged on the 1st, 10th, 100th... refusal: a rebound or hostile page
+        # can loop requests, and every one of them must not become a log line.
         self._refused += 1
         if math.log10(self._refused).is_integer():
             # %r: the header is the caller's text and must not forge log lines.
             logger.warning(
-                "refused %d request(s) for unknown hosts; latest %r", self._refused, host
+                "refused %d request(s) for unknown hosts or origins; latest %s %r",
+                self._refused,
+                error,
+                offending,
             )
         if scope["type"] == "websocket":
             await WebSocketClose(code=1008)(scope, receive, send)
         else:
-            await _error_response(400, "Invalid host header", error="invalid_host")(
-                scope, receive, send
-            )
+            await _error_response(status, detail, error=error)(scope, receive, send)
 
 
 class BodySizeLimit:
@@ -383,6 +397,7 @@ def model_info() -> ModelInfoResponse:
     response_model=PredictionResponse,
     tags=["scoring"],
     responses={
+        403: {"model": ErrorResponse},
         413: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
@@ -406,6 +421,7 @@ def predict(customer: CustomerFeatures) -> PredictionResponse:
     response_model=BatchResponse,
     tags=["scoring"],
     responses={
+        403: {"model": ErrorResponse},
         413: {"model": ErrorResponse},
         422: {"model": ErrorResponse},
         503: {"model": ErrorResponse},

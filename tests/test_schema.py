@@ -97,6 +97,44 @@ def test_validate_frame_requires_whole_months_of_tenure(clean_frame: pd.DataFram
         schema.validate_frame(broken)
 
 
+def _with(clean_frame: pd.DataFrame, **values) -> pd.DataFrame:
+    """The clean frame with the first row's ``values`` replaced."""
+    broken = clean_frame.copy()
+    for column, value in values.items():
+        broken.loc[broken.index[0], column] = value
+    return broken
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"InternetService": "No", "OnlineSecurity": "Yes"}, "'OnlineSecurity' contradicts"),
+        ({"InternetService": "DSL", "StreamingTV": "No internet service"}, "'StreamingTV'"),
+        ({"PhoneService": "No", "MultipleLines": "Yes"}, "'MultipleLines' contradicts"),
+        ({"PhoneService": "Yes", "MultipleLines": "No phone service"}, "'MultipleLines'"),
+        ({"tenure": 0, "TotalCharges": 5000.0}, "'TotalCharges' contradicts 'tenure'"),
+        ({"tenure": 12, "TotalCharges": 0.0}, "'TotalCharges' contradicts 'tenure'"),
+    ],
+)
+def test_validate_frame_rejects_customers_who_cannot_exist(clean_frame, values, message):
+    """Every field valid on its own, the combination impossible - and absent from
+    all 7,043 rows of the real file, so the model has never seen one."""
+    with pytest.raises(SchemaValidationError, match=message):
+        schema.validate_frame(_with(clean_frame, **values))
+
+
+def test_a_consistent_customer_without_internet_passes(clean_frame: pd.DataFrame):
+    values = dict.fromkeys(schema.ADDON_COLUMNS, "No internet service")
+    schema.validate_frame(_with(clean_frame, InternetService="No", **values))
+
+
+def test_cross_field_rules_apply_only_to_required_columns(clean_frame: pd.DataFrame):
+    """A model trained without TotalCharges must not be refused over it."""
+    broken = _with(clean_frame, tenure=0, TotalCharges=5000.0)
+    columns = [c for c in schema.RAW_COLUMNS if c not in (schema.TARGET, "TotalCharges")]
+    schema.validate_frame(broken, columns=columns)
+
+
 def test_validate_frame_rejects_an_unknown_category(clean_frame: pd.DataFrame):
     """There is no lenient mode: a typo must not be encoded into a confident score."""
     broken = clean_frame.copy()

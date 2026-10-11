@@ -11,6 +11,7 @@ from app import data
 from churnsense import viz
 from churnsense.config import Config
 from churnsense.data import schema
+from churnsense.exceptions import SchemaValidationError
 from churnsense.explainability.shap_explain import explain_customer, narrate
 
 #: Form defaults, from the single definition in the column contract.
@@ -19,17 +20,7 @@ DEFAULTS = schema.EXAMPLE_HIGH_RISK
 GROUPS: dict[str, list[str]] = {
     "Account": ["Contract", "tenure", "PaperlessBilling", "PaymentMethod"],
     "Household": ["SeniorCitizen", "Partner", "Dependents"],
-    "Services": [
-        "PhoneService",
-        "MultipleLines",
-        "InternetService",
-        "OnlineSecurity",
-        "OnlineBackup",
-        "DeviceProtection",
-        "TechSupport",
-        "StreamingTV",
-        "StreamingMovies",
-    ],
+    "Services": ["PhoneService", "MultipleLines", "InternetService", *schema.ADDON_COLUMNS],
     "Billing": ["MonthlyCharges", "TotalCharges"],
 }
 
@@ -86,9 +77,9 @@ def _field(name: str, key_prefix: str):
             key=key,
             format_func=(lambda v: display[v]) if display else str,
         )
-    if name == "tenure":
-        return st.number_input(label, 0, 120, int(DEFAULTS[name]), step=1, key=key)
     low, high = schema.NUMERIC_BOUNDS[name]
+    if name in schema.INTEGER_COLUMNS:
+        return st.number_input(label, int(low), int(high), int(DEFAULTS[name]), step=1, key=key)
     return st.number_input(
         label,
         float(low),
@@ -127,7 +118,15 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         st.info("Fill in the customer's details and submit to see a risk estimate.")
         return
 
-    result = model.predict_one(record)
+    try:
+        result = model.predict_one(record)
+    except SchemaValidationError as exc:
+        # The form lets each field be set on its own, so it can describe a
+        # customer who cannot exist (add-ons without internet, say). Shown as
+        # literal text, never as Markdown.
+        st.error("These details describe a customer the model cannot score:")
+        st.code("\n".join(exc.problems) or str(exc), language=None)
+        return
 
     left, right = st.columns([1, 1.3])
     with left:
@@ -149,7 +148,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         )
 
     with right:
-        ui.question("What is driving this particular estimate?")
+        ui.question("Which of this customer's attributes moved this estimate?")
         # The shared training-partition background, so "relative to an average
         # customer" means the same here as on the Explainability page.
         single = pd.DataFrame([record])[columns]

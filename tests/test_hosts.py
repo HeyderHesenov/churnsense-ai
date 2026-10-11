@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from churnsense.hosts import allowed_host_entry, hostname, is_allowed_host
+from churnsense.hosts import allowed_host_entry, hostname, is_allowed_host, is_allowed_origin
 
 LOOPBACK = ("localhost", "127.0.0.1")
 
@@ -82,3 +82,27 @@ def test_an_entry_that_could_never_match_is_refused(entry: str):
 
 def test_a_host_that_merely_starts_with_http_is_fine():
     assert allowed_host_entry("httpbin.org") == "httpbin.org"
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        (None, True),  # curl, Python: no browser, no Origin
+        ("http://localhost:8000", True),
+        ("https://127.0.0.1", True),
+        ("http://LOCALHOST:8501", True),
+        ("https://attacker.example", False),
+        ("http://localhost.attacker.example", False),
+        ("null", False),  # sandboxed frames, file:// pages
+        ("file://", False),
+        ("http://user@localhost", False),
+        ("http://localhost/path", False),
+        ("", False),
+    ],
+)
+def test_origins_are_checked_against_the_same_list(origin, expected: bool):
+    assert is_allowed_origin(origin, LOOPBACK) is expected
+
+
+def test_a_star_turns_the_origin_check_off_too():
+    assert is_allowed_origin("https://anything.example", ("*",))

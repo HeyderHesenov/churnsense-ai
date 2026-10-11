@@ -70,9 +70,20 @@ def test_flagged_follows_the_artifact_threshold(predictor: Predictor, sample):
 
 
 def test_a_threshold_override_is_honoured(predictor: Predictor, sample):
-    """The simulator slider changes the operating point without retraining."""
-    assert predictor.predict_frame(sample, threshold=0.0)["flagged"].all()
-    assert not predictor.predict_frame(sample, threshold=1.01)["flagged"].any()
+    """A library caller can move the operating point without retraining; the
+    probabilities themselves never change."""
+    everyone = predictor.predict_frame(sample, threshold=0.0)
+    nobody = predictor.predict_frame(sample, threshold=1.0)  # the clamp keeps p < 1
+    assert everyone["flagged"].all()
+    assert not nobody["flagged"].any()
+    pd.testing.assert_series_equal(everyone["churn_probability"], nobody["churn_probability"])
+
+
+@pytest.mark.parametrize("threshold", [float("nan"), -0.1, 1.01, float("inf")])
+def test_a_threshold_that_is_not_a_probability_is_refused(predictor, sample, threshold):
+    """NaN would silently flag nobody and a negative cut everybody."""
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        predictor.predict_frame(sample, threshold=threshold)
 
 
 def test_predict_one_matches_predict_frame_exactly(predictor: Predictor, sample):

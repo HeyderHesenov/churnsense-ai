@@ -115,11 +115,14 @@ class Predictor:
     def predict_frame(self, df: pd.DataFrame, threshold: float | None = None) -> pd.DataFrame:
         """Score a frame. Returns probability, risk band and the flag decision.
 
-        ``threshold`` overrides the artifact's operating point for what-if
-        analysis in the dashboard. It never changes the probabilities, only the
-        decision drawn from them.
+        ``threshold`` overrides the artifact's operating point for a library
+        caller's what-if analysis. It never changes the probabilities, only the
+        decision drawn from them, and it must be a probability: NaN would flag
+        nobody and a negative value everybody, both without a word.
         """
         cut = self.threshold if threshold is None else float(threshold)
+        if not 0.0 <= cut <= 1.0:  # also false for NaN
+            raise ValueError(f"threshold must lie in [0, 1], got {threshold!r}")
         # Already clamped by the artifact itself; see calibration_clamp.
         probabilities = self.model.predict_proba(self._validated(df))[:, 1]
 

@@ -23,7 +23,7 @@ pytestmark = pytest.mark.slow
 SECTIONS = [
     "Executive overview",
     "Customer explorer",
-    "Drivers and segments",
+    "Churn patterns",
     "Model performance",
     "Explainability",
     "Single customer",
@@ -97,3 +97,24 @@ def test_submitting_the_customer_form_produces_a_score(app_test):
     assert not at.exception
     rendered = " ".join(m.value for m in at.markdown)
     assert "estimated churn" in rendered.lower()
+
+
+def test_the_form_explains_an_impossible_customer_instead_of_crashing(app_test):
+    """Each field is set on its own, so the form can describe add-ons without
+    internet. That is refused with the problem shown, not scored or a traceback."""
+    at = _run(app_test, "Single customer")
+    at.selectbox(key="form_InternetService").set_value("No")
+    at.selectbox(key="form_OnlineSecurity").set_value("Yes")
+    at.button[0].click().run()
+
+    assert not at.exception
+    assert any("cannot score" in e.value for e in at.error)
+    assert any("OnlineSecurity" in c.value for c in at.code)
+
+
+def test_the_performance_page_never_shows_test_metrics_it_computed(app_test):
+    """Live figures are validation; a test figure may only be the recorded one."""
+    at = _run(app_test, "Model performance")
+    headers = " ".join(h.value for h in at.subheader)
+    assert "Validation performance" in headers
+    assert "Test-set performance" not in headers

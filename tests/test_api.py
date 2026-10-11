@@ -459,6 +459,54 @@ def test_the_loopback_names_are_answered(client, host: str):
     assert client.get("/health", headers={"host": host}).status_code == 200
 
 
+@pytest.mark.parametrize(
+    "origin", ["https://attacker.example", "http://localhost.evil:8000", "null", "file://"]
+)
+def test_a_browser_request_from_another_site_is_refused(client, payload, origin: str):
+    """The Host is a genuine localhost, so only the Origin gives a cross-site
+    upload away - and a multipart POST needs no CORS preflight."""
+    response = client.post("/predict", json=payload, headers={"origin": origin})
+    assert response.status_code == 403
+    assert response.json()["error"] == "forbidden_origin"
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+@pytest.mark.parametrize("origin", [None, "http://localhost:8000", "http://127.0.0.1:8501"])
+def test_requests_without_or_from_a_local_origin_are_served(client, payload, origin):
+    """curl and Python send no Origin; the Swagger UI on /docs sends its own."""
+    headers = {"origin": origin} if origin else {}
+    assert client.post("/predict", json=payload, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("change", "column"),
+    [
+        ({"InternetService": "No", "OnlineSecurity": "Yes"}, "OnlineSecurity"),
+        ({"PhoneService": "No", "MultipleLines": "Yes"}, "MultipleLines"),
+        ({"tenure": 0, "TotalCharges": 5000.0}, "TotalCharges"),
+    ],
+)
+def test_a_customer_who_cannot_exist_is_refused(client, payload, change, column):
+    """Each field is valid on its own; together they describe nobody the model saw."""
+    response = client.post("/predict", json={**payload, **change})
+    assert response.status_code == 422
+    assert any(column in problem for problem in response.json()["problems"])
+
+
+def test_numeric_bounds_match_the_training_contract():
+    """The request model reads its ranges from schema.NUMERIC_BOUNDS; a copy
+    could drift and either reject valid input or accept what training refuses."""
+    from annotated_types import Ge, Le
+
+    from churnsense.api.schemas import CustomerFeatures
+    from churnsense.data import schema
+
+    for column, (low, high) in schema.NUMERIC_BOUNDS.items():
+        metadata = CustomerFeatures.model_fields[column].metadata
+        assert next(m.ge for m in metadata if isinstance(m, Ge)) == low, column
+        assert next(m.le for m in metadata if isinstance(m, Le)) == high, column
+
+
 def test_a_request_without_a_host_is_refused():
     from churnsense.api.main import TrustedHosts
 
