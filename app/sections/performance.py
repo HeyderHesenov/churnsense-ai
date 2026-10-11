@@ -1,4 +1,10 @@
-"""Model comparison, test-set performance and calibration."""
+"""Model comparison, validation performance, segments and calibration.
+
+This page never scores the test partition. Everything computed live here is on
+the validation partition, which development may re-read freely; the test
+result is shown only as the figure ``make evaluate CONFIRM=yes`` recorded in
+the artifact's metadata, never recomputed.
+"""
 
 from __future__ import annotations
 
@@ -12,44 +18,64 @@ from app import components as ui
 from app import data
 from churnsense import viz
 from churnsense.config import Config
+from churnsense.data import schema
+from churnsense.data.split import check_split
 from churnsense.evaluation.metrics import (
     evaluate,
     expected_calibration_error,
     reliability_table,
+    segment_table,
 )
+from churnsense.exceptions import DataError
+
+#: Who the segment table is shown for; the same breakdown `make train` publishes.
+SEGMENTS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen", "gender")
 
 
 def _comparison_chart(table: pd.DataFrame) -> go.Figure:
-    ordered = table.sort_values("val_pr_auc")
+    """CV score with one standard error either side: the quantities the rule used."""
+    ordered = table.sort_values("cv_pr_auc")
     # viz.AXIS sits at 1.4:1 against the card surface - effectively invisible as
     # a fill. The unselected bars still have to be readable.
     colors = [viz.ACCENT if selected else "#4a5058" for selected in ordered["selected"]]
+    leader = table.loc[table["cv_pr_auc"].idxmax()]
+    cutoff = float(leader["cv_pr_auc"] - leader["cv_se"])
     figure = go.Figure(
         go.Bar(
-            x=ordered["val_pr_auc"],
+            x=ordered["cv_pr_auc"],
             y=ordered["model"],
             orientation="h",
             marker_color=colors,
             error_x={
                 "type": "data",
-                "array": ordered["cv_std"],
+                "array": ordered["cv_se"],
                 "color": viz.INK_MUTED,
                 "thickness": 1.5,
                 "width": 5,
             },
-            text=[f"{v:.4f}" for v in ordered["val_pr_auc"]],
+            text=[f"{v:.4f}" for v in ordered["cv_pr_auc"]],
             textposition="outside",
+            customdata=ordered[["val_pr_auc"]].to_numpy(),
             hovertemplate=(
-                "<b>%{y}</b><br>validation PR-AUC %{x:.4f}"
-                "<br>CV std +/-%{error_x.array:.4f}<extra></extra>"
+                "<b>%{y}</b><br>CV PR-AUC %{x:.4f} +/- %{error_x.array:.4f} (SE)"
+                "<br>validation PR-AUC %{customdata[0]:.4f}<extra></extra>"
             ),
         )
     )
+    figure.add_vline(
+        x=cutoff,
+        line_dash="dash",
+        line_color=viz.ACCENT_ALT,
+        line_width=1.4,
+        annotation_text=f"cutoff {cutoff:.4f}",
+        annotation_position="top",
+        annotation_font_color=viz.ACCENT_ALT,
+    )
     figure.update_layout(
-        xaxis_title="Validation PR-AUC (error bars: cross-validation std)",
+        xaxis_title="Cross-validated PR-AUC on train (error bars: one standard error)",
         yaxis_title=None,
         showlegend=False,
-        margin={"l": 8, "r": 20, "t": 10, "b": 8},
+        margin={"l": 8, "r": 20, "t": 24, "b": 8},
     )
     return ui.add_label_headroom(figure, "x", 1.3)
 
@@ -156,6 +182,60 @@ def _confusion(metrics) -> go.Figure:
     return figure
 
 
+def _segment_frame(segments: pd.DataFrame) -> pd.DataFrame:
+    """The segment table as displayed: rates with their 95 % intervals."""
+
+    def interval(value: float, low: float, high: float) -> str:
+        return "—" if pd.isna(value) else f"{value:.2f} [{low:.2f}, {high:.2f}]"
+
+    return pd.DataFrame(
+        {
+            "Dimension": segments["dimension"],
+            "Segment": segments["segment"],
+            "Customers": segments["customers"],
+            "Churn rate": segments["churn_rate"].map("{:.1%}".format),
+            "Flagged": segments["flagged"],
+            "Recall [95% CI]": [
+                interval(*row)
+                for row in segments[["recall", "recall_low", "recall_high"]].to_numpy()
+            ],
+            "Precision [95% CI]": [
+                interval(*row)
+                for row in segments[["precision", "precision_low", "precision_high"]].to_numpy()
+            ],
+        }
+    )
+
+
+def _recorded_test_result(meta: dict) -> None:
+    """The final evaluation as recorded in the metadata - shown, never recomputed."""
+    st.subheader("Recorded test-set result")
+    test = meta.get("test_metrics")
+    if not test:
+        st.info(
+            "No final test evaluation is recorded for this artifact. The published "
+            "figures, and the history of that partition, are in "
+            "`reports/final_evaluation.md` and `docs/MODEL_CARD.md`. This dashboard "
+            "does not score the test partition."
+        )
+        return
+    when = meta.get("test_evaluated_at", "before evaluation dates were recorded")
+    st.caption(
+        f"Recorded by `make evaluate CONFIRM=yes` ({str(when)[:10]}) at threshold "
+        f"{test['threshold']:.2f} and stored with this artifact; not recomputed here. "
+        "The test partition has been scored more than once in this project's history: "
+        'see docs/MODEL_CARD.md, "Evaluation history".'
+    )
+    ui.kpi_row(
+        [
+            ("Precision", f"{test['precision']:.3f}", "recorded on test", ""),
+            ("Recall", f"{test['recall']:.3f}", "recorded on test", ""),
+            ("ROC-AUC", f"{test['roc_auc']:.3f}", "recorded on test", ""),
+            ("PR-AUC", f"{test['average_precision']:.3f}", "recorded on test", ""),
+        ]
+    )
+
+
 def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Model performance")
 
@@ -170,33 +250,43 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         + (f", calibrated with {meta['calibration_method']}." if meta["calibrated"] else ".")
     )
 
-    if comparison is not None:
+    if comparison is not None and {"cv_se", "within_one_se"} <= set(comparison.columns):
         st.subheader("Candidate comparison")
         ui.question("Is the selected model actually better than the alternatives?")
         ui.chart(_comparison_chart(comparison), height=240, key="pf_compare")
         st.caption(
-            "Scored on the validation partition. The error bars are the "
-            "cross-validation standard deviation and they overlap, which is the "
-            "point: the top models are statistically tied. Selection uses the "
-            "one-standard-error rule and breaks the tie on simplicity rather than "
-            "chasing a difference the data cannot support."
+            "Cross-validated on the training partition. The dashed line is one "
+            "standard error below the leader: every model to its right is "
+            "statistically tied with it, and the simplest of those is selected. "
+            "Validation scores are in the tooltip as separate evidence."
         )
 
     if parts is None:
         st.info("Partition information is unavailable.")
         return
+    try:
+        check_split(parts, meta)
+    except DataError as exc:
+        st.warning(
+            "The partitions rebuilt from the current configuration are not the ones "
+            f"this model was trained on, so no performance is shown. {exc}"
+        )
+        return
 
-    # Through Predictor, not the raw model: predict_frame applies the column
-    # contract (a clear error instead of a raw sklearn one when the artifact
-    # and configs/config.yaml disagree), exactly as every other surface does.
-    test_proba = model.predict_frame(parts.X_test)["churn_probability"].to_numpy()
-    metrics = evaluate(parts.y_test, test_proba, threshold=model.threshold)
+    # The scored frame already holds every customer's probability from the
+    # served Predictor; the validation rows are picked out of it, not re-scored.
+    validation = frame.loc[parts.X_val.index]
+    y_val = validation[schema.TARGET].to_numpy()
+    proba = validation["churn_probability"].to_numpy()
+    metrics = evaluate(y_val, proba, threshold=model.threshold)
 
     st.divider()
-    st.subheader(f"Test-set performance at threshold {model.threshold:.2f}")
+    st.subheader(f"Validation performance at threshold {model.threshold:.2f}")
     st.caption(
-        f"The test partition ({metrics.n:,} customers) was scored once, after "
-        "model selection and threshold tuning were both closed on validation."
+        f"The validation partition ({metrics.n:,} customers) decided whether "
+        "calibration is kept and where the threshold sits, so these numbers are "
+        "somewhat optimistic. It is shown live because development may re-read it; "
+        "the held-out test partition is never scored by this dashboard."
     )
 
     ui.kpi_row(
@@ -218,14 +308,14 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     left, middle, right = st.columns(3)
     with left:
         ui.question("How does precision trade against recall?")
-        precision, recall, _ = precision_recall_curve(parts.y_test, test_proba)
+        precision, recall, _ = precision_recall_curve(y_val, proba)
         ui.chart(
             _curve(
                 recall,
                 precision,
                 x_title="Recall",
                 y_title="Precision",
-                baseline=float(np.mean(parts.y_test)),
+                baseline=float(np.mean(y_val)),
                 baseline_label="no-skill",
                 name="PR",
             ),
@@ -234,7 +324,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         )
     with middle:
         ui.question("How well does the model rank customers?")
-        fpr, tpr, _ = roc_curve(parts.y_test, test_proba)
+        fpr, tpr, _ = roc_curve(y_val, proba)
         ui.chart(
             _curve(
                 fpr,
@@ -253,20 +343,40 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         ui.chart(_confusion(metrics), height=300, key="pf_cm")
 
     st.divider()
+    st.subheader("Who the threshold reaches")
+    ui.question("Does one global threshold serve every segment?")
+    segments = segment_table(y_val, proba, validation, SEGMENTS, model.threshold)
+    st.dataframe(_segment_frame(segments), hide_index=True, width="stretch")
+    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
+    if not unscanned.empty:
+        names = ", ".join(f"{r.segment} ({r.dimension})" for r in unscanned.itertuples())
+        st.warning(
+            f"Nobody is flagged in: {names}. A segment with no flags is not scanned - "
+            "that is not the same as no risk. Its churners would get nothing from a "
+            "campaign driven by this threshold."
+        )
+    ui.caveat(
+        "Validation partition, with 95 % Wilson intervals: small segments give wide "
+        "intervals, and the interval is the finding. `gender` is not a model input; "
+        "it is shown because excluding a column does not show the groups are treated "
+        "alike. This is a descriptive check, not a fairness certification."
+    )
+
+    st.divider()
     st.subheader("Calibration")
     ui.question("When the model says 70%, do 70% of those customers actually churn?")
-    table = reliability_table(parts.y_test, test_proba)
+    table = reliability_table(y_val, proba)
     ui.chart(
-        _reliability_chart(table, expected_calibration_error(parts.y_test, test_proba)),
+        _reliability_chart(table, expected_calibration_error(y_val, proba)),
         height=340,
         key="pf_cal",
     )
     st.caption(
-        f"Brier score {metrics.brier:.4f}. Calibration is reported as a headline "
-        "metric rather than a diagnostic because the retention simulator multiplies "
-        "a predicted probability by a customer's value. A model that ranks well but "
-        "is systematically overconfident would produce a plausible-looking budget "
-        "built on inflated numbers."
+        f"Brier score {metrics.brier:.4f}. Calibration is a headline metric rather "
+        "than a diagnostic because the probability itself is what people read here "
+        "and in the API, and the risk bands are fixed probability ranges. Calibration "
+        "was accepted on this partition's error, so the curve is the one that made "
+        "that decision."
     )
 
     ui.caveat(
@@ -274,3 +384,6 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         f"nobody churns would score {1 - metrics.positives / metrics.n:.1%} on this "
         "partition and be worth nothing."
     )
+
+    st.divider()
+    _recorded_test_result(meta)

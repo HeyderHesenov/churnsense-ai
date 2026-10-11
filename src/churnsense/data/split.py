@@ -2,11 +2,14 @@
 
 The split protocol is the spine of this project's leakage story:
 
-* **train**      - fits the preprocessor and the estimators, and runs CV.
-* **validation** - chooses the model *and* the decision threshold, and judges
-  calibration.
-* **test**       - scored exactly once, at the very end, by
-  ``churnsense.evaluation.report``. Nothing selects on it.
+* **train**      - fits the preprocessor and the estimators, and runs the
+  cross-validation that tunes hyper-parameters and selects the model.
+* **validation** - decides whether calibration is kept and where the decision
+  threshold sits, and is reported as evidence beside the CV scores.
+* **test**       - read only by the final evaluation,
+  ``churnsense.evaluation.report``, which refuses to run without an explicit
+  confirmation. Nothing selects on it. It is not untouched: its history is in
+  docs/MODEL_CARD.md, "Evaluation history".
 
 The shipped artifact is fitted on **train only**. Refitting on train+validation
 would use ~33% more data, but the threshold and calibration were tuned on
@@ -18,6 +21,7 @@ docs/PROJECT_WALKTHROUGH.md.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from dataclasses import dataclass
 
@@ -25,6 +29,7 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from churnsense.config import Config, load_config
+from churnsense.exceptions import DataError
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +64,35 @@ class DataSplits:
     @property
     def n_total(self) -> int:
         return len(self.y_train) + len(self.y_val) + len(self.y_test)
+
+    def digest(self) -> str:
+        """Fingerprint of which rows went where.
+
+        Recorded in the model metadata at training time and compared before
+        anything reads the partitions again: the split is rebuilt from config on
+        every run, and a changed seed or size would otherwise let training rows
+        into "validation" or "test" without a word.
+        """
+        sha = hashlib.sha256()
+        for part in (self.X_train, self.X_val, self.X_test):
+            sha.update(pd.util.hash_pandas_object(part.index, index=False).to_numpy().tobytes())
+            sha.update(b"|")
+        return sha.hexdigest()
+
+
+def check_split(splits: DataSplits, meta: dict) -> None:
+    """Refuse partitions that differ from the ones the artifact was trained on."""
+    recorded = meta.get("split_digest")
+    if recorded is None:
+        raise DataError(
+            "the model metadata records no split digest, so the partitions cannot be "
+            "matched to the ones it was trained on. Retrain with `make train`."
+        )
+    if recorded != splits.digest():
+        raise DataError(
+            "the train/validation/test split differs from the one the model was trained "
+            "on (seed, split sizes or data changed). Retrain with `make train`."
+        )
 
 
 def make_splits(X: pd.DataFrame, y: pd.Series, cfg: Config | None = None) -> DataSplits:

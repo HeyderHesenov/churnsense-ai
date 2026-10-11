@@ -56,7 +56,7 @@ def test_contributions_reconcile_with_the_served_probability(trained):
 
 def test_explanations_do_not_hinge_on_the_seed(trained):
     """Regression: with one permutation per customer, changing nothing but the
-    seed reshuffled the top drivers for over a third of real customers.
+    seed reshuffled the top contributors for over a third of real customers.
 
     The instability comes from isotonic calibration's step function, so the
     model here is isotonic-calibrated like the shipped one (the fixture is too

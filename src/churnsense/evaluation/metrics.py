@@ -7,9 +7,12 @@ because it answers the question the retention team actually asks - of the
 customers we flag, how many really were going to leave?
 
 Calibration is treated as a first-class metric rather than a diagnostic.
-The business simulation multiplies a predicted probability by a customer's
-value, so a score that merely *ranks* correctly is not enough; the number has
-to mean what it says.
+Every surface shows the probability itself - the API response, the dashboard,
+the fixed risk bands ("Critical" starts at 0.75) - and a reader takes 0.7 to
+mean seven in ten. A score that merely *ranks* correctly would make those
+readings and those bands wrong. (The threshold economics are computed from
+observed outcomes on validation, so they depend on where the cut falls, not on
+the probability scale.)
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 import pandas as pd
 from numpy.typing import ArrayLike
+from scipy.stats import binomtest
 from sklearn.metrics import (
     average_precision_score,
     brier_score_loss,
@@ -142,12 +146,27 @@ def expected_calibration_error(y_true: ArrayLike, y_proba: ArrayLike, n_bins: in
     """Weighted mean absolute gap between predicted and observed rates.
 
     0 is perfect. Reported alongside the Brier score because Brier mixes
-    calibration and discrimination into one number, while ECE isolates the
-    part the business simulation actually depends on.
+    calibration and discrimination into one number, while ECE isolates whether
+    a stated probability matches the observed rate.
     """
     table = reliability_table(y_true, y_proba, n_bins)
     weights = table["count"] / table["count"].sum()
     return float((weights * table["gap"].abs()).sum())
+
+
+def wilson_interval(successes: int, trials: int, confidence: float = 0.95) -> tuple[float, float]:
+    """Wilson score interval for a proportion; ``(nan, nan)`` when there are no trials.
+
+    Wilson rather than the normal approximation because the segments that
+    matter most here are small and their rates sit near 0 or 1, exactly where
+    the normal interval spills outside [0, 1] or collapses to a point.
+    """
+    if trials == 0:
+        return float("nan"), float("nan")
+    ci = binomtest(int(successes), int(trials)).proportion_ci(
+        confidence_level=confidence, method="wilson"
+    )
+    return float(ci.low), float(ci.high)
 
 
 def segment_performance(
@@ -158,19 +177,59 @@ def segment_performance(
     An aggregate recall can hide a segment the model never flags at all; this
     is the table that shows it. Precision is NaN where nothing was flagged:
     undefined, not zero.
+
+    Small segments make unstable rates, so precision and recall carry 95 %
+    Wilson intervals. ``roc_auc`` is the ranking *within* the segment (NaN
+    when the segment holds only one class): it separates "the global cut sits
+    above this segment's scores" from "the model cannot rank this segment".
     """
     y, p = _validated(y_true, y_proba)
     frame = pd.DataFrame(
-        {"segment": np.asarray(segments), "churned": y == 1, "flagged": p >= threshold}
+        {"segment": np.asarray(segments), "y": y, "p": p, "flagged": p >= threshold}
     )
-    frame["caught"] = frame["churned"] & frame["flagged"]
-    table = frame.groupby("segment").agg(
-        customers=("churned", "size"),
-        churners=("churned", "sum"),
-        churn_rate=("churned", "mean"),
-        flagged=("flagged", "sum"),
-        caught=("caught", "sum"),
-    )
-    table["precision"] = table["caught"] / table["flagged"].where(table["flagged"] > 0)
-    table["recall"] = table["caught"] / table["churners"].where(table["churners"] > 0)
-    return table.drop(columns="caught").reset_index()
+    rows = []
+    for segment, part in frame.groupby("segment", sort=True):
+        churners, flagged = int(part["y"].sum()), int(part["flagged"].sum())
+        caught = int((part["flagged"] & part["y"].eq(1)).sum())
+        precision_ci = wilson_interval(caught, flagged)
+        recall_ci = wilson_interval(caught, churners)
+        rows.append(
+            {
+                "segment": segment,
+                "customers": len(part),
+                "churners": churners,
+                "churn_rate": churners / len(part),
+                "flagged": flagged,
+                "flagged_rate": flagged / len(part),
+                "precision": caught / flagged if flagged else np.nan,
+                "precision_low": precision_ci[0],
+                "precision_high": precision_ci[1],
+                "recall": caught / churners if churners else np.nan,
+                "recall_low": recall_ci[0],
+                "recall_high": recall_ci[1],
+                "roc_auc": (
+                    float(roc_auc_score(part["y"], part["p"]))
+                    if part["y"].nunique() == 2
+                    else np.nan
+                ),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def segment_table(
+    y_true: ArrayLike,
+    y_proba: ArrayLike,
+    frame: pd.DataFrame,
+    columns: tuple[str, ...] | list[str],
+    threshold: float,
+) -> pd.DataFrame:
+    """``segment_performance`` for several columns of ``frame``, stacked with a ``dimension``."""
+    tables = [
+        segment_performance(y_true, y_proba, frame[column].astype(str), threshold).assign(
+            dimension=column
+        )
+        for column in columns
+    ]
+    table = pd.concat(tables, ignore_index=True)
+    return table[["dimension", *(c for c in table.columns if c != "dimension")]]

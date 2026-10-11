@@ -171,22 +171,27 @@ def precision_recall(y_true, y_proba, out: Path) -> Path:
 
 
 def shap_importance(importance: pd.DataFrame, out: Path, top_n: int = 12) -> Path:
-    """Mean absolute SHAP per feature - model influence, not causal effect."""
+    """Mean absolute SHAP per feature - model influence, not causal effect.
+
+    In percentage points of churn probability, the unit the dashboard's
+    per-customer waterfall uses, so the two charts can be read side by side.
+    """
     data = importance.head(top_n).iloc[::-1]
+    points = data["mean_abs_shap"] * 100
     fig, ax = viz.figure(figsize=(_W, 4.4))
-    bars = ax.barh(data["label"], data["mean_abs_shap"], color=viz.ACCENT, height=0.56)
-    for bar, value in zip(bars, data["mean_abs_shap"], strict=True):
+    bars = ax.barh(data["label"], points, color=viz.ACCENT, height=0.56)
+    for bar, value in zip(bars, points, strict=True):
         ax.text(
             bar.get_width() * 1.02,
             bar.get_y() + bar.get_height() / 2,
-            f"{value:.3f}",
+            f"{value:.1f}",
             va="center",
             color=viz.INK,
             fontsize=9,
         )
 
     ax.set_title("Which features move this model's output most?")
-    ax.set_xlabel("Mean |SHAP value| (probability points)")
-    ax.set_xlim(0, float(data["mean_abs_shap"].max()) * 1.16)
+    ax.set_xlabel("Mean |SHAP value| (percentage points of churn probability)")
+    ax.set_xlim(0, float(points.max()) * 1.16)
     ax.grid(axis="y", visible=False)
     return viz.save_figure(fig, out / "shap_importance.png")

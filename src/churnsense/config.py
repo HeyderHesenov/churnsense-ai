@@ -15,12 +15,15 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from churnsense.exceptions import ConfigError
 from churnsense.hosts import allowed_host_entry
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 #: Columns in the raw data contract, ``len(schema.RAW_COLUMNS)``. Written out
 #: so the config layer does not import the data layer (and pandas with it);
@@ -144,8 +147,11 @@ class Business:
         if self.retention_offer_cost < 0 or self.expected_horizon_months <= 0:
             raise ConfigError("offer cost must be >= 0 and the horizon must be >= 1 month")
 
-    def customer_value(self, monthly_charges: float) -> float:
-        """Margin a retained customer is assumed to generate over the horizon."""
+    def customer_value(self, monthly_charges: float | NDArray) -> float | NDArray:
+        """Margin a retained customer is assumed to generate over the horizon.
+
+        Element-wise on an array of monthly charges.
+        """
         return monthly_charges * self.expected_horizon_months * self.gross_margin
 
 

@@ -134,6 +134,44 @@ def test_string_dtype_text_is_cleaned_like_object_text(raw_frame: pd.DataFrame):
     pd.testing.assert_frame_equal(cleaned, expected, check_dtype=False)
 
 
+def _pinned_copy(demo_csv, tmp_path, cfg: Config, sha256: str | None) -> Config:
+    """A config whose dataset is a copy of the demo file, pinned to ``sha256``."""
+    from dataclasses import replace
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / cfg.dataset.filename).write_bytes(demo_csv.read_bytes())
+    rows = len(demo_csv.read_bytes().splitlines()) - 1
+    return replace(
+        cfg,
+        paths=replace(cfg.paths, raw_dir=raw),
+        dataset=replace(cfg.dataset, sha256=sha256, expected_rows=rows),
+    )
+
+
+def test_loading_the_configured_dataset_verifies_its_pin_every_time(demo_csv, tmp_path, cfg):
+    """Not only at download: a file changed afterwards must stop the pipeline."""
+    from dataclasses import replace
+
+    from churnsense.data.download import sha256_of
+    from churnsense.data.loader import load_clean
+
+    pinned = _pinned_copy(demo_csv, tmp_path, cfg, sha256="0" * 64)
+    with pytest.raises(DataError, match="SHA-256 mismatch"):
+        load_clean(pinned)
+
+    digest = sha256_of(demo_csv)
+    _, report = load_clean(replace(pinned, dataset=replace(pinned.dataset, sha256=digest)))
+    assert report.source_sha256 == digest
+
+
+def test_an_explicit_path_is_read_without_claiming_provenance(demo_csv, cfg: Config):
+    from churnsense.data.loader import load_clean
+
+    _, report = load_clean(cfg, path=demo_csv)
+    assert report.source_sha256 is None
+
+
 def test_read_raw_gives_actionable_error_when_file_is_absent(tmp_path, cfg: Config):
     with pytest.raises(DataError, match="make data"):
         read_raw(tmp_path / "nope.csv", cfg)

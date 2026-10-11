@@ -8,6 +8,7 @@ than that two implementations disagree.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from churnsense.evaluation.metrics import (
@@ -170,6 +171,45 @@ def test_segment_performance_is_hand_checkable():
     assert table.loc["a", "flagged"] == 2
     assert table.loc["a", "precision"] == pytest.approx(0.5)
     assert table.loc["a", "recall"] == pytest.approx(0.5)
+
+
+def test_segment_rates_carry_hand_checkable_wilson_intervals():
+    """Segment a: 1 of 2 churners caught -> recall 0.5, Wilson 95 % [0.0945, 0.9055]."""
+    from churnsense.evaluation.metrics import segment_performance
+
+    y = [1, 0, 1, 0, 1, 0]
+    p = [0.9, 0.8, 0.2, 0.1, 0.3, 0.2]
+    a = segment_performance(y, p, ["a", "a", "a", "b", "b", "b"], 0.5).set_index("segment").loc["a"]
+    assert a["recall_low"] == pytest.approx(0.0945, abs=1e-4)
+    assert a["recall_high"] == pytest.approx(0.9055, abs=1e-4)
+    assert a["flagged_rate"] == pytest.approx(2 / 3)
+    assert a["roc_auc"] == pytest.approx(0.5)  # churners at 0.9 and 0.2 around a 0.8 stayer
+
+
+def test_wilson_interval_stays_inside_zero_one_and_handles_no_trials():
+    from churnsense.evaluation.metrics import wilson_interval
+
+    low, high = wilson_interval(0, 9)
+    assert low == 0.0 and 0.0 < high < 0.35
+    assert wilson_interval(9, 9)[1] == pytest.approx(1.0)
+    assert all(np.isnan(v) for v in wilson_interval(0, 0))
+
+
+def test_within_segment_ranking_is_undefined_with_one_class():
+    from churnsense.evaluation.metrics import segment_performance
+
+    table = segment_performance([0, 0, 1, 0], [0.1, 0.2, 0.9, 0.3], ["a", "a", "b", "b"], 0.5)
+    assert np.isnan(table.set_index("segment").loc["a", "roc_auc"])
+
+
+def test_segment_table_stacks_dimensions():
+    from churnsense.evaluation.metrics import segment_table
+
+    frame = pd.DataFrame({"c": ["x", "x", "y", "y"], "d": [1, 1, 1, 0]})
+    table = segment_table([1, 0, 1, 0], [0.9, 0.1, 0.8, 0.2], frame, ("c", "d"), 0.5)
+    assert list(table.columns[:2]) == ["dimension", "segment"]
+    for dimension in ("c", "d"):
+        assert table.loc[table["dimension"] == dimension, "customers"].sum() == 4
 
 
 def test_segment_precision_is_undefined_when_nothing_is_flagged():

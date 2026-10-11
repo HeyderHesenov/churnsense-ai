@@ -80,7 +80,7 @@ def _fetch(url: str, dest: Path) -> None:
     tmp.replace(dest)  # atomic: a reader never sees a partial file
 
 
-def _verify(path: Path, cfg: Config) -> str:
+def verify_dataset(path: Path, cfg: Config) -> str:
     """Check the row count and return the file's SHA-256.
 
     The expected hash, when configured, is enforced here. The row count is
@@ -118,7 +118,7 @@ def download_dataset(cfg: Config | None = None, *, force: bool = False) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     if dest.exists() and not force:
-        digest = _verify(dest, cfg)
+        digest = verify_dataset(dest, cfg)
         logger.info(
             "dataset already present rows=%d sha256=%s", cfg.dataset.expected_rows, digest[:16]
         )
@@ -128,7 +128,7 @@ def download_dataset(cfg: Config | None = None, *, force: bool = False) -> Path:
             _fetch(cfg.dataset.url, dest)
         except DataError as exc:
             raise DataError(f"{exc}\n\n{_manual_instructions(cfg)}") from exc
-        digest = _verify(dest, cfg)
+        digest = verify_dataset(dest, cfg)
         logger.info("downloaded bytes=%d sha256=%s", dest.stat().st_size, digest)
 
     if not cfg.dataset.sha256:

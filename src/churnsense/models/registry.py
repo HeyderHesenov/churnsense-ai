@@ -30,6 +30,9 @@ from sklearn.pipeline import Pipeline
 from churnsense.config import Config, load_config
 from churnsense.features.preprocess import build_preprocessor_for
 
+#: The floor every real model is read against; selection refuses to ship it.
+BASELINE_KEY: Final[str] = "dummy"
+
 MODEL_KEYS: Final[tuple[str, ...]] = (
     "dummy",
     "logistic_regression",

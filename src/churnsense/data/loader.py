@@ -20,13 +20,14 @@ The two judgement calls made here, both measured on the real file:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pandas as pd
 
 from churnsense.config import Config, load_config
 from churnsense.data import schema
+from churnsense.data.download import verify_dataset
 from churnsense.exceptions import DataError
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,9 @@ class CleaningReport:
     total_charges_filled_zero: int
     total_charges_filled_derived: int
     stripped_columns: tuple[str, ...] = field(default_factory=tuple)
+    # SHA-256 of the configured dataset, verified against the pin before it was
+    # read; None when the frame came from anywhere else (a fixture, an upload).
+    source_sha256: str | None = None
 
     def as_lines(self) -> list[str]:
         lines = [
@@ -54,6 +58,8 @@ class CleaningReport:
         ]
         if self.stripped_columns:
             lines.append(f"whitespace stripped in: {', '.join(self.stripped_columns)}")
+        if self.source_sha256:
+            lines.append(f"source file sha256: {self.source_sha256}")
         return lines
 
 
@@ -197,9 +203,19 @@ def clean_frame(
 def load_clean(
     cfg: Config | None = None, path: Path | None = None
 ) -> tuple[pd.DataFrame, CleaningReport]:
-    """Read and clean in one step - the normal entry point for the pipeline."""
+    """Read and clean in one step - the normal entry point for the pipeline.
+
+    Reading the configured dataset first checks its row count and pinned
+    SHA-256 - on every run, not only at download - and the report carries the
+    digest, so model metadata records the file that was actually read. An
+    explicit ``path`` (a fixture, an ad hoc file) is read as is.
+    """
     cfg = cfg or load_config()
-    return clean_frame(read_raw(path, cfg))
+    digest = None
+    if path is None and cfg.raw_data_file.is_file():
+        digest = verify_dataset(cfg.raw_data_file, cfg)
+    df, report = clean_frame(read_raw(path, cfg))
+    return df, replace(report, source_sha256=digest)
 
 
 def features_and_target(

@@ -19,7 +19,7 @@ APP_PORT ?= 8501
 API_PORT ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-runtime check-python lock sbom data eda train evaluate explain all test lint format audit app api clean
+.PHONY: help setup setup-runtime check-python lock sbom data eda train explain dev evaluate all test lint format audit app api clean
 
 help:  ## Show the available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -83,21 +83,26 @@ sbom: setup-runtime  ## Write sbom.cdx.json, a CycloneDX SBOM of the runtime loc
 data:  ## Download and verify the raw dataset
 	$(PY) -m churnsense.data.download
 
-eda:  ## Regenerate reports/eda_report.md and reports/figures/*
+eda:  ## EDA on the training partition: reports/eda_report.md and figures
 	$(PY) -m churnsense.eda
 
-train:  ## Train and compare all models; write artifacts/ and the comparison report
+train:  ## Select (CV), calibrate and set the threshold (validation); write artifacts/ and reports
 	$(PY) -m churnsense.models.train
 
-evaluate:  ## Final (single) test-set evaluation + threshold economics
-	$(PY) -m churnsense.evaluation.report
-
-explain:  ## Compute and cache global SHAP values
+explain:  ## Compute and cache global SHAP values and their figure
 	$(PY) -m churnsense.explainability.shap_explain
 
-# `explain` runs before `evaluate`: the evaluation report embeds the cached
-# SHAP importance figure, so the other order silently skips it on a first run.
-all: data eda train explain evaluate  ## Full pipeline, raw data to reports
+# The routine loop. Nothing in it reads the test partition, so it can be run
+# as often as development needs.
+dev: data eda train explain  ## Full development pipeline; never reads the test partition
+
+# The only target that scores the held-out test partition. It refuses unless
+# asked explicitly, because every run adds to that partition's history
+# (docs/MODEL_CARD.md, "Evaluation history"): make evaluate CONFIRM=yes
+evaluate:  ## FINAL evaluation on the test partition (needs CONFIRM=yes)
+	$(PY) -m churnsense.evaluation.report $(if $(filter yes,$(CONFIRM)),--confirm-test-read)
+
+all: dev evaluate  ## dev, then the final evaluation (needs CONFIRM=yes)
 
 test:  ## Run the test suite
 	$(PY) -m pytest

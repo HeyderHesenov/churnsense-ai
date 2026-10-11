@@ -2,21 +2,27 @@
 
 Two reports live here and they are deliberately separate:
 
-* ``write_comparison_report`` - model selection, scored on **validation**.
-  Produced by ``make train``.
-* ``write_final_report`` - the single, final scoring on the **test**
-  partition, plus the threshold economics. Produced by ``make evaluate``.
+* ``write_comparison_report`` - model selection (cross-validation on train),
+  calibration and the operating point (validation), and the per-segment view.
+  Produced by ``make train``; it never touches the test partition.
+* ``write_final_report`` - the scoring of the **test** partition at the
+  threshold ``make train`` recorded. Produced by ``make evaluate CONFIRM=yes``,
+  the only command that reads that partition, and only when asked to.
 
-Keeping them apart mirrors the protocol: nothing in the selection report has
-touched test data, and the final report runs once, after selection is closed.
+Keeping them apart mirrors the protocol: development reruns the first as often
+as it likes, while every run of the second adds to the test partition's
+history (docs/MODEL_CARD.md, "Evaluation history").
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from churnsense import viz
@@ -27,16 +33,18 @@ from churnsense.evaluation.metrics import (
     evaluate,
     expected_calibration_error,
     reliability_table,
-    segment_performance,
+    segment_table,
 )
 from churnsense.evaluation.threshold import (
     DISCLAIMER,
     ThresholdScenario,
-    indifference_band,
     recommend_threshold,
+    scenario_at,
     sweep_thresholds,
 )
+from churnsense.exceptions import ChurnSenseError
 from churnsense.logging_setup import configure_logging
+from churnsense.models.registry import BASELINE_KEY
 from churnsense.models.train import TrainingOutcome
 
 logger = logging.getLogger(__name__)
@@ -59,8 +67,54 @@ def _markdown_table(frame: pd.DataFrame, floats: str = "{:.4f}") -> str:
     return "\n".join([header, rule, *rows])
 
 
-#: Dimensions the final report breaks test performance down by.
-SEGMENT_COLUMNS: tuple[str, ...] = ("Contract", "InternetService")
+#: Dimensions the final report breaks test performance down by (model inputs,
+#: so they are present in ``X_test``).
+SEGMENT_COLUMNS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen")
+
+
+def _with_interval(value: float, low: float, high: float) -> str:
+    return "—" if pd.isna(value) else f"{value:.3f} [{low:.2f}, {high:.2f}]"
+
+
+def segment_markdown(segments: pd.DataFrame) -> str:
+    """The per-segment table, with each rate's 95 % Wilson interval beside it."""
+    table = pd.DataFrame(
+        {
+            "Dimension": segments["dimension"],
+            "Segment": segments["segment"],
+            "Customers": segments["customers"].map("{:,}".format),
+            "Churners": segments["churners"].map("{:,}".format),
+            "Churn rate": segments["churn_rate"].map("{:.1%}".format),
+            "Flagged": segments["flagged"].map("{:,}".format),
+            "Flag rate": segments["flagged_rate"].map("{:.1%}".format),
+            "Precision (95% CI)": [
+                _with_interval(*row)
+                for row in segments[["precision", "precision_low", "precision_high"]].to_numpy()
+            ],
+            "Recall (95% CI)": [
+                _with_interval(*row)
+                for row in segments[["recall", "recall_low", "recall_high"]].to_numpy()
+            ],
+            "ROC-AUC within": segments["roc_auc"].map(lambda v: "—" if pd.isna(v) else f"{v:.3f}"),
+        }
+    )
+    return _markdown_table(table)
+
+
+def _unscanned_note(segments: pd.DataFrame) -> str:
+    """Name the segments the operating point leaves entirely unflagged."""
+    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
+    if unscanned.empty:
+        return "Every segment has at least one flagged customer at this threshold."
+    names = ", ".join(f"{row.segment} ({row.dimension})" for row in unscanned.itertuples())
+    return (
+        f"**No customer is flagged in: {names}.** Their {int(unscanned['churners'].sum()):,} "
+        "churners would receive nothing from a campaign driven by this score. That is a "
+        "property of one global operating point - a segment with no flags is *not "
+        "scanned*, which is different from *no risk*. The within-segment ROC-AUC says "
+        "whether the model could still rank those customers if the business chose to "
+        "reach them."
+    )
 
 
 def _ablation_section(ablation: pd.DataFrame | None, scoring: str) -> str:
@@ -114,21 +168,126 @@ the probability clamp; the two columns differ only where the clamp binds."""
 {reading}"""
 
 
+def _selection_section(outcome: TrainingOutcome, cfg: Config) -> str:
+    selection, selected = outcome.selection, outcome.selected
+    best_validation = max(outcome.results, key=lambda r: r.validation.average_precision)
+    eligible = ", ".join(r.display_name for r in selection.eligible)
+    k = selection.leader.cv_folds
+    return f"""{selection.reason}
+
+| Step | Value |
+|---|---|
+| Leader (best mean CV {cfg.training.scoring}) | {selection.leader.display_name}, {selection.leader.cv_score:.4f} |
+| Standard error = leader's CV std / sqrt({k}) | {selection.leader.cv_std:.4f} / {k**0.5:.3f} = {selection.standard_error:.4f} |
+| Cutoff = leader - one standard error | {selection.cutoff:.4f} |
+| Candidates at or above the cutoff | {eligible} |
+| Selected (simplest of those) | **{selected.display_name}**, {selected.cv_score - selection.cutoff:.4f} above the cutoff |
+
+Selection uses the **one-standard-error rule** rather than a plain argmax, and
+every quantity in it comes from the same {k} cross-validation folds on the
+training partition: the leader, its standard error, and the scores compared
+with the cutoff. With candidates this close the nominal winner is decided by
+sampling noise; treating everything within one standard error of the leader as
+tied, and breaking the tie on simplicity, gives a choice that survives a
+re-run - and a simpler model is cheaper to serve and easier to explain.
+
+Validation scores are evidence, not part of the rule. Here the selected model
+scores {selected.validation.average_precision:.4f} validation PR-AUC; the best
+validation score is {best_validation.validation.average_precision:.4f}
+({best_validation.display_name}).
+
+Two caveats travel with the rule. The folds share training rows, so the
+spread of their scores understates the true uncertainty of a cross-validated
+estimate (no unbiased estimator of that variance exists; Bengio and
+Grandvalet, 2004); the standard error is a working yardstick, not a confidence
+interval. And each candidate's CV score is the best over its own grid, which
+flatters the larger grids slightly; the rule's lean toward the simpler model
+works against that bias, and nested cross-validation would remove it at
+roughly {k} times the compute."""
+
+
+def _operating_point_section(
+    outcome: TrainingOutcome, cfg: Config, sensitivity: pd.DataFrame | None
+) -> str:
+    point, b = outcome.operating_point, cfg.business
+    best = outcome.threshold_sweep.loc[outcome.threshold_sweep["net_benefit"].idxmax()]
+    currency = b.currency
+    table = (
+        "Not computed in this run."
+        if sensitivity is None
+        else _markdown_table(
+            pd.DataFrame(
+                {
+                    "Offer success rate (assumed)": sensitivity["offer_success_rate"].map(
+                        "{:.0%}".format
+                    ),
+                    "Threshold": sensitivity["threshold"].map("{:.2f}".format),
+                    "Flagged": sensitivity["flagged"],
+                    "Precision": sensitivity["precision"].map("{:.3f}".format),
+                    "Recall": sensitivity["recall"].map("{:.3f}".format),
+                    "Simulated net benefit": sensitivity["net_benefit"].map(
+                        lambda v: viz.money(v, currency)
+                    ),
+                }
+            )
+        )
+    )
+    return f"""> **{DISCLAIMER}**
+
+The threshold is chosen here, on the validation partition, with the model that
+ships - so `model.joblib` and the threshold in `model_meta.json` leave
+`make train` together, and no test data is involved.
+
+| Quantity (validation, {outcome.n_validation:,} customers) | Value |
+|---|---|
+| **Threshold** | **{point.threshold:.2f}** |
+| Customers flagged | {point.flagged:,} |
+| Precision / recall | {point.precision:.3f} / {point.recall:.3f} |
+| Simulated net benefit | {viz.money(point.net_benefit, currency)} |
+| Best simulated net benefit on the sweep | {viz.money(float(best["net_benefit"]), currency)} at {float(best["threshold"]):.2f} |
+
+The rule: among thresholds whose simulated net benefit is within one retention
+offer's cost ({viz.money(b.retention_offer_cost, currency)}) of the best, take the
+highest - the one that spends least and contacts fewest customers. The tolerance
+is a money unit the simulation cannot resolve below, not a statistical test.
+
+Assumptions (`configs/config.yaml`): offer cost
+{viz.money(b.retention_offer_cost, currency)}, offer success rate
+{b.offer_success_rate:.0%}, horizon {b.expected_horizon_months} months, gross
+margin {b.gross_margin:.0%}. The value of a retained customer is monthly charges
+x horizon x margin; retained value counts only flagged customers who really
+churned, times the assumed success rate. The model estimates churn *risk*, not
+what an offer would change: a high score does not mean an offer would keep that
+customer.
+
+### How the choice moves with the one input nobody can measure
+
+{table}
+
+Every row uses the same validation probabilities; only the assumed offer
+success rate changes."""
+
+
 def write_comparison_report(
     outcome: TrainingOutcome,
     cfg: Config | None = None,
     ablation: pd.DataFrame | None = None,
+    segments: pd.DataFrame | None = None,
+    sensitivity: pd.DataFrame | None = None,
     directory: Path | None = None,
 ) -> Path:
     """Write ``reports/model_comparison.md`` from an actual training run."""
     cfg = cfg or load_config()
     directory = Path(directory) if directory else cfg.paths.reports_dir
-    selected, dummy = outcome.selected, next(r for r in outcome.results if r.key == "dummy")
+    selected = outcome.selected
+    dummy = next(r for r in outcome.results if r.key == BASELINE_KEY)
     table = outcome.comparison_frame().rename(
         columns={
             "model": "Model",
             "cv_pr_auc": "CV PR-AUC",
             "cv_std": "CV std",
+            "cv_se": "CV SE",
+            "within_one_se": "Within 1 SE",
             "val_pr_auc": "Val PR-AUC",
             "val_roc_auc": "Val ROC-AUC",
             "val_precision": "Val precision",
@@ -154,15 +313,35 @@ def write_comparison_report(
             else "Disabled in configuration."
         )
     )
+    threshold = outcome.operating_point.threshold
+    segment_section = (
+        "Not computed in this run (`make train --no-report` skips it)."
+        if segments is None
+        else f"""Validation partition, threshold {threshold:.2f}. Each rate carries a 95 %
+Wilson interval: with a few dozen churners in a segment, the interval - not
+the point estimate - is the finding. `gender` is not a model input; it is
+reported because dropping a column does not show the model treats the groups
+alike.
+
+{segment_markdown(segments)}
+
+{_unscanned_note(segments)}
+
+This is a descriptive check of one operating point on one sample, not a
+fairness certification. Per-segment thresholds would change who is contacted;
+that is a business-policy decision (budget, who may be targeted, on what
+grounds) and is deliberately not made by the code."""
+    )
 
     content = f"""# Model comparison - ChurnSense AI
 
 Generated by `make train`. Every number is measured on this run; none is copied
 from a previous run or from the literature.
 
-**All scores below are on the validation partition**
-({outcome.n_validation:,} customers), never on test. The test partition is
-scored exactly once, by `make evaluate`, after selection is closed.
+**No number here touches the test partition.** Cross-validated scores come from
+{selected.cv_folds}-fold stratified CV on the training partition
+({outcome.n_train:,} customers); validation scores from the validation partition
+({outcome.n_validation:,} customers).
 
 ## Results
 
@@ -170,44 +349,31 @@ scored exactly once, by `make evaluate`, after selection is closed.
 
 Selection metric: **{cfg.training.scoring}** (PR-AUC), chosen because the
 positive class is the minority and the retention team cares about the precision
-of what it flags, not about overall correctness.
+of what it flags, not about overall correctness. "CV SE" is the standard error
+of the CV score (CV std / sqrt(folds)); "Within 1 SE" marks the candidates the
+selection rule treats as tied with the leader.
 
-## What the table says
+## How the model was selected
 
-**Selected: {selected.display_name}.** Validation PR-AUC
-{selected.validation.average_precision:.4f} against {dummy.validation.average_precision:.4f}
-for the baseline - a {lift:.2f}x lift over predicting the base rate for everyone.
-
-### Why this model and not the highest number
-
-{outcome.selection_reason}
-
-Selection uses the **one-standard-error rule** rather than a plain argmax.
-With the candidates packed this tightly, the nominal winner is decided by
-sampling noise: change the seed and the order reshuffles. Treating everything
-within one standard error of the leader as tied, and breaking the tie on
-simplicity, gives a choice that survives a re-run - and a simpler model is
-cheaper to serve, easier to explain to a retention team, and less likely to
-degrade on next quarter's data.
+{_selection_section(outcome, cfg)}
 
 The baseline scores ROC-AUC {dummy.validation.roc_auc:.3f} by construction: it
 assigns every customer the same probability, so it cannot rank anyone above
-anyone else. It is in the table to fix the floor, and because its
-*accuracy* would look respectable while being worth nothing.
-
-Cross-validated and validation scores are reported side by side. A large gap
-between them is the signal to distrust the selection; here the selected model
-scores {selected.cv_score:.4f} in {cfg.training.cv_folds}-fold CV on train and
-{selected.validation.average_precision:.4f} on the held-out validation set.
+anyone else. It fixes the floor - the selected model's validation PR-AUC of
+{selected.validation.average_precision:.4f} is a {lift:.2f}x lift over its
+{dummy.validation.average_precision:.4f} - and if the rule ever selected it,
+training would stop with an error instead of shipping it.
 
 ### Calibration
 
 {calibration}
 
-Calibration matters here beyond tidiness: the retention simulator multiplies a
-predicted probability by a customer's value, so the number has to mean what it
-says. A model that ranks perfectly but reports 0.9 for customers who churn 60%
-of the time would produce confident, wrong budgets.
+Calibration matters because the probability itself is what people read: the
+API returns it, the dashboard shows it, and the risk bands are fixed probability
+ranges. A model that ranks well but reports 0.9 for customers who churn 60% of
+the time would put the wrong customers in "Critical". Calibration is accepted
+on validation ECE, so the validation ECE above is the number that made the
+decision and is optimistic for that reason.
 
 ### The model that actually ships
 
@@ -218,7 +384,7 @@ reports:
 {_shipped_section(outcome)}
 
 That is also why the threshold is treated as a separate business decision
-rather than left at 0.5 - see `reports/final_evaluation.md`.
+rather than left at 0.5 - see the next section.
 
 ### Hyper-parameters selected
 
@@ -226,17 +392,28 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
 {selected.best_params or "(no grid - defaults used)"}
 ```
 
+## Operating point
+
+{_operating_point_section(outcome, cfg, sensitivity)}
+
+## Performance by segment
+
+{segment_section}
+
 ## Method
 
 - Stratified 60/20/20 split, seed {cfg.random_seed}.
-- {cfg.training.cv_folds}-fold stratified cross-validation on the training
-  partition for hyper-parameter search.
+- {selected.cv_folds}-fold stratified cross-validation on the training
+  partition, shared by every candidate, for the hyper-parameter search and the
+  selection rule.
+- Validation decides two things: whether calibration is kept, and the
+  decision threshold. Its scores are reported, not selected on.
 - Preprocessing lives inside each `Pipeline`, so it is refitted on every CV fold -
   in the grid search and in the calibration folds alike - and can never be
   fitted on data outside the fold.
 - Class imbalance handled by `class_weight`, not resampling: at roughly 1:2.8
   the imbalance is moderate, and weighting keeps the probability scale
-  interpretable for the business layer.
+  interpretable.
 - The artifact is fitted on the training partition only. Refitting on
   train+validation would use more data but would mean the estimator had seen
   the data its own calibration and threshold were tuned on.
@@ -247,7 +424,9 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
 
 ## What this comparison does not tell you
 
-- Nothing here is a test-set result. Read `reports/final_evaluation.md` for that.
+- Nothing here is a test-set result. Only `make evaluate CONFIRM=yes` reads the
+  test partition; its results and history are in `reports/final_evaluation.md`
+  and docs/MODEL_CARD.md.
 - A better PR-AUC is not automatically a better business outcome; the operating
   point matters more than the ranking metric, and it is chosen separately.
 - These numbers describe one public snapshot of one operator. They do not
@@ -260,13 +439,27 @@ rather than left at 0.5 - see `reports/final_evaluation.md`.
 
 
 # ---------------------------------------------------------------------------
-# Final evaluation: the single scoring of the test partition
+# Final evaluation: the only code that reads the test partition
 # ---------------------------------------------------------------------------
+
+#: Printed when the final evaluation is started without the confirmation.
+REFUSAL = """\
+Refusing to run: this command scores the held-out TEST partition.
+
+Every scoring is part of that partition's history (docs/MODEL_CARD.md,
+"Evaluation history"), and each one weakens it as an independent estimate.
+Routine development never needs it: `make dev` trains, chooses the threshold
+and writes every validation report without touching test data.
+
+Run it only for a final, recorded evaluation:
+
+    make evaluate CONFIRM=yes
+"""
 
 
 @dataclass(frozen=True, slots=True)
 class FinalEvaluation:
-    """The outcome of the one and only test-set scoring.
+    """The outcome of one scoring of the test partition.
 
     ``test_optimal_threshold`` is recorded deliberately. It is *not* used for
     anything - it exists so the report can show how far the honestly-chosen
@@ -277,6 +470,7 @@ class FinalEvaluation:
     threshold: float
     validation_scenario: ThresholdScenario
     validation_sweep: pd.DataFrame
+    test_proba: np.ndarray
     test_metrics: ClassificationMetrics
     test_metrics_at_half: ClassificationMetrics
     test_scenario: ThresholdScenario
@@ -295,28 +489,21 @@ class FinalEvaluation:
         }
 
 
-def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -> FinalEvaluation:
-    """Choose the threshold on validation, then score test exactly once.
+def run_final_evaluation(
+    model, splits: DataSplits, threshold: float, cfg: Config | None = None
+) -> FinalEvaluation:
+    """Score the test partition at the threshold ``make train`` recorded.
 
-    The ordering of the statements below *is* the protocol: validation
-    probabilities and the business assumptions fix the threshold, and only then
-    is ``X_test`` touched.
+    The threshold is an input, fixed on validation before this function runs;
+    nothing here can move it. The validation sweep is recomputed only so the
+    report can show the trade it was chosen from. ``X_test`` is predicted in
+    one place, below, and every test figure derives from those probabilities.
     """
     cfg = cfg or load_config()
 
     validation_proba = model.predict_proba(splits.X_val)[:, 1]
     sweep = sweep_thresholds(
         splits.y_val, validation_proba, splits.X_val["MonthlyCharges"], cfg.business
-    )
-    scenario = recommend_threshold(
-        splits.y_val, validation_proba, splits.X_val["MonthlyCharges"], cfg.business
-    )
-    threshold = scenario.threshold
-    logger.info(
-        "threshold %.2f chosen on validation (simulated net benefit %s%.0f)",
-        threshold,
-        cfg.business.currency,
-        scenario.net_benefit,
     )
 
     # --- the test partition is read from here, and only here -----------------
@@ -325,8 +512,9 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
 
     evaluation = FinalEvaluation(
         threshold=threshold,
-        validation_scenario=scenario,
+        validation_scenario=scenario_at(sweep, threshold, cfg.business),
         validation_sweep=sweep,
+        test_proba=test_proba,
         test_metrics=evaluate(splits.y_test, test_proba, threshold=threshold),
         test_metrics_at_half=evaluate(splits.y_test, test_proba, threshold=0.5),
         test_scenario=recommend_threshold(
@@ -337,17 +525,9 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
         ).threshold,
         test_ece=expected_calibration_error(splits.y_test, test_proba),
         reliability=reliability_table(splits.y_test, test_proba),
-        segments=pd.concat(
-            {
-                column: segment_performance(
-                    splits.y_test, test_proba, splits.X_test[column], threshold
-                )
-                for column in SEGMENT_COLUMNS
-            },
-            names=["dimension"],
-        )
-        .reset_index(level=0)
-        .reset_index(drop=True),
+        segments=segment_table(
+            splits.y_test, test_proba, splits.X_test, SEGMENT_COLUMNS, threshold
+        ),
     )
     logger.info(
         "test: pr_auc=%.4f roc_auc=%.4f precision=%.4f recall=%.4f ece=%.4f",
@@ -358,20 +538,6 @@ def run_final_evaluation(model, splits: DataSplits, cfg: Config | None = None) -
         evaluation.test_ece,
     )
     return evaluation
-
-
-def _unscanned_note(segments: pd.DataFrame) -> str:
-    """Name the segments the operating point leaves entirely unflagged."""
-    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
-    if unscanned.empty:
-        return "Every segment has at least one flagged customer at this threshold."
-    names = ", ".join(f"{row.segment} ({row.dimension})" for row in unscanned.itertuples())
-    return (
-        f"**No customer is flagged in: {names}.** Their {int(unscanned['churners'].sum()):,} "
-        "churners would receive nothing from a campaign driven by this score. That is a "
-        "property of one global operating point, not of the ranking - a segment with no "
-        "flags is *not scanned*, which is different from *no risk*."
-    )
 
 
 def write_final_report(
@@ -409,27 +575,31 @@ def write_final_report(
             "flagged": "Flagged",
             "precision": "Precision",
             "recall": "Recall",
-            "intervention_cost": "Campaign cost",
-            "retained_value": "Retained value",
-            "net_benefit": "Net benefit",
+            "intervention_cost": f"Campaign cost ({currency})",
+            "retained_value": f"Retained value ({currency})",
+            "net_benefit": f"Net benefit ({currency})",
         }
     )
 
     content = f"""# Final evaluation - ChurnSense AI
 
-Generated by `make evaluate`. **This is the only place the test partition is
-scored, and it is scored once.** The model was selected on validation
-(`reports/model_comparison.md`) and the decision threshold was chosen on
-validation too; neither used the numbers below.
+Generated by `make evaluate CONFIRM=yes`, the only command that reads the test
+partition. The model was selected by cross-validation on the training
+partition and its threshold fixed on validation by `make train`
+(`reports/model_comparison.md`); neither used the numbers below. Every run of
+this command adds to the partition's history - see docs/MODEL_CARD.md,
+"Evaluation history".
 
-Model: **{meta.get("display_name", meta.get("model_key", "unknown"))}**.
+Model: **{meta.get("display_name", meta.get("model_key", "unknown"))}**, trained
+{str(meta.get("trained_at", "unknown"))[:10]}, artifact `model.joblib` sha256
+`{meta.get("model_sha256", "not recorded")}`.
 Test partition: **{m.n:,} customers, {m.positives:,} of them churned
 ({m.positives / m.n:.1%})**.
 
 ## Test-set performance at the chosen operating point
 
-Threshold **{evaluation.threshold:.2f}**, fixed on validation before this
-partition was read.
+Threshold **{evaluation.threshold:.2f}**, recorded by `make train` on validation
+before this partition was read.
 
 | Metric | Value |
 |---|---|
@@ -468,23 +638,9 @@ would be missed.
 
 An aggregate recall can hide a segment the model never flags. Precision is
 shown as "—" where nothing in the segment was flagged: undefined, not zero.
+Each rate carries a 95 % Wilson interval.
 
-{
-        _markdown_table(
-            evaluation.segments.rename(
-                columns={
-                    "dimension": "Dimension",
-                    "segment": "Segment",
-                    "customers": "Customers",
-                    "churners": "Churners",
-                    "churn_rate": "Churn rate",
-                    "flagged": "Flagged",
-                    "precision": "Precision",
-                    "recall": "Recall",
-                }
-            )
-        )
-    }
+{segment_markdown(evaluation.segments)}
 
 {_unscanned_note(evaluation.segments)}
 
@@ -556,10 +712,10 @@ Expected calibration error **{evaluation.test_ece:.4f}**, Brier score
         )
     }
 
-Calibration is reported because the economics above multiply a predicted
-probability by a customer's value. A model that ranks well but is
-systematically overconfident would produce a plausible-looking budget built on
-inflated numbers.
+Calibration is reported because the probability itself is what people read -
+the API and the dashboard show it, and the risk bands are fixed probability
+ranges. A model that ranks well but is systematically overconfident would put
+the wrong customers in the wrong band.
 
 ## Limitations
 
@@ -581,55 +737,59 @@ inflated numbers.
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`make evaluate`: score the test partition once and publish the result."""
+    """`make evaluate CONFIRM=yes`: score the test partition and publish the result."""
     import argparse
     import json
 
     from churnsense.data.loader import features_and_target, load_clean
-    from churnsense.data.split import make_splits
+    from churnsense.data.split import check_split, make_splits
     from churnsense.evaluation import figures
-    from churnsense.explainability.shap_explain import load_cached_importance
     from churnsense.models.train import META_FILENAME, load_artifact
 
-    argparse.ArgumentParser(description="Final test-set evaluation.").parse_args(argv)
+    parser = argparse.ArgumentParser(description="Final evaluation on the held-out test partition.")
+    parser.add_argument(
+        "--confirm-test-read",
+        action="store_true",
+        help="required: confirms that this run should score the held-out test partition",
+    )
+    if not parser.parse_args(argv).confirm_test_read:
+        print(REFUSAL, file=sys.stderr, end="")
+        return 2
+
     configure_logging()
     cfg = load_config()
     cfg.paths.ensure()
 
-    model, meta = load_artifact(cfg.paths.artifacts_dir)
-    df, _ = load_clean(cfg)
-    X, y = features_and_target(df, cfg)
-    splits = make_splits(X, y, cfg)
+    try:
+        model, meta = load_artifact(cfg.paths.artifacts_dir)
+        df, cleaning = load_clean(cfg)
+        X, y = features_and_target(df, cfg)
+        splits = make_splits(X, y, cfg)
+        # Refuse before anything is scored if the data or the split is not the
+        # one the artifact - and its threshold - were built on.
+        if cleaning.source_sha256 != meta.get("data_sha256"):
+            raise ChurnSenseError(
+                "the dataset differs from the one the model was trained on. "
+                "Retrain with `make train`."
+            )
+        check_split(splits, meta)
+    except ChurnSenseError as exc:
+        logger.error("final evaluation refused: %s", exc)
+        return 1
 
-    evaluation = run_final_evaluation(model, splits, cfg)
+    evaluation = run_final_evaluation(model, splits, float(meta["threshold"]), cfg)
     write_final_report(evaluation, meta, cfg)
-    evaluation.validation_sweep.to_csv(cfg.paths.reports_dir / "threshold_sweep.csv", index=False)
 
     out = cfg.paths.figures_dir
-    figures.threshold_economics(
-        evaluation.validation_sweep,
-        evaluation.threshold,
-        cfg.business.currency,
-        out,
-        band=indifference_band(evaluation.validation_sweep, cfg.business),
-    )
     figures.reliability(evaluation.reliability, evaluation.test_ece, out)
-    figures.precision_recall(splits.y_test, model.predict_proba(splits.X_test)[:, 1], out)
-    if (importance := load_cached_importance(cfg)) is not None:
-        figures.shap_importance(importance, out)
-    else:
-        logger.warning("no cached SHAP importance; run `make explain` for that figure")
+    figures.precision_recall(splits.y_test, evaluation.test_proba, out)
 
-    # Publish the validation-chosen threshold so the API, dashboard and batch
-    # scoring all use the same operating point.
+    # Recorded beside the artifact, so the model's metadata says when it was
+    # last evaluated on test and what that scoring found.
     meta_path = cfg.paths.artifacts_dir / META_FILENAME
-    meta["threshold"] = evaluation.threshold
-    meta["threshold_source"] = (
-        "maximises simulated net benefit on the validation partition under the "
-        "assumptions in configs/config.yaml"
-    )
     meta["test_metrics"] = evaluation.test_metrics.as_dict()
     meta["test_ece"] = evaluation.test_ece
+    meta["test_evaluated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     m = evaluation.test_metrics

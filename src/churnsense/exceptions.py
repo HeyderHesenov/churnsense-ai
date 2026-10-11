@@ -33,6 +33,15 @@ class SchemaValidationError(DataError):
         super().__init__(f"{message}: {detail}" if detail else message)
 
 
+class ModelSelectionError(ChurnSenseError):
+    """Selection found no candidate worth shipping.
+
+    Raised when the baseline would win - every real model within one standard
+    error of predicting the prior - so a broken pipeline fails loudly instead
+    of quietly publishing a model that learned nothing.
+    """
+
+
 class ModelNotAvailableError(ChurnSenseError):
     """No usable trained artifact exists.
 

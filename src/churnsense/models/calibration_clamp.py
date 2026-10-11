@@ -27,13 +27,17 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 
 def epsilon_for(n_calibration: int) -> float:
-    """The finest rate a sample of ``n_calibration`` rows can express.
+    """Half an observation's weight in a sample of ``n_calibration`` rows: ``1 / (2n)``.
 
-    ``1 / (2n)`` rather than a round number chosen by hand. (Each
-    cross-validated calibrator sees about 4/5 of those rows, so the true
-    resolution is slightly coarser; the bound is deliberately on the
-    conservative side.) Capped below 0.5 so it remains a valid probability
-    bound even for an absurdly small sample.
+    A convention tied to the training sample rather than a round number chosen
+    by hand: no rate estimated from ``n`` rows can honestly claim to be closer
+    to 0 or 1 than half of one row. It is *not* the resolution of the isotonic
+    maps themselves - with ``cv=5`` each one is fitted on its fold's held-out
+    fifth, so a single map is coarser, and the shipped model averages five of
+    them. What matters for serving is that ε sits orders of magnitude below any
+    operating threshold, so no decision depends on its exact value. Capped
+    below 0.5 so it remains a valid probability bound even for an absurdly
+    small sample.
     """
     return min(1.0 / (2 * max(int(n_calibration), 1)), 0.49)
 

@@ -96,11 +96,32 @@ def test_sweep_rejects_negative_charges():
         sweep_thresholds(Y, P, np.full(10, -1.0), BUSINESS)
 
 
-def test_recommendation_maximises_net_benefit():
+def test_recommendation_is_the_highest_threshold_within_one_offer_of_the_best():
+    """The rule as documented - not "the maximum": the highest threshold whose
+    net benefit is within one offer's cost of the best on the sweep."""
     scenario = recommend_threshold(Y, P, CHARGES, BUSINESS)
     sweep = sweep_thresholds(Y, P, CHARGES, BUSINESS)
+    band = sweep[sweep["net_benefit"] >= sweep["net_benefit"].max() - BUSINESS.retention_offer_cost]
     assert isinstance(scenario, ThresholdScenario)
-    assert scenario.net_benefit == pytest.approx(sweep["net_benefit"].max())
+    assert scenario.threshold == pytest.approx(band["threshold"].max())
+    assert scenario.net_benefit >= sweep["net_benefit"].max() - BUSINESS.retention_offer_cost
+
+
+def test_sensitivity_reruns_the_rule_under_each_assumed_success_rate():
+    from dataclasses import replace
+
+    from churnsense.evaluation.threshold import threshold_sensitivity
+
+    table = threshold_sensitivity(Y, P, CHARGES, BUSINESS, success_rates=(0.2, 0.5, 0.8))
+    assert list(table["offer_success_rate"]) == [0.2, 0.5, 0.8]
+    for row in table.itertuples():
+        expected = recommend_threshold(
+            Y, P, CHARGES, replace(BUSINESS, offer_success_rate=row.offer_success_rate)
+        )
+        assert row.threshold == pytest.approx(expected.threshold)
+        assert row.net_benefit == pytest.approx(expected.net_benefit)
+    # A more effective offer can only make contacting customers more worthwhile.
+    assert table["net_benefit"].is_monotonic_increasing
 
 
 def test_recommendation_is_reported_as_a_simulation():

@@ -25,7 +25,7 @@ from 0.5 for most plausible assumptions - which is the whole point.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 import numpy as np
 import pandas as pd
@@ -123,7 +123,7 @@ def sweep_thresholds(
         )
 
     # Per-customer value, so a skewed book is not mispriced by an average.
-    customer_value = charges * business.expected_horizon_months * business.gross_margin
+    customer_value = business.customer_value(charges)
     retained_value = (tp_mask * customer_value[None, :]).sum(axis=1) * business.offer_success_rate
     intervention_cost = flagged * business.retention_offer_cost
 
@@ -175,9 +175,10 @@ def recommend_threshold(
 
 
 def indifference_band(sweep: pd.DataFrame, business: Business) -> pd.DataFrame:
-    """Rows of ``sweep`` that are statistically indistinguishable from the best.
+    """Rows of ``sweep`` within one retention offer's cost of the best net benefit.
 
-    Exposed so the dashboard can shade exactly the region the recommendation
+    A fixed money tolerance, not a statistical test: the simulation cannot
+    resolve a difference smaller than one intervention. Exposed so the dashboard can shade exactly the region the recommendation
     was drawn from, instead of re-deriving it and risking a caption that
     describes something the chart does not show.
     """
@@ -195,6 +196,36 @@ def recommend_threshold_from(sweep: pd.DataFrame, business: Business) -> Thresho
     """
     band = indifference_band(sweep, business)
     return _scenario_from_row(band.loc[band["threshold"].idxmax()], business)
+
+
+def threshold_sensitivity(
+    y_true: ArrayLike,
+    y_proba: ArrayLike,
+    monthly_charges: ArrayLike,
+    business: Business,
+    success_rates: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5),
+) -> pd.DataFrame:
+    """The recommended operating point under different offer-success assumptions.
+
+    ``offer_success_rate`` is the one input nobody can estimate from this data,
+    so the report shows how far the chosen threshold and its simulated value
+    move when it changes, instead of presenting one assumed figure as the answer.
+    """
+    rows = []
+    for rate in success_rates:
+        assumed = replace(business, offer_success_rate=rate)
+        point = recommend_threshold(y_true, y_proba, monthly_charges, assumed)
+        rows.append(
+            {
+                "offer_success_rate": rate,
+                "threshold": point.threshold,
+                "flagged": point.flagged,
+                "precision": point.precision,
+                "recall": point.recall,
+                "net_benefit": point.net_benefit,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def _scenario_from_row(row: pd.Series, business: Business) -> ThresholdScenario:

@@ -1,8 +1,10 @@
-"""Tests for the final evaluation: the one time the test partition is scored.
+"""Tests for the final evaluation - the only code that scores the test partition.
+
+Synthetic data throughout: nothing here reads the real dataset.
 
 The protocol under test:
-  * the operating threshold is chosen on **validation**;
-  * the test partition is scored with that already-fixed threshold;
+  * the operating threshold is chosen on **validation**, by training;
+  * the final evaluation receives it and cannot move it;
   * nothing about the model or the threshold is chosen using test data.
 """
 
@@ -23,7 +25,8 @@ def evaluated(clean_frame, cfg: Config):
     X, y = features_and_target(clean_frame, cfg)
     splits = make_splits(X, y, cfg)
     outcome = train_all(splits.X_train, splits.y_train, splits.X_val, splits.y_val, cfg=cfg)
-    return run_final_evaluation(outcome.model, splits, cfg), outcome, splits
+    evaluation = run_final_evaluation(outcome.model, splits, outcome.operating_point.threshold, cfg)
+    return evaluation, outcome, splits
 
 
 def test_threshold_is_chosen_on_validation_not_on_test(evaluated, cfg: Config):
@@ -36,6 +39,15 @@ def test_threshold_is_chosen_on_validation_not_on_test(evaluated, cfg: Config):
         cfg.business,
     )
     assert evaluation.threshold == pytest.approx(expected.threshold)
+
+
+def test_the_evaluation_scores_at_the_threshold_it_is_given(evaluated, cfg: Config):
+    """The threshold is an input recorded by training; evaluation cannot move it."""
+    _, outcome, splits = evaluated
+    evaluation = run_final_evaluation(outcome.model, splits, 0.42, cfg)
+    assert evaluation.threshold == 0.42
+    assert evaluation.test_metrics.threshold == 0.42
+    assert len(evaluation.test_proba) == len(splits.y_test)
 
 
 def test_the_threshold_optimal_on_test_is_not_used(evaluated, cfg: Config):

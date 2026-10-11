@@ -16,7 +16,7 @@ from its dummies afterwards.
 
 **Enough permutations to be stable.** The model-agnostic Permutation explainer
 covers every model family, but it samples feature orderings. One ordering per
-customer - the earlier setting - changed the top three drivers for over a
+customer - the earlier setting - changed the top three contributors for over a
 third of customers when only the seed changed. At ``PERMUTATIONS`` orderings
 the measured seed-to-seed spread on the real data is about 0.3 percentage
 points per contribution, against 1 point with a single ordering; doubling the
@@ -266,6 +266,7 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
     payload = {
         "model_key": meta["model_key"],
         "trained_at": meta["trained_at"],
+        "model_sha256": meta.get("model_sha256"),
         "n_explained": len(explained),
         "n_background": len(background),
         "permutations": PERMUTATIONS,
@@ -276,6 +277,10 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
     path = cfg.paths.shap_cache_file
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     logger.info("cached global SHAP importance for %d features -> %s", len(importance), path.name)
+
+    from churnsense.evaluation.figures import shap_importance
+
+    shap_importance(importance, cfg.paths.figures_dir)
     return path
 
 

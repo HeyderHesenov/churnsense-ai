@@ -22,23 +22,25 @@ CAUSATION_WARNING = (
 
 def _global_chart(importance: pd.DataFrame, top_n: int) -> go.Figure:
     data_frame = importance.head(top_n).iloc[::-1]
+    # Percentage points, the unit of the per-customer waterfall below.
+    points = data_frame["mean_abs_shap"] * 100
     figure = go.Figure(
         go.Bar(
-            x=data_frame["mean_abs_shap"],
+            x=points,
             y=data_frame["label"],
             orientation="h",
             marker_color=viz.ACCENT,
-            text=[f"{v:.3f}" for v in data_frame["mean_abs_shap"]],
+            text=[f"{v:.1f}" for v in points],
             textposition="outside",
             customdata=data_frame[["share"]].to_numpy(),
             hovertemplate=(
-                "<b>%{y}</b><br>mean |SHAP| %{x:.4f}"
+                "<b>%{y}</b><br>mean |SHAP| %{x:.2f} percentage points"
                 "<br>%{customdata[0]:.1%} of total influence<extra></extra>"
             ),
         )
     )
     figure.update_layout(
-        xaxis_title="Mean |SHAP value| (probability points)",
+        xaxis_title="Mean |SHAP value| (percentage points of churn probability)",
         yaxis_title=None,
         showlegend=False,
         margin={"l": 8, "r": 20, "t": 10, "b": 8},
@@ -93,7 +95,10 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         )
     else:
         cached = data.report_json("shap_global.json") or {}
-        if cached.get("trained_at") != model.meta.get("trained_at"):
+        # The model's own hash when both sides record it: a retrain that
+        # reproduces the same bytes leaves the ranking valid.
+        key = "model_sha256" if cached.get("model_sha256") else "trained_at"
+        if cached.get(key) != model.meta.get(key):
             st.warning(
                 "This ranking was cached for a different training run than the model "
                 "being served. Run `make explain` to refresh it."
