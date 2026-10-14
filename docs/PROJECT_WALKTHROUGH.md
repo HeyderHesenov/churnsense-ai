@@ -423,6 +423,7 @@ which ended in `make evaluate`. The full account is the model card's
 | Segment table on test only, without uncertainty | validation table with Wilson intervals, within-segment ROC-AUC, gender and senior-citizen rows, in the report and the dashboard |
 | Impossible customers were scored | cross-field rules (add-ons ⇔ internet, lines ⇔ phone, charges ⇔ tenure) on every path |
 | EDA used every row, test labels included | EDA runs on the training partition |
+| The dashboard's book views still showed test rows' outcomes (explorer table and CSV) and counted them in churn rates (found 2026-10-14) | the frame every page receives has no outcome column; `app/data.py` keeps the training and validation outcomes apart (keyed by customer) and joins them only in `labelled()`, so a page that skipped it fails rather than miscounting; partitions are trusted only when the dataset hash and the split digest match the model's; the dashboard tests run on synthetic data, in CI too |
 | CI dependency audits could not fail | they block; accepted advisories need a dated entry in SECURITY.md |
 
 None of it changed the model: `make train` reproduces the same `model.joblib`
@@ -448,11 +449,15 @@ In rough order of value:
    does not contain.
 4. **Survival analysis** for *when*, not just *whether* — which needs event
    dates the snapshot does not have.
-5. **Per-segment thresholds.** A single global cut-off maximises net benefit
-   across the book and, as a side effect, flags *zero* two-year-contract
-   customers — the optimiser spends nothing where the base rate is low. That
-   may be the right commercial answer, but it should be a stated decision
-   rather than an emergent one.
+5. **A stated decision on segment coverage.** A single global cut-off chosen
+   for net benefit across the book flags *zero* two-year-contract customers as
+   a side effect — the rule spends nothing where the base rate is low — and
+   zero flags is not zero risk. Per-segment thresholds are one option, not a
+   fix: they would decide who receives an offer partly by segment, a
+   differential-treatment and governance question, and each would be tuned on
+   a few dozen churners at most. The choice belongs to the business owner,
+   with an impact assessment; the code's job is to make the gap visible, which
+   the per-segment table now does.
 6. **Fairness auditing** across the attributes retained, not just the one
    dropped. A descriptive per-group check now exists on validation; an audit
    with a stated fairness criterion, more data per group and a review of the

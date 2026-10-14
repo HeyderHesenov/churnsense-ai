@@ -180,16 +180,25 @@ unflagged segments. Within those segments the model still ranks customers
 not an inability to rank them. The threshold is the highest one within one
 offer's cost of the best simulated net benefit across the whole book, and
 because low-base-rate segments yield few true positives per offer, that rule
-spends nothing on them. That is arguably the right commercial answer and an
-unacceptable answer if the goal is equitable coverage. With 13 and 22 churners
-the intervals are wide, and a segment's ROC-AUC on that few positives is a
-rough indication, not a measurement to act on alone.
+spends nothing on them. It follows the simulated economics, and it gives those
+segments no coverage at all; whether that is acceptable is a policy question,
+not a statistical one. With 13 and 22 churners the intervals are wide, and a
+segment's ROC-AUC on that few positives is a rough indication, not a
+measurement to act on alone.
 
-**What to do about it, if deployed.** Either accept it explicitly as a
-targeting decision, or run **per-segment thresholds** so each segment gets an
-operating point tuned to its own base rate. The second is the better answer
-and is not implemented here. Either way the team must know that a "no flags"
-segment means *not scanned*, not *no risk*.
+**A segment with no flags is *not scanned*, not *no risk*.** Its churners are
+still there; the global cut sits above their scores.
+
+**Per-segment thresholds are one policy option, not a fix.** They would decide
+who receives a commercial offer partly by segment membership, which is
+differential treatment and raises governance, business and legal questions;
+and each would be tuned on its own segment's churners — 13 and 22 here — so it
+would be estimated far less precisely than the global threshold. Adopting them,
+or accepting the current coverage explicitly, is a decision for the business
+owner, and it needs enough subgroup data, an uncertainty analysis and an
+assessment of who would gain or lose an offer. Descriptive metrics on one
+validation sample cannot establish fairness or legal compliance. The
+application does not implement per-segment thresholds.
 
 ---
 
@@ -265,8 +274,10 @@ reason for monitoring, not a reason to assume neutrality.
 4. **No drift monitoring.** Performance will decay. A deployed version needs
    input-distribution monitoring and rolling calibration checks.
 5. **The single operating point leaves whole segments unscanned.** At 0.36 the
-   model flags no two-year-contract and no no-internet customer. Per-segment
-   thresholds would fix it; they are not implemented.
+   model flags no two-year-contract and no no-internet customer, which is not
+   the same as those customers carrying no risk. Per-segment thresholds are one
+   policy option, with the trade-offs set out under *Performance by segment*;
+   they are not implemented.
 6. **Fitted on 60 % of the data** so the threshold and calibration stay
    honestly held out. See `docs/PROJECT_WALKTHROUGH.md` §9.
 7. **The test partition is a re-used holdout.** Its figures are re-checked, not
@@ -297,6 +308,7 @@ requests, because no code can prove a history:
 | 2026-10-09, `7515d62` | Re-scoring after the audit that moved calibration inside the CV folds and rebuilt SHAP — a changed model | Recall 0.7005 → 0.7032, ECE 0.0264 → 0.0275; **the figures published since** |
 | 2026-10-09 to 2026-10-10 | Full-pipeline reproducibility runs including `make evaluate`: clean-clone checks (`920dca5`; the README's "verified in a clean checkout"), a control and a candidate run for each of the numpy and pandas upgrades (PRs #4, #5), and a run for the hashed-lock change (PR #6) | Identical reports every time |
 | until 2026-10-11 | The dashboard's *Model performance* page scored the partition on every visit, and the dashboard tests ran that page in every local `make test` | Same model, same numbers; not recorded anywhere |
+| until 2026-10-14 | The dashboard's book views showed each test row's outcome beside its score (explorer table and CSV) and counted test labels in the overview's and *Churn patterns*' churn rates | No metric was computed, but the labels were visible; no decision was taken from them |
 
 Before `make evaluate` generated the per-segment table, it was also typed out
 by hand from an ad hoc scoring.
@@ -312,7 +324,12 @@ re-checked estimate, not an independent one, and it is presented that way.
   refuses. `make dev` (data, EDA, training, SHAP) never reads it, and the
   threshold is now chosen by `make train`, so routine work has no reason to.
 - A test fails if any module other than the final evaluation names `X_test` or
-  `y_test`; the dashboard now computes its live figures on validation.
+  `y_test` (the split that defines the partitions, and the dashboard's
+  per-row partition labels, are the listed exceptions); the dashboard now
+  computes its live figures on validation. Its book views still score every
+  customer, test rows included; since 2026-10-14 they withhold the test
+  partition's outcomes from every view, aggregate and export, and trust the
+  partitions only for the dataset and split the model was trained on.
 - The final report records the artifact's SHA-256, and evaluation refuses an
   artifact whose split or dataset no longer matches the one it was trained on.
 - Reproducibility checks compare the model file's hash and the validation

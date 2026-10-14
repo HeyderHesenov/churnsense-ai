@@ -11,6 +11,7 @@ import html
 import numbers
 import re
 from collections.abc import Iterable, Mapping
+from functools import partial
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -157,7 +158,7 @@ def model_missing(message: str) -> None:
     charts next to live-looking filters invites someone to read zeros as data.
     """
     st.error("No trained model is available, so nothing on this page can be computed.")
-    st.code("make data && make train && make evaluate && make explain", language="bash")
+    st.code("make dev", language="bash")
     st.caption(message)
     st.stop()
 
@@ -232,14 +233,28 @@ def neutralise_formulas(frame: pd.DataFrame) -> pd.DataFrame:
     return safe
 
 
+def csv_bytes(frame: pd.DataFrame) -> bytes:
+    """The bytes a CSV export contains. Index is dropped so the file opens cleanly
+    in a spreadsheet."""
+    return neutralise_formulas(frame).to_csv(index=False).encode("utf-8")
+
+
 def download_button(frame: pd.DataFrame, filename: str, label: str, key: str) -> None:
-    """CSV export. Index is dropped so the file opens cleanly in a spreadsheet."""
+    """CSV export of exactly ``frame``: callers pass an explicit column list.
+
+    The file is built when the button is clicked, not on every rerun: a
+    callable ``data`` (Streamlit >= 1.52) runs only then.
+    """
     st.download_button(
-        label=label,
-        data=neutralise_formulas(frame).to_csv(index=False).encode("utf-8"),
-        file_name=filename,
-        mime="text/csv",
-        key=key,
+        label=label, data=partial(csv_bytes, frame), file_name=filename, mime="text/csv", key=key
+    )
+
+
+def outcomes_withheld(reason: str | None) -> None:
+    """Shown in place of an outcome view when no row's outcome may be read."""
+    st.info(
+        "Historical outcomes are withheld: "
+        + (reason or "the partitions could not be matched to the ones the model was trained on.")
     )
 
 

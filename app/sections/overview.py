@@ -11,6 +11,7 @@ from app import data
 from churnsense import analysis as an
 from churnsense import viz
 from churnsense.config import Config
+from churnsense.data import schema
 
 
 def _band_bars(
@@ -101,11 +102,13 @@ def _churn_by_dimension(frame: pd.DataFrame, column: str, title: str) -> go.Figu
 def render(frame: pd.DataFrame, cfg: Config) -> None:
     st.header("Executive overview")
     st.caption(
-        "Observed outcomes from the historical snapshot, alongside the model's "
-        "current risk scoring of the same customers."
+        "Observed outcomes from the training and validation partitions - the test "
+        "partition's are held out for the final evaluation - alongside the model's "
+        "risk scoring of every customer."
     )
 
-    churned = frame["Churn"].eq(1)
+    seen = data.labelled(frame)
+    churned = seen[schema.TARGET].eq(1)
     flagged = frame["flagged"]
     high_risk = frame["risk_band"].isin(["High", "Critical"])
     model = data.predictor()
@@ -116,8 +119,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             ("Customers", f"{len(frame):,}", "in the dataset", "accent"),
             (
                 "Observed churn rate",
-                f"{churned.mean():.1%}",
-                f"{int(churned.sum()):,} customers left",
+                f"{churned.mean():.1%}" if len(seen) else "—",
+                f"{int(churned.sum()):,} of {len(seen):,} train/validation customers left",
                 "crit",
             ),
             (
@@ -133,7 +136,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
                 "warn",
             ),
             (
-                f"Flagged at threshold {model.threshold:.2f}" if model else "Flagged",
+                f"Flagged at threshold {model.threshold:.2f}",
                 f"{int(flagged.sum()):,}",
                 "would receive an offer",
                 "warn",
@@ -161,13 +164,16 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
 
     st.divider()
     st.subheader("Where churn concentrated historically")
+    if seen.empty:
+        ui.outcomes_withheld(data.withheld_reason())
+        return
     first, second = st.columns(2)
     with first:
         ui.question("Which contract types lost customers?")
-        ui.chart(_churn_by_dimension(frame, "Contract", ""), height=240, key="ov_contract")
+        ui.chart(_churn_by_dimension(seen, "Contract", ""), height=240, key="ov_contract")
     with second:
         ui.question("Which payment methods go with leaving?")
-        ui.chart(_churn_by_dimension(frame, "PaymentMethod", ""), height=240, key="ov_payment")
+        ui.chart(_churn_by_dimension(seen, "PaymentMethod", ""), height=240, key="ov_payment")
 
     ui.caveat(
         "These are observed associations in one historical snapshot. Customers who "

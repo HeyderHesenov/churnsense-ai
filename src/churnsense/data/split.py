@@ -95,11 +95,17 @@ def check_split(splits: DataSplits, meta: dict) -> None:
         )
 
 
-def make_splits(X: pd.DataFrame, y: pd.Series, cfg: Config | None = None) -> DataSplits:
+def make_splits(
+    X: pd.DataFrame, y: pd.Series, cfg: Config | None = None, *, log: bool = True
+) -> DataSplits:
     """Split into train/validation/test with a reproducible seed.
 
     ``validation_size`` is a fraction of the *whole* dataset, not of the
     post-test remainder, so the configured 0.2/0.2 really does produce 60/20/20.
+    The log gives each partition's size, and the positive rate of training
+    and validation only: nothing outside the final evaluation computes a
+    figure from the test labels. ``log=False`` silences it, for callers that
+    only need to know which row went where.
     """
     cfg = cfg or load_config()
     seed, sp = cfg.random_seed, cfg.split
@@ -119,12 +125,7 @@ def make_splits(X: pd.DataFrame, y: pd.Series, cfg: Config | None = None) -> Dat
     )
 
     splits = DataSplits(X_train, y_train, X_val, y_val, X_test, y_test)
-    for name, stats in splits.summary().items():
-        logger.info(
-            "split %-10s n=%-5d share=%.3f positive_rate=%.4f",
-            name,
-            stats["n"],
-            stats["share"],
-            stats["positive_rate"],
-        )
+    for name, stats in splits.summary().items() if log else ():
+        rate = "" if name == "test" else f" positive_rate={stats['positive_rate']:.4f}"
+        logger.info("split %-10s n=%-5d share=%.3f%s", name, stats["n"], stats["share"], rate)
     return splits

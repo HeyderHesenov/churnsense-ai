@@ -10,6 +10,7 @@ from app import components as ui
 from app import data
 from churnsense import viz
 from churnsense.config import Config
+from churnsense.data import schema
 
 FILTERS = [
     ("Contract", "Contract"),
@@ -32,6 +33,21 @@ TABLE_COLUMNS = [
     "PaymentMethod",
     "outcome",
 ]
+
+
+def selection_table(frame: pd.DataFrame, shown: pd.Series) -> pd.DataFrame:
+    """What the explorer shows and exports: ``TABLE_COLUMNS`` only, riskiest first.
+
+    An explicit schema, never the whole frame, so a column added to the data
+    layer reaches the table and its CSV only by being listed here. ``outcome``
+    comes from ``shown`` (``data.outcomes()``); every other row reads "Withheld".
+    """
+    outcome = frame[schema.ID_COLUMN].map(shown).map(data.OUTCOMES).fillna(data.WITHHELD)
+    return (
+        frame.assign(outcome=outcome)
+        .reindex(columns=TABLE_COLUMNS)
+        .sort_values("churn_probability", ascending=False)
+    )
 
 
 def _controls(frame: pd.DataFrame) -> pd.DataFrame:
@@ -102,10 +118,14 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
 
     model = data.predictor()
     currency = cfg.business.currency
+    if reason := data.withheld_reason():
+        ui.outcomes_withheld(reason)
     filtered = _controls(frame)
 
     if filtered.empty:
         ui.empty_filter_state()
+    shown = data.outcomes()
+    seen = data.labelled(filtered, shown=shown)
 
     ui.kpi_row(
         [
@@ -124,8 +144,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             ),
             (
                 "Observed churn",
-                f"{filtered['Churn'].mean():.1%}",
-                "historical outcome in the selection",
+                f"{seen[schema.TARGET].mean():.1%}" if len(seen) else "—",
+                f"over {len(seen):,} train/validation rows selected",
                 "crit",
             ),
             (
@@ -142,9 +162,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     ui.chart(_probability_histogram(filtered, model.threshold), height=280, key="ex_hist")
 
     st.subheader("Customers")
-    table = filtered.reindex(columns=TABLE_COLUMNS).sort_values(
-        "churn_probability", ascending=False
-    )
+    table = selection_table(filtered, shown)
     st.dataframe(
         table,
         width="stretch",
@@ -179,12 +197,14 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         st.caption(
             "The *Partition* column says whether a customer was used for training. "
             "A confident, correct prediction on a training row is far less "
-            "impressive than the same prediction on a test row, and the table "
-            "shows which is which rather than letting the distinction disappear."
+            "impressive than one on unseen data, so the table shows which is which. "
+            "Test rows are scored, but their outcome is withheld: it is read only "
+            "by the final evaluation."
         )
 
     ui.caveat(
         "'Actual outcome' is the historical label already present in the dataset, "
-        "not a future event. The probability is the model's estimate for the same "
-        "customer; it is shown alongside so the two can be compared honestly."
+        "not a future event, and is shown for training and validation rows only. "
+        "The probability is the model's estimate for the same customer; it is shown "
+        "alongside so the two can be compared honestly."
     )

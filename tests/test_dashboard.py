@@ -1,8 +1,9 @@
-"""Smoke tests for the dashboard.
+"""Smoke tests for the dashboard, on synthetic data.
 
-These need a trained artifact and the real dataset, so they are marked `slow`
-and skip cleanly when either is absent — CI runs the rest of the suite on
-synthetic fixtures alone.
+The real app script runs end to end, served a synthetic model and book through
+``app.data`` (the ``dashboard`` fixture in conftest.py). They used to need the
+real dataset and a trained artifact, so they skipped in CI and, run locally,
+scored the real test partition; now they run everywhere and read nothing real.
 
 They exist because the defects this dashboard actually shipped were runtime
 ones: a `pandas.Index` that `st.cache_data` could not hash crashed the explorer
@@ -12,13 +13,14 @@ is the cheapest possible bug to catch and the most embarrassing one to miss.
 
 from __future__ import annotations
 
-from pathlib import Path
+import hashlib
+from dataclasses import replace
 
 import pytest
+from app import data
 
-from churnsense.config import load_config
-
-pytestmark = pytest.mark.slow
+from churnsense.data import schema
+from tests.conftest import SYNTHETIC_SHA256
 
 SECTIONS = [
     "Executive overview",
@@ -31,49 +33,21 @@ SECTIONS = [
     "Batch scoring",
 ]
 
-# Absolute: AppTest resolves a relative path against the *calling file*, which
-# is this module, not the repository root.
-APP = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
-
-
-def _requires_artifacts() -> None:
-    cfg = load_config()
-    if not cfg.paths.model_file.is_file() or not cfg.raw_data_file.is_file():
-        pytest.skip("needs `make data && make train`; not available in a clean checkout")
-
-
-@pytest.fixture(scope="module")
-def app_test():
-    _requires_artifacts()
-    from streamlit.testing.v1 import AppTest
-
-    return AppTest
-
-
-def _run(AppTest, section: str):
-    at = AppTest.from_file(APP, default_timeout=240)
-    at.run()
-    at.radio(key="nav").set_value(section).run()
-    return at
-
 
 @pytest.mark.parametrize("section", SECTIONS)
-def test_section_renders_without_raising(app_test, section: str):
-    at = _run(app_test, section)
-    assert not at.exception, f"{section}: {at.exception}"
+def test_section_renders_without_raising(dashboard, section: str):
+    at = dashboard(section)
     assert not at.error, f"{section} rendered an error block: {[e.value for e in at.error]}"
 
 
-def test_the_app_starts_on_the_overview(app_test):
-    at = app_test.from_file(APP, default_timeout=240)
-    at.run()
-    assert not at.exception
+def test_the_app_starts_on_the_overview(dashboard):
+    at = dashboard()
     assert at.radio(key="nav").value == "Executive overview"
 
 
-def test_moving_an_assumption_slider_changes_the_simulated_result(app_test):
+def test_moving_an_assumption_slider_changes_the_simulated_result(dashboard):
     """The simulator must actually be reactive, not a static picture."""
-    at = _run(app_test, "Retention simulator")
+    at = dashboard("Retention simulator")
     before = at.session_state["sim_success"]
 
     at.slider(key="sim_success").set_value(min(0.95, before + 0.3)).run()
@@ -82,16 +56,16 @@ def test_moving_an_assumption_slider_changes_the_simulated_result(app_test):
     assert at.session_state["sim_success"] != before
 
 
-def test_the_explorer_filters_narrow_the_selection(app_test):
-    at = _run(app_test, "Customer explorer")
+def test_the_explorer_filters_narrow_the_selection(dashboard):
+    at = dashboard("Customer explorer")
     at.multiselect(key="filter_Contract").set_value(["Two year"]).run()
 
     assert not at.exception
     assert at.session_state["filter_Contract"] == ["Two year"]
 
 
-def test_submitting_the_customer_form_produces_a_score(app_test):
-    at = _run(app_test, "Single customer")
+def test_submitting_the_customer_form_produces_a_score(dashboard):
+    at = dashboard("Single customer")
     at.button[0].click().run()
 
     assert not at.exception
@@ -99,10 +73,10 @@ def test_submitting_the_customer_form_produces_a_score(app_test):
     assert "estimated churn" in rendered.lower()
 
 
-def test_the_form_explains_an_impossible_customer_instead_of_crashing(app_test):
+def test_the_form_explains_an_impossible_customer_instead_of_crashing(dashboard):
     """Each field is set on its own, so the form can describe add-ons without
     internet. That is refused with the problem shown, not scored or a traceback."""
-    at = _run(app_test, "Single customer")
+    at = dashboard("Single customer")
     at.selectbox(key="form_InternetService").set_value("No")
     at.selectbox(key="form_OnlineSecurity").set_value("Yes")
     at.button[0].click().run()
@@ -112,9 +86,54 @@ def test_the_form_explains_an_impossible_customer_instead_of_crashing(app_test):
     assert any("OnlineSecurity" in c.value for c in at.code)
 
 
-def test_the_performance_page_never_shows_test_metrics_it_computed(app_test):
+def test_the_performance_page_never_shows_test_metrics_it_computed(dashboard):
     """Live figures are validation; a test figure may only be the recorded one."""
-    at = _run(app_test, "Model performance")
+    at = dashboard("Model performance")
     headers = " ".join(h.value for h in at.subheader)
     assert "Validation performance" in headers
     assert "Test-set performance" not in headers
+
+
+# --- partitions that cannot be trusted ----------------------------------------
+
+
+@pytest.fixture(params=["dataset differs", "no dataset hash"])
+def untrusted(request, clean_frame, dashboard_predictor):
+    """A book whose partitions cannot be verified: every outcome withheld.
+
+    Either the model was trained on another file, or its metadata records no
+    dataset hash at all - two states with two different reasons.
+    """
+    meta = dict(dashboard_predictor.meta)
+    if request.param == "dataset differs":
+        meta["data_sha256"] = hashlib.sha256(b"another file").hexdigest()
+    else:
+        meta.pop("data_sha256")
+    book = data.score_book(clean_frame, SYNTHETIC_SHA256, replace(dashboard_predictor, meta=meta))
+    assert book.withheld == data.WITHHELD_REASONS[request.param]
+    return book
+
+
+def _says_why(at, book) -> bool:
+    """The page shows the book's own reason, word for word, as every page does."""
+    return f"Historical outcomes are withheld: {book.withheld}" in [i.value for i in at.info]
+
+
+@pytest.mark.parametrize("section", ["Executive overview", "Churn patterns", "Customer explorer"])
+def test_outcome_pages_say_why_outcomes_are_withheld(dashboard, untrusted, section: str):
+    at = dashboard(section, served=untrusted)
+    assert _says_why(at, untrusted)
+
+
+def test_the_performance_page_still_shows_the_recorded_test_result(dashboard, untrusted):
+    at = dashboard("Model performance", served=untrusted)
+    assert _says_why(at, untrusted)
+    assert "Recorded test-set result" in " ".join(h.value for h in at.subheader)
+
+
+def test_the_simulator_keeps_its_contact_list(dashboard, untrusted):
+    """No economics without outcomes, but the list at the shipped threshold needs none."""
+    at = dashboard("Retention simulator", served=untrusted)
+    assert _says_why(at, untrusted)
+    assert "Which customers would be contacted" in " ".join(h.value for h in at.subheader)
+    assert schema.TARGET not in untrusted.frame.columns

@@ -172,10 +172,15 @@ alike.
 
 **No customer is flagged in: Two year (Contract), No (InternetService).** Their 35 churners would receive nothing from a campaign driven by this score. That is a property of one global operating point - a segment with no flags is *not scanned*, which is different from *no risk*. The within-segment ROC-AUC says whether the model could still rank those customers if the business chose to reach them.
 
-This is a descriptive check of one operating point on one sample, not a
-fairness certification. Per-segment thresholds would change who is contacted;
-that is a business-policy decision (budget, who may be targeted, on what
-grounds) and is deliberately not made by the code.
+This is a descriptive check of one operating point on one sample; it cannot
+establish fairness or legal compliance. Segment-specific thresholds are one
+policy option for an unflagged segment, not a guaranteed fix: they would decide
+who receives a commercial offer partly by segment membership, which raises
+differential-treatment, governance and legal questions, and each would be tuned
+on that segment's few churners. Adopting them needs an explicit policy
+decision, enough subgroup data, an uncertainty analysis and an assessment of
+who would gain or lose an offer. The code makes no such decision: it applies
+one global threshold.
 
 ## Method
 

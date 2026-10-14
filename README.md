@@ -161,10 +161,12 @@ make evaluate CONFIRM=yes   # FINAL evaluation: scores the held-out test partiti
 **Only `make evaluate CONFIRM=yes` reads the test partition** (and `make all
 CONFIRM=yes`, which is `make dev` followed by it). Without `CONFIRM=yes` it
 refuses, and so does `python -m churnsense.evaluation.report` without
-`--confirm-test-read`. `make dev`, `make test`, the dashboard and the API never
-score it. Each final evaluation adds to the partition's history
-([model card](docs/MODEL_CARD.md#evaluation-history)), so it is a deliberate
-step, not part of the development loop.
+`--confirm-test-read`. `make dev` never scores it, and nothing else computes a
+figure from it: the dashboard's performance page works on validation, and the
+book views score every customer, test rows included, but show no test-row
+outcome (see [Dashboard](#dashboard)). Each final evaluation adds to the partition's
+history ([model card](docs/MODEL_CARD.md#evaluation-history)), so it is a
+deliberate step, not part of the development loop.
 
 The dependencies come in two hashed locks, both compiled by `make lock` from
 the constraints in `pyproject.toml` (repeated in `requirements*.in`):
@@ -524,8 +526,16 @@ batch scoring and export.
 the comparison chart shows the CV scores, one standard error and the cutoff the
 selection rule used, and a per-segment table with 95 % intervals names any
 segment the threshold leaves unscanned. The test result appears only as the
-figure `make evaluate` recorded with the artifact; the dashboard never scores
-the test partition.
+figure `make evaluate` recorded with the artifact; no page computes a
+performance figure from the test partition, and none shows its outcomes. The
+book views score every customer, test rows included, but the frame the pages
+receive from the data layer (`app/data.py`) has no outcome column at all. The
+outcomes it may show - training and validation customers only - are kept
+apart and joined only where a page computes a churn rate, so a test row in
+the explorer shows its score with its outcome "Withheld". Partition membership
+is trusted only when the dataset's SHA-256 and the split digest both match the
+ones the model recorded; otherwise every outcome is withheld and the page
+says why.
 
 Every chart carries the business question it answers as a visible caption. A
 chart that could not be given one was deleted rather than kept as decoration.
@@ -599,28 +609,26 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**497 tests, all passing on Python 3.12.13** (2026-10-11). Measured, not
+**541 tests, all passing on Python 3.12.13** (2026-10-14). Measured, not
 claimed:
 
 ```
 $ make test
-497 passed in 157.55s
-
-$ pytest -m "not slow"          # needs no dataset
-483 passed, 14 deselected
+541 passed
 ```
 
-On a fresh copy of the tracked files with no dataset and no trained artifact —
-the state GitHub Actions runs in — the full suite reports **483 passed, 14
-skipped**: the dashboard tests that need a trained model skip cleanly.
+The same 541 pass on a fresh copy of the tracked files with no dataset and no
+trained artifact — the state GitHub Actions runs in. No test reads the real
+dataset: the dashboard tests run the real app script on a synthetic model and
+book, and fail if anything tries to load the real file.
 
 Before the security hardening added its 143 tests, the then 241 fast tests also
 passed on Python 3.13.5 (scikit-learn 1.9.1, shap 0.53.0) in a separate
 environment resolved from the `pyproject.toml` constraints; CI runs 3.12 and
 3.13 on every push.
 
-The 14 `slow` tests drive the dashboard end to end; they need a trained
-artifact and the dataset and **skip cleanly** without them. The documentation
+The dashboard tests drive every section end to end on that synthetic book,
+including the state in which no outcome may be shown. The documentation
 checks run everywhere, because they compare this README with the tracked
 reports rather than with a local artifact. Everything else needs **no
 dataset and no network**. `tests/conftest.py` generates
@@ -656,8 +664,7 @@ imports every module, runs the dashboard script and starts the API on it, and
 keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
 `main` also run a dependency review, and only merge once every check passes.
 
-CI needs no dataset and no network beyond the package index; the slow tests
-skip there because no trained artifact exists in a fresh checkout.
+CI needs no dataset and no network beyond the package index.
 
 `make audit` and the lock audit reported **no known vulnerabilities** on
 2026-10-11. A finding fails the required `dependency audit` check; the
@@ -704,7 +711,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       497 tests + seeded synthetic fixtures
+tests/                       541 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -824,9 +831,12 @@ Found a vulnerability? Please report it privately, as described in
   customers (ROC-AUC 0.75–0.79 on validation): the global cut simply sits above
   their scores. `make train` publishes the per-segment table with intervals in
   [`reports/model_comparison.md`](reports/model_comparison.md), and the
-  dashboard shows it. Per-segment thresholds would change who is contacted; that
-  is a business-policy decision, documented in the
-  [model card](docs/MODEL_CARD.md), not one the code makes.
+  dashboard shows it. No flags means *not scanned*, not *no risk*. Per-segment
+  thresholds are one policy option, not a fix: they would decide who receives
+  an offer partly by segment membership, a differential-treatment question with
+  governance and legal sides, and each would be tuned on 13 or 22 validation
+  churners. They are not implemented; the trade-offs are in the
+  [model card](docs/MODEL_CARD.md).
 - **Group differences are measured, not certified away.** On validation the
   model catches 0.735 of churners among women and 0.658 among men (95 %
   intervals 0.67–0.79 and 0.59–0.72, overlapping), and flags senior citizens at

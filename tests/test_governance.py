@@ -109,3 +109,17 @@ def test_an_artifact_without_a_split_digest_is_refused(clean_frame, cfg: Config)
     X, y = features_and_target(clean_frame, cfg)
     with pytest.raises(DataError, match="no split digest"):
         check_split(make_splits(X, y, cfg), {})
+
+
+def test_the_split_log_gives_no_test_base_rate(clean_frame, cfg: Config, caplog):
+    """`make dev` logs every partition's size; the test labels' rate stays out."""
+    X, y = features_and_target(clean_frame, cfg)
+    with caplog.at_level("INFO", logger="churnsense.data.split"):
+        make_splits(X, y, cfg)
+    lines = {
+        message.split()[1]: message for message in caplog.messages if message.startswith("split ")
+    }
+    assert set(lines) == {"train", "validation", "test"}
+    assert "positive_rate" in lines["train"]
+    assert "positive_rate" in lines["validation"]
+    assert "positive_rate" not in lines["test"]

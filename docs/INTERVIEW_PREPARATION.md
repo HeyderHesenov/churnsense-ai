@@ -113,8 +113,9 @@ Three mechanisms, all structural rather than procedural:
    `(X_train, y_train, X_validation, y_validation)`. A test asserts no
    parameter contains "test".
 3. **Selection happens in cross-validation on train; calibration and the
-   threshold on validation.** Only the final evaluation module reads test — a
-   test fails if any other module in `src/` or `app/` names `X_test` — and
+   threshold on validation.** Only the final evaluation module computes
+   anything from test — a test fails if any other module in `src/` or `app/`
+   names `X_test`, bar the split itself and the dashboard's partition labels — and
    `make evaluate` refuses to run without `CONFIRM=yes`. That guard exists
    because the old setup was not enough: the dashboard used to re-score test on
    every visit (see Q23).
@@ -293,14 +294,20 @@ The headline recall of 0.70 is almost entirely month-to-month recall. The model
 flags **not one** two-year-contract customer; its 9 churners are invisible to
 any campaign driven by this score. That is the optimiser behaving correctly —
 low base rates mean few true positives per offer — but it is an emergent
-targeting decision rather than a stated one. Per-segment thresholds would fix
-it, and they are not implemented.
+targeting decision rather than a stated one. No flags means *not scanned*, not
+*no risk*. Per-segment thresholds are one option, not a fix: they would decide
+who gets an offer partly by segment, which is a differential-treatment and
+governance question, and each would be tuned on a handful of churners. That is
+a policy decision for the business, and they are not implemented.
 
 ### Q17. What would you build next?
 
 1. **Nested CV for threshold selection**, so the production model can use all
    non-test data without compromising the operating point.
-2. **Per-segment thresholds**, for the reason in Q16.
+2. **A stated decision on segment coverage** (Q16), with the business owner:
+   accept the global threshold's gaps explicitly, or evaluate per-segment
+   thresholds with enough subgroup data, an uncertainty analysis and an
+   assessment of who would gain or lose an offer.
 3. **Drift monitoring** — PSI on inputs, rolling calibration error on outcomes.
 4. **An uplift model**, once there is experimental data.
 5. **Fairness auditing** on the demographic attributes I kept, not just the one
@@ -348,7 +355,7 @@ says the first thing to change before exposing it beyond localhost
 
 ### Q21. Why this test suite shape?
 
-**414 tests** (392 of them needing no dataset and no network). `conftest.py` generates seeded synthetic
+**541 tests**, none needing the dataset or the network. `conftest.py` generates seeded synthetic
 data reproducing the real file's *structure* — the same vocabularies, the
 "No internet service" dependency, the blank-`TotalCharges`-at-zero-tenure quirk
 — and none of its statistics. Every id is prefixed `DEMO-`.

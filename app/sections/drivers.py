@@ -7,14 +7,11 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from app import components as ui
+from app import data
 from churnsense import analysis as an
 from churnsense import viz
 from churnsense.config import Config
-
-
-def _with_column(frame: pd.DataFrame, name: str, build) -> pd.DataFrame:
-    """Return a frame carrying ``name``, computing it only if it is absent."""
-    return frame if name in frame.columns else frame.assign(**{name: build(frame)})
+from churnsense.data import schema
 
 
 def _rate_bars(frame: pd.DataFrame, column: str, label: str, color: str) -> go.Figure:
@@ -120,40 +117,43 @@ def _addon_dumbbell(frame: pd.DataFrame) -> go.Figure:
 def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch signature
     st.header("Contract, tenure, payment and pricing")
     st.caption(
-        "Observed churn across every customer in the snapshot, on the dimensions a "
-        "retention team can target. These are associations in one historical "
-        "snapshot, not effects of the dimensions themselves."
+        "Observed churn in the training and validation partitions - the test "
+        "partition's outcomes are held out - on the dimensions a retention team can "
+        "target. These are associations in one historical snapshot, not effects of "
+        "the dimensions themselves."
     )
+    # Every figure on this page is an outcome aggregate.
+    frame = data.labelled(frame)
+    if frame.empty:
+        ui.outcomes_withheld(data.withheld_reason())
+        return
 
     tabs = st.tabs(["Lifecycle", "Pricing", "Products", "Concentration"])
 
     with tabs[0]:
-        # data.customers() already attached tenure_bucket and charge_band;
-        # recomputing them over 7,043 rows on every rerun of a tab buys nothing.
-        working = _with_column(frame, "tenure_bucket", lambda f: an.tenure_bucket(f["tenure"]))
+        # tenure_bucket and charge_band come with the book (data.score_book).
         ui.question("When in the customer lifecycle does churn happen?")
         ui.chart(
-            _rate_bars(working, "tenure_bucket", "Tenure (months)", viz.ACCENT_ALT),
+            _rate_bars(frame, "tenure_bucket", "Tenure (months)", viz.ACCENT_ALT),
             height=320,
             key="dr_tenure",
         )
-        churned_median = frame.loc[frame["Churn"].eq(1), "tenure"].median()
-        retained_median = frame.loc[frame["Churn"].eq(0), "tenure"].median()
-        st.caption(
-            f"Median tenure is {churned_median:.0f} months for churned customers "
-            f"against {retained_median:.0f} for retained ones. Risk is front-loaded, "
-            "which argues for onboarding interventions over uniform campaigns."
-        )
+        medians = frame.groupby(schema.TARGET)["tenure"].median()
+        if {0, 1} <= set(medians.index):
+            st.caption(
+                f"Median tenure is {medians[1]:.0f} months for churned customers "
+                f"against {medians[0]:.0f} for retained ones. Risk is front-loaded, "
+                "which argues for onboarding interventions over uniform campaigns."
+            )
 
     with tabs[1]:
-        working = _with_column(frame, "charge_band", lambda f: an.charge_band(f["MonthlyCharges"]))
         ui.question("Are the customers we lose the expensive ones?")
         ui.chart(
-            _rate_bars(working, "charge_band", "Monthly charges", viz.SERIES[3]),
+            _rate_bars(frame, "charge_band", "Monthly charges", viz.SERIES[3]),
             height=320,
             key="dr_price",
         )
-        rates = an.churn_rate_by(working, "charge_band")
+        rates = an.churn_rate_by(frame, "charge_band")
         peak = rates.loc[rates["churn_rate"].idxmax()]
         st.caption(
             f"The relationship is not monotonic: churn peaks in the "

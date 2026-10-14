@@ -135,6 +135,47 @@ def test_nothing_claims_the_test_partition_was_scored_only_once(name: str):
     assert not found, f"{name} repeats a claim the history contradicts: {found}"
 
 
+def _prose(name: str) -> str:
+    """A file's text, lower-cased, with line wrapping undone so a phrase split
+    across two lines is still one phrase."""
+    return " ".join((ROOT / name).read_text().lower().split())
+
+
+#: Claims that per-segment thresholds would settle the coverage gap. They are one
+#: policy option with costs of their own (docs/MODEL_CARD.md, "Performance by
+#: segment"), and the code does not implement them.
+SEGMENT_FIX_CLAIMS = ("thresholds would fix", "would fix it", "the better answer")
+
+#: The dashboard's book views score every customer, test rows included; what it
+#: never does is compute a figure from them. Saying it never scores them is false.
+DASHBOARD_SCORING_CLAIMS = (
+    "dashboard never scores",
+    "never scored by this dashboard",
+    "dashboard does not score",
+    "and the api never score",
+    "page never scores",
+    # False beside the recorded test figures the same page shows.
+    "no figure on this page comes from",
+)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [*DOCS, "reports/model_comparison.md", "src/churnsense/evaluation/report.py"],
+)
+def test_no_document_presents_per_segment_thresholds_as_a_fix(name: str):
+    text = _prose(name)
+    found = [phrase for phrase in SEGMENT_FIX_CLAIMS if phrase in text]
+    assert not found, f"{name} presents per-segment thresholds as a fix: {found}"
+
+
+@pytest.mark.parametrize("name", [*DOCS, "app/sections/performance.py"])
+def test_nothing_claims_the_dashboard_never_scores_the_test_rows(name: str):
+    text = _prose(name)
+    found = [phrase for phrase in DASHBOARD_SCORING_CLAIMS if phrase in text]
+    assert not found, f"{name} says the dashboard never scores test rows: {found}"
+
+
 def test_the_model_card_keeps_the_evaluation_history():
     card = (ROOT / "docs" / "MODEL_CARD.md").read_text()
     assert "## Evaluation history" in card

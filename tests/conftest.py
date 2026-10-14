@@ -17,6 +17,7 @@ it learns are meaningless and no test asserts a performance number.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -138,3 +139,83 @@ def monkeypatch_session():
     patcher = MonkeyPatch()
     yield patcher
     patcher.undo()
+
+
+# --- the dashboard, served synthetic data ------------------------------------
+
+#: Stands in for the dataset file's SHA-256 - a real digest, of a fixed string,
+#: so it passes the format check. The synthetic model records it, so its
+#: partitions are trusted exactly as the real artifact's would be.
+SYNTHETIC_SHA256 = hashlib.sha256(b"synthetic customers").hexdigest()
+
+
+@pytest.fixture(scope="session")
+def dashboard_parts(clean_frame: pd.DataFrame, cfg: Config):
+    from churnsense.data.loader import features_and_target
+    from churnsense.data.split import make_splits
+
+    X, y = features_and_target(clean_frame, cfg)
+    return make_splits(X, y, cfg)
+
+
+@pytest.fixture(scope="session")
+def dashboard_predictor(dashboard_parts, cfg: Config, tmp_path_factory):
+    """A model trained on synthetic data, recording the data and split it was trained on."""
+    from churnsense.models.predict import load_predictor
+    from churnsense.models.train import save_artifact, train_all
+
+    parts = dashboard_parts
+    outcome = train_all(parts.X_train, parts.y_train, parts.X_val, parts.y_val, cfg=cfg)
+    directory = tmp_path_factory.mktemp("dashboard_artifacts")
+    save_artifact(
+        outcome, directory, cfg, data_sha256=SYNTHETIC_SHA256, split_digest=parts.digest()
+    )
+    return load_predictor(directory)
+
+
+@pytest.fixture(scope="session")
+def book(clean_frame: pd.DataFrame, dashboard_predictor):
+    """What app.data builds from the synthetic customers: ``data.Book``."""
+    from app import data
+
+    return data.score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
+
+
+@pytest.fixture
+def dashboard(monkeypatch, dashboard_predictor, book):
+    """Open the real app script on a section, served ``book`` and the synthetic model.
+
+    Nothing real is read: the data layer's book and model are replaced, and so
+    are the cached SHAP artifacts. Reading the raw file fails the test, by
+    whichever path a section reaches it. Call it with a section name,
+    optionally with another ``data.Book``; with no name it runs the landing page.
+    """
+    import streamlit as st
+    from app import data
+    from streamlit.testing.v1 import AppTest
+
+    from churnsense.data import loader
+
+    script = str(Path(__file__).resolve().parents[1] / "app" / "streamlit_app.py")
+
+    def no_real_data(*_, **__):
+        raise AssertionError("a dashboard test tried to read the real dataset")
+
+    monkeypatch.setattr(data, "_dataset", no_real_data)
+    # load_clean hashes the file before reading it.
+    monkeypatch.setattr(loader, "verify_dataset", no_real_data)
+    monkeypatch.setattr(loader, "read_raw", no_real_data)
+    monkeypatch.setattr(data, "predictor", lambda: dashboard_predictor)
+    monkeypatch.setattr(data, "shap_importance", lambda: None)
+    monkeypatch.setattr(data, "report_json", lambda _name: None)
+
+    def open_section(section: str | None = None, served=None):
+        st.cache_data.clear()  # shap_background is cached and depends on the book
+        monkeypatch.setattr(data, "_book", lambda: served if served is not None else book)
+        at = AppTest.from_file(script, default_timeout=120).run()
+        if section is not None:
+            at.radio(key="nav").set_value(section).run()
+        assert not at.exception, [e.value for e in at.exception]
+        return at
+
+    return open_section

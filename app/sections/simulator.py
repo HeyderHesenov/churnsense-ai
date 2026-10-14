@@ -16,6 +16,7 @@ from app import components as ui
 from app import data
 from churnsense import viz
 from churnsense.config import Business, Config
+from churnsense.data import schema
 from churnsense.evaluation.threshold import (
     indifference_band,
     recommend_threshold_from,
@@ -141,14 +142,50 @@ def _tradeoff_chart(sweep: pd.DataFrame, chosen: float) -> go.Figure:
     return figure
 
 
+#: The contact list's export: scores and targeting fields, no outcome.
+CONTACT_COLUMNS = [
+    "customerID",
+    "churn_probability",
+    "risk_band",
+    "Contract",
+    "tenure",
+    "MonthlyCharges",
+]
+
+
+def _contact_list(frame: pd.DataFrame, threshold: float, currency: str) -> None:
+    """Every customer at or above ``threshold``, and its CSV. Reads scores only."""
+    st.divider()
+    st.subheader("Which customers would be contacted")
+    scored = frame[frame["churn_probability"] >= threshold].sort_values(
+        "churn_probability", ascending=False
+    )
+    st.caption(
+        f"{len(scored):,} of {len(frame):,} customers across the whole dataset sit at "
+        f"or above {threshold:.2f}. Monthly charges attached to them: "
+        f"{ui.money(scored['MonthlyCharges'].sum(), currency)}."
+    )
+    # The whole selection, not a slice. An earlier version capped the file at
+    # 5,000 rows one line below a caption stating the true count, so a user
+    # could be told 7,043 and handed 5,000 with nothing to indicate the gap.
+    ui.download_button(
+        scored[CONTACT_COLUMNS],
+        f"churnsense_target_list_{threshold:.2f}.csv",
+        f"Download all {len(scored):,} (CSV)",
+        "sim_download",
+    )
+
+
 def render(frame: pd.DataFrame, cfg: Config) -> None:
     st.header("Retention scenario simulator")
     ui.simulation_note()
 
     model = data.predictor()
-    parts = data.splits()
-    if parts is None:
-        st.info("Partition information is unavailable.")
+    validation = data.labelled(frame, "validation")
+    if validation.empty:
+        # No economics without outcomes; the shipped threshold's list needs none.
+        ui.outcomes_withheld(data.withheld_reason())
+        _contact_list(frame, model.threshold, cfg.business.currency)
         return
 
     business = _assumption_controls(cfg)
@@ -156,9 +193,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
     # Economics are computed on the validation partition, the same data the
     # shipped threshold was chosen on - so the recommendation the user sees
     # here is produced exactly the way the artifact's own threshold was.
-    probabilities = model.predict_frame(parts.X_val)["churn_probability"].to_numpy()
-    charges = parts.X_val["MonthlyCharges"]
-    sweep = sweep_thresholds(parts.y_val, probabilities, charges, business)
+    probabilities = validation["churn_probability"].to_numpy()
+    charges = validation["MonthlyCharges"]
+    sweep = sweep_thresholds(validation[schema.TARGET], probabilities, charges, business)
     # recommend_threshold would otherwise recompute this identical sweep
     # internally, doubling the work on every slider nudge.
     recommended = recommend_threshold_from(sweep, business)
@@ -274,27 +311,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             "lower success rate - and a band appears."
         )
 
-    st.divider()
-    st.subheader("Which customers would be contacted")
-    scored = frame[frame["churn_probability"] >= threshold].sort_values(
-        "churn_probability", ascending=False
-    )
-    st.caption(
-        f"{len(scored):,} of {len(frame):,} customers across the whole dataset sit at "
-        f"or above {threshold:.2f}. Monthly charges attached to them: "
-        f"{ui.money(scored['MonthlyCharges'].sum(), currency)}."
-    )
-    # The whole selection, not a slice. An earlier version capped the file at
-    # 5,000 rows one line below a caption stating the true count, so a user
-    # could be told 7,043 and handed 5,000 with nothing to indicate the gap.
-    ui.download_button(
-        scored[
-            ["customerID", "churn_probability", "risk_band", "Contract", "tenure", "MonthlyCharges"]
-        ],
-        f"churnsense_target_list_{threshold:.2f}.csv",
-        f"Download all {len(scored):,} (CSV)",
-        "sim_download",
-    )
+    _contact_list(frame, threshold, currency)
 
     ui.caveat(
         f"Every {currency} figure on this page is a simulation driven by the four "

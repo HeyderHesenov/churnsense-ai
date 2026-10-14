@@ -1,9 +1,10 @@
 """Model comparison, validation performance, segments and calibration.
 
-This page never scores the test partition. Everything computed live here is on
-the validation partition, which development may re-read freely; the test
-result is shown only as the figure ``make evaluate CONFIRM=yes`` recorded in
-the artifact's metadata, never recomputed.
+This page computes nothing from the test partition. Everything computed live
+here is on the validation partition, which development may re-read freely; the
+test result is shown only as the figure ``make evaluate CONFIRM=yes`` recorded
+in the artifact's metadata, never recomputed. How outcomes reach a page is set
+out in ``app/data.py``.
 """
 
 from __future__ import annotations
@@ -19,14 +20,12 @@ from app import data
 from churnsense import viz
 from churnsense.config import Config
 from churnsense.data import schema
-from churnsense.data.split import check_split
 from churnsense.evaluation.metrics import (
     evaluate,
     expected_calibration_error,
     reliability_table,
     segment_table,
 )
-from churnsense.exceptions import DataError
 
 #: Who the segment table is shown for; the same breakdown `make train` publishes.
 SEGMENTS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen", "gender")
@@ -216,7 +215,7 @@ def _recorded_test_result(meta: dict) -> None:
             "No final test evaluation is recorded for this artifact. The published "
             "figures, and the history of that partition, are in "
             "`reports/final_evaluation.md` and `docs/MODEL_CARD.md`. This dashboard "
-            "does not score the test partition."
+            "computes no performance figure from the test partition."
         )
         return
     when = meta.get("test_evaluated_at", "before evaluation dates were recorded")
@@ -242,7 +241,6 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     model = data.predictor()
     meta = model.meta
     comparison = data.report_csv("model_comparison.csv")
-    parts = data.splits()
 
     st.caption(
         f"Serving **{meta['display_name']}**, trained {meta['trained_at'][:10]} on "
@@ -261,21 +259,13 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             "Validation scores are in the tooltip as separate evidence."
         )
 
-    if parts is None:
-        st.info("Partition information is unavailable.")
+    # The validation rows of the scored book (app/data.py), not re-scored.
+    validation = data.labelled(frame, "validation")
+    if validation.empty:
+        ui.outcomes_withheld(data.withheld_reason())
+        st.divider()
+        _recorded_test_result(meta)
         return
-    try:
-        check_split(parts, meta)
-    except DataError as exc:
-        st.warning(
-            "The partitions rebuilt from the current configuration are not the ones "
-            f"this model was trained on, so no performance is shown. {exc}"
-        )
-        return
-
-    # The scored frame already holds every customer's probability from the
-    # served Predictor; the validation rows are picked out of it, not re-scored.
-    validation = frame.loc[parts.X_val.index]
     y_val = validation[schema.TARGET].to_numpy()
     proba = validation["churn_probability"].to_numpy()
     metrics = evaluate(y_val, proba, threshold=model.threshold)
@@ -286,7 +276,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         f"The validation partition ({metrics.n:,} customers) decided whether "
         "calibration is kept and where the threshold sits, so these numbers are "
         "somewhat optimistic. It is shown live because development may re-read it; "
-        "the held-out test partition is never scored by this dashboard."
+        "nothing here is computed from the held-out test partition."
     )
 
     ui.kpi_row(
