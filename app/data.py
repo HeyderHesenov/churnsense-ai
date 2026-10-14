@@ -171,7 +171,7 @@ def score_book(customers: pd.DataFrame, data_sha256: str | None, model: Predicto
     customer are the same number. The partitions are rebuilt from
     ``customers`` itself, so they cannot be paired with another frame.
     """
-    parts, withheld = _trusted_split(customers, data_sha256, model.meta)
+    parts, withheld = _verified_split(customers, data_sha256, model.meta)
     partition = pd.Series("unknown", index=customers.index, dtype="object", name="partition")
     if parts is None:
         logger.warning("outcomes withheld: %s", withheld)
@@ -200,7 +200,7 @@ def score_book(customers: pd.DataFrame, data_sha256: str | None, model: Predicto
     return Book(frame, shown[schema.TARGET], train_index, withheld)
 
 
-def _trusted_split(
+def _verified_split(
     customers: pd.DataFrame, data_sha256: str | None, meta: dict
 ) -> tuple[DataSplits | None, str | None]:
     """The partitions the served model was trained on, or why they cannot be trusted.
