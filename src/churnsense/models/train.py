@@ -90,6 +90,7 @@ class CandidateResult:
     cv_std: float
     cv_folds: int
     validation: ClassificationMetrics
+    #: Wall-clock tuning time. Logged, never reported: it varies by machine and run.
     fit_seconds: float
 
     @property
@@ -237,7 +238,10 @@ class TrainingOutcome:
         return self.selection.reason
 
     def comparison_frame(self) -> pd.DataFrame:
-        """Model comparison as a table, ordered by the cross-validated selection score."""
+        """Model comparison as a table, ordered by the cross-validated selection score.
+
+        It feeds the tracked reports, so it holds only what a re-run reproduces.
+        """
         eligible = {r.key for r in self.selection.eligible}
         rows = [
             {
@@ -252,7 +256,6 @@ class TrainingOutcome:
                 "val_recall": r.validation.recall,
                 "val_f1": r.validation.f1,
                 "val_brier": r.validation.brier,
-                "fit_seconds": r.fit_seconds,
                 "selected": r.key == self.selected_key,
             }
             for r in self.results

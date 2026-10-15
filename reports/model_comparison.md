@@ -10,12 +10,12 @@ from a previous run or from the literature.
 
 ## Results
 
-| Model | CV PR-AUC | CV std | CV SE | Within 1 SE | Val PR-AUC | Val ROC-AUC | Val precision | Val recall | Val F1 | Val Brier | Fit (s) | Selected |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Random Forest | 0.6714 | 0.0152 | 0.0068 | **yes** | 0.6365 | 0.8380 | 0.5150 | 0.7807 | 0.6206 | 0.1626 | 11.6086 |  |
-| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.0066 | **yes** | 0.6416 | 0.8369 | 0.5087 | 0.7807 | 0.6160 | 0.1647 | 8.2358 |  |
-| Logistic Regression | 0.6663 | 0.0244 | 0.0109 | **yes** | 0.6444 | 0.8373 | 0.5095 | 0.7888 | 0.6191 | 0.1678 | 2.2717 | **yes** |
-| Baseline (predicts the prior) | 0.2653 | 0.0005 | 0.0002 |  | 0.2654 | 0.5000 | 0.0000 | 0.0000 | 0.0000 | 0.1950 | 2.7750 |  |
+| Model | CV PR-AUC | CV std | CV SE | Within 1 SE | Val PR-AUC | Val ROC-AUC | Val precision | Val recall | Val F1 | Val Brier | Selected |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Random Forest | 0.6714 | 0.0152 | 0.0068 | **yes** | 0.6365 | 0.8380 | 0.5150 | 0.7807 | 0.6206 | 0.1626 |  |
+| Hist Gradient Boosting | 0.6705 | 0.0148 | 0.0066 | **yes** | 0.6416 | 0.8369 | 0.5087 | 0.7807 | 0.6160 | 0.1647 |  |
+| Logistic Regression | 0.6663 | 0.0244 | 0.0109 | **yes** | 0.6444 | 0.8373 | 0.5095 | 0.7888 | 0.6191 | 0.1678 | **yes** |
+| Baseline (predicts the prior) | 0.2653 | 0.0005 | 0.0002 |  | 0.2654 | 0.5000 | 0.0000 | 0.0000 | 0.0000 | 0.1950 |  |
 
 Selection metric: **average_precision** (PR-AUC), chosen because the
 positive class is the minority and the retention team cares about the precision

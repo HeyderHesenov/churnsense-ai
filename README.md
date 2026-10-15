@@ -609,15 +609,15 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**541 tests, all passing on Python 3.12.13** (2026-10-14). Measured, not
+**544 tests, all passing on Python 3.12.13** (2026-10-15). Measured, not
 claimed:
 
 ```
 $ make test
-541 passed
+544 passed
 ```
 
-The same 541 pass on a fresh copy of the tracked files with no dataset and no
+The same 544 pass on a fresh copy of the tracked files with no dataset and no
 trained artifact — the state GitHub Actions runs in. No test reads the real
 dataset: the dashboard tests run the real app script on a synthetic model and
 book, and fail if anything tries to load the real file.
@@ -691,7 +691,8 @@ POST /predict (example above)  ok   0.802979373568
 
 Every report and `model_meta.json` came out identical to the ones in this
 repository except for the training timestamp and wall-clock fit times — same
-split, same selection, same threshold 0.36, same test metrics.
+split, same selection, same threshold 0.36, same test metrics. Fit times have
+since left the tracked reports; `make train` still logs them.
 
 ## Project layout
 
@@ -711,7 +712,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       541 tests + seeded synthetic fixtures
+tests/                       544 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)

@@ -9,8 +9,11 @@ would be a lie dressed as a test.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.calibration import CalibratedClassifierCV
 
@@ -476,6 +479,112 @@ def test_reported_validation_metrics_describe_the_shipped_model(outcome, splits,
     assert reported["precision"] == pytest.approx(actual.precision, abs=1e-9)
     assert reported["recall"] == pytest.approx(actual.recall, abs=1e-9)
     assert reported["average_precision"] == pytest.approx(actual.average_precision, abs=1e-9)
+
+
+# --- the tracked comparison reports -----------------------------------------
+
+#: The columns of reports/model_comparison.csv, in order. Each is a quantity a
+#: re-run reproduces: the reports are diffed in git, so wall-clock fit time,
+#: which varies by machine and by run, is logged rather than reported.
+REPORTED_COLUMNS = [
+    "model",
+    "cv_pr_auc",
+    "cv_std",
+    "cv_se",
+    "within_one_se",
+    "val_pr_auc",
+    "val_roc_auc",
+    "val_precision",
+    "val_recall",
+    "val_f1",
+    "val_brier",
+    "selected",
+]
+#: The same columns as reports/model_comparison.md heads them.
+REPORTED_HEADERS = [
+    "Model",
+    "CV PR-AUC",
+    "CV std",
+    "CV SE",
+    "Within 1 SE",
+    "Val PR-AUC",
+    "Val ROC-AUC",
+    "Val precision",
+    "Val recall",
+    "Val F1",
+    "Val Brier",
+    "Selected",
+]
+
+
+def test_the_comparison_columns_are_the_reproducible_metrics(
+    outcome: TrainingOutcome, cfg: Config, tmp_path
+):
+    """Each column carries its own candidate's number, under its own header."""
+    from churnsense.evaluation.report import write_comparison_report
+
+    table = outcome.comparison_frame()
+    assert table.to_csv(index=False).splitlines()[0] == ",".join(REPORTED_COLUMNS)
+    by_name = {r.display_name: r for r in outcome.results}
+    for row in table.to_dict("records"):
+        result = by_name[row["model"]]
+        v = result.validation
+        expected = {
+            "cv_pr_auc": result.cv_score,
+            "cv_std": result.cv_std,
+            "cv_se": result.cv_standard_error,
+            "val_pr_auc": v.average_precision,
+            "val_roc_auc": v.roc_auc,
+            "val_precision": v.precision,
+            "val_recall": v.recall,
+            "val_f1": v.f1,
+            "val_brier": v.brier,
+        }
+        np.testing.assert_array_equal([row[c] for c in expected], list(expected.values()))
+
+    text = write_comparison_report(outcome, cfg, directory=tmp_path).read_text()
+    assert "| " + " | ".join(REPORTED_HEADERS) + " |" in text
+
+
+def test_fit_time_alone_does_not_change_the_tracked_reports(
+    outcome: TrainingOutcome, cfg: Config, tmp_path
+):
+    """Identical results render byte-identically, whatever the clock said.
+
+    Fit time varies from machine to machine and run to run. If it reached a
+    tracked report, every `make train` would leave a diff that is not a result.
+    """
+    from churnsense.evaluation.report import write_comparison_report
+    from churnsense.models.train import one_se_selection
+
+    results = [replace(r, fit_seconds=r.fit_seconds + 1000.0) for r in outcome.results]
+    slower = replace(outcome, results=results, selection=one_se_selection(results))
+
+    def rendered(run: TrainingOutcome, name: str) -> tuple[str, bytes]:
+        directory = tmp_path / name
+        directory.mkdir()
+        markdown = write_comparison_report(run, cfg, directory=directory).read_bytes()
+        return run.comparison_frame().to_csv(index=False), markdown
+
+    first = rendered(outcome, "first")
+    assert rendered(outcome, "again") == first
+    assert rendered(slower, "slower") == first
+
+
+def test_the_tracked_comparison_reports_come_from_one_run():
+    """The committed CSV and markdown table are one run through one renderer.
+
+    `make train` writes both. A hand edit to either, or a renderer change
+    committed without re-running, makes them disagree.
+    """
+    from churnsense.evaluation.report import _markdown_table
+
+    reports = Path(__file__).resolve().parents[1] / "reports"
+    # The default parser can move the 17th significant digit; read what was written.
+    tracked = pd.read_csv(reports / "model_comparison.csv", float_precision="round_trip")
+    assert list(tracked.columns) == REPORTED_COLUMNS
+    table = _markdown_table(tracked.set_axis(REPORTED_HEADERS, axis=1))
+    assert table in (reports / "model_comparison.md").read_text()
 
 
 # --- feature decisions ------------------------------------------------------

@@ -294,7 +294,6 @@ def write_comparison_report(
             "val_recall": "Val recall",
             "val_f1": "Val F1",
             "val_brier": "Val Brier",
-            "fit_seconds": "Fit (s)",
             "selected": "Selected",
         }
     )

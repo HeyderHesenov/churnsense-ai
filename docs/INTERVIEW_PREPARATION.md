@@ -355,7 +355,7 @@ says the first thing to change before exposing it beyond localhost
 
 ### Q21. Why this test suite shape?
 
-**541 tests**, none needing the dataset or the network. `conftest.py` generates seeded synthetic
+**544 tests**, none needing the dataset or the network. `conftest.py` generates seeded synthetic
 data reproducing the real file's *structure* — the same vocabularies, the
 "No internet service" dependency, the blank-`TotalCharges`-at-zero-tenure quirk
 — and none of its statistics. Every id is prefixed `DEMO-`.
