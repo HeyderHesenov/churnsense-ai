@@ -9,6 +9,7 @@ would be a lie dressed as a test.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from churnsense.models.train import (
     save_artifact,
     train_all,
 )
+from tests.conftest import DROP, edit_sidecar
 
 
 @pytest.fixture(scope="module")
@@ -265,6 +267,184 @@ def test_loading_an_artifact_without_metadata_is_refused(outcome, tmp_path):
     save_artifact(outcome, tmp_path)
     (tmp_path / "model_meta.json").unlink()
     with pytest.raises(ModelNotAvailableError):
+        load_artifact(tmp_path)
+
+
+@pytest.fixture
+def unpickled(monkeypatch) -> list:
+    """Every ``joblib.load`` call the loader makes, none of which really unpickles."""
+    calls: list = []
+    monkeypatch.setattr(
+        "churnsense.models.train.joblib.load", lambda *args, **_: calls.append(args)
+    )
+    return calls
+
+
+def test_a_valid_artifact_is_unpickled_exactly_once(outcome, tmp_path, cfg, unpickled):
+    """The control for every "never unpickled" test below: were the loader to
+    reach joblib some other way, the spy would see nothing and they would pass
+    whatever the loader did."""
+    save_artifact(outcome, tmp_path, cfg)
+
+    load_artifact(tmp_path)
+    assert len(unpickled) == 1
+
+
+@pytest.mark.parametrize("recorded", [DROP, None, "", "0" * 63, "A" * 64, 123])
+def test_a_model_without_a_valid_recorded_hash_is_never_unpickled(
+    outcome, tmp_path, cfg, unpickled, recorded
+):
+    """Without the hash nothing ties the pickle to the sidecar that describes it,
+    and unpickling an unverified file is running it. save_artifact always
+    records one, so an artifact without it is stale or edited."""
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, model_sha256=recorded)
+
+    with pytest.raises(ModelNotAvailableError, match="model_sha256"):
+        load_artifact(tmp_path)
+    assert not unpickled
+
+
+@pytest.mark.parametrize("value", [DROP, None])
+@pytest.mark.parametrize(
+    "key", ["threshold", "feature_columns", "display_name", "trained_at", "validation_metrics"]
+)
+def test_incomplete_metadata_is_refused_before_anything_is_unpickled(
+    outcome, tmp_path, cfg, unpickled, key, value
+):
+    """Serving and /model-info read these keys; a missing or null one is "no
+    model", not a 500. build_metadata never writes null for any of them."""
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, **{key: value})
+
+    with pytest.raises(ModelNotAvailableError, match=f"incomplete metadata.*{key}"):
+        load_artifact(tmp_path)
+    assert not unpickled
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("threshold", "abc"),
+        ("threshold", "0.5"),
+        ("threshold", True),
+        ("threshold", None),
+        ("threshold", 1.5),
+        ("threshold", -0.01),
+        ("threshold", float("nan")),
+        ("feature_columns", "tenure"),
+        ("feature_columns", []),
+        ("feature_columns", ["tenure", 1]),
+        ("feature_columns", ["tenure", "loyalty_score"]),
+    ],
+)
+def test_metadata_no_model_can_be_served_with_is_refused(
+    outcome, tmp_path, cfg, unpickled, key, value
+):
+    """A threshold outside [0, 1] failed every prediction with a 500, a text one
+    stopped the API from starting, and a column outside the data contract - or a
+    string read letter by letter - was blamed on every caller as "missing columns"."""
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, **{key: value})
+
+    with pytest.raises(ModelNotAvailableError, match=key):
+        load_artifact(tmp_path)
+    assert not unpickled
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("trained_at", 5),  # the sidebar: 'int' object is not subscriptable
+        ("display_name", 5),
+        ("model_key", ["logistic_regression"]),
+        ("threshold_source", 1),
+        ("sklearn_version", 1.9),
+        ("calibrated", "no"),  # truthy: an uncalibrated model shown as calibrated
+        ("n_train", "many"),  # the performance page: Cannot specify ',' with 's'
+        ("n_train", True),  # a bool is an int to Python, not a count
+        ("n_validation", 1.5),
+        ("probability_epsilon", "x"),
+        ("probability_epsilon", False),
+        ("dropped_columns", "gender"),  # a string, read letter by letter
+        ("dropped_columns", [1]),
+        ("validation_metrics", []),
+        ("calibration_method", 1),
+        ("test_metrics", "x"),
+    ],
+)
+def test_a_value_of_the_wrong_type_is_refused_before_anything_is_unpickled(
+    outcome, tmp_path, cfg, unpickled, key, value
+):
+    """build_metadata writes each value as one type, and /model-info and the
+    dashboard read it as that type. A number for the training date loaded,
+    /health said ok, and /model-info answered 500."""
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, **{key: value})
+
+    with pytest.raises(ModelNotAvailableError, match=f"{key} must be"):
+        load_artifact(tmp_path)
+    assert not unpickled
+
+
+@pytest.mark.parametrize("method", [DROP, None])
+def test_a_calibrated_model_must_record_its_method(outcome, tmp_path, cfg, unpickled, method):
+    """The performance page names the method whenever calibrated is true: absent,
+    it raised KeyError; null, it read "calibrated with None"."""
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, calibrated=True, calibration_method=method)
+
+    with pytest.raises(ModelNotAvailableError, match="calibration_method must be recorded"):
+        load_artifact(tmp_path)
+    assert not unpickled
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"calibrated": False, "calibration_method": None},  # calibration was not kept
+        {"test_metrics": None},
+    ],
+)
+def test_values_recorded_only_sometimes_may_be_null(outcome, tmp_path, cfg, changes):
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, **changes)
+
+    _, meta = load_artifact(tmp_path)
+    assert {key: meta[key] for key in changes} == changes
+
+
+def test_an_artifact_after_its_final_evaluation_still_loads(outcome, tmp_path, cfg):
+    """report.main adds these keys to the sidecar, test_metrics as Metrics.as_dict()."""
+    save_artifact(outcome, tmp_path, cfg)
+    recorded = {
+        "test_metrics": outcome.shipped_validation.as_dict(),
+        "test_ece": 0.03,
+        "test_evaluated_at": "2026-10-17T00:00:00+00:00",
+    }
+    edit_sidecar(tmp_path, **recorded)
+
+    _, meta = load_artifact(tmp_path)
+    assert {key: meta[key] for key in recorded} == recorded
+
+
+@pytest.mark.parametrize("threshold", [0, 1, 0.0, 1.0, 0.36])
+def test_every_probability_is_a_servable_threshold(outcome, tmp_path, cfg, threshold):
+    save_artifact(outcome, tmp_path, cfg)
+    edit_sidecar(tmp_path, threshold=threshold)
+
+    _, meta = load_artifact(tmp_path)
+    assert meta["threshold"] == threshold
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a file whatever its mode")
+def test_an_unreadable_model_file_means_no_model_rather_than_a_crash(outcome, tmp_path, cfg):
+    """The API catches ModelNotAvailableError to start degraded; an OSError
+    from hashing the file escaped that and the service did not start."""
+    model_path = save_artifact(outcome, tmp_path, cfg)
+    model_path.chmod(0)
+
+    with pytest.raises(ModelNotAvailableError, match="could not be read"):
         load_artifact(tmp_path)
 
 

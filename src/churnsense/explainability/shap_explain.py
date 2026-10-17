@@ -43,7 +43,7 @@ import shap
 
 from churnsense.config import Config, load_config
 from churnsense.data import schema
-from churnsense.exceptions import SchemaValidationError
+from churnsense.exceptions import ChurnSenseError, SchemaValidationError
 from churnsense.logging_setup import configure_logging
 from churnsense.models.calibration_clamp import ProbabilityClamp
 
@@ -247,17 +247,20 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
     """Compute global importance once and cache it for the dashboard.
 
     The dashboard must not recompute SHAP on every rerun; this writes the
-    ranking to ``artifacts/shap_global.json`` so the app reads a file.
+    ranking to ``artifacts/shap_global.json`` so the app reads a file. The
+    cache says which partition it explains, so the partitions are checked
+    against the ones the model was trained on before anything is computed.
     """
     cfg = cfg or load_config()
     from churnsense.data.loader import features_and_target, load_clean
-    from churnsense.data.split import make_splits
+    from churnsense.data.split import check_provenance, make_splits
     from churnsense.models.train import load_artifact
 
     model, meta = load_artifact(cfg.paths.artifacts_dir)
-    df, _ = load_clean(cfg)
+    df, cleaning = load_clean(cfg)
     X, y = features_and_target(df, cfg)
     splits = make_splits(X, y, cfg)
+    check_provenance(splits, cleaning.source_sha256, meta)
 
     explained = splits.X_val.sample(min(sample, len(splits.X_val)), random_state=cfg.random_seed)
     background = background_sample(splits.X_train, cfg.random_seed)
@@ -266,7 +269,7 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
     payload = {
         "model_key": meta["model_key"],
         "trained_at": meta["trained_at"],
-        "model_sha256": meta.get("model_sha256"),
+        "model_sha256": meta["model_sha256"],
         "n_explained": len(explained),
         "n_background": len(background),
         "permutations": PERMUTATIONS,
@@ -303,7 +306,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     configure_logging()
-    print(f"OK  {compute_and_cache(sample=args.sample)}")
+    try:
+        path = compute_and_cache(sample=args.sample)
+    except ChurnSenseError as exc:
+        logger.error("global SHAP not computed: %s", exc)
+        return 1
+    print(f"OK  {path}")
     return 0
 
 

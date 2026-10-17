@@ -95,6 +95,27 @@ def check_split(splits: DataSplits, meta: dict) -> None:
         )
 
 
+def check_provenance(splits: DataSplits, data_sha256: str | None, meta: dict) -> None:
+    """Refuse partitions that are not the ones the artifact was trained on.
+
+    The split is rebuilt from the data on every run, so it names the right rows
+    only for the same file - by its SHA-256 - cut the same way (``check_split``).
+    A file read without a hash proves nothing, even against a sidecar that
+    records none.
+    """
+    recorded = meta.get("data_sha256")
+    if recorded is None:
+        raise DataError(
+            "the model metadata records no dataset hash, so the data cannot be matched "
+            "to the file it was trained on. Retrain with `make train`."
+        )
+    if data_sha256 != recorded:
+        raise DataError(
+            "the dataset differs from the one the model was trained on. Retrain with `make train`."
+        )
+    check_split(splits, meta)
+
+
 def make_splits(
     X: pd.DataFrame, y: pd.Series, cfg: Config | None = None, *, log: bool = True
 ) -> DataSplits:

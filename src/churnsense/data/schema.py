@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Final
 
+import numpy as np
 import pandas as pd
 
 from churnsense.exceptions import SchemaValidationError
@@ -227,6 +228,19 @@ def _quoted(values: list[str]) -> str:
     return f"{shown}" + (f" and {hidden} more" if hidden else "")
 
 
+def _booleans(values: pd.Series) -> int:
+    """How many entries of ``values`` are booleans rather than numbers.
+
+    ``pd.to_numeric`` keeps a bool a bool, and True then passes every range
+    check as 1. A text column (an upload) has none; a library caller's frame can.
+    """
+    if pd.api.types.is_bool_dtype(values):
+        return int(values.notna().sum())
+    if values.dtype == object:
+        return int(values.map(lambda v: isinstance(v, bool | np.bool_)).sum())
+    return 0
+
+
 def _inconsistencies(df: pd.DataFrame, required: list[str]) -> list[str]:
     """Combinations of values no real customer can have.
 
@@ -312,6 +326,8 @@ def validate_frame(
                 problems.append(f"target '{TARGET}' mixes Yes/No labels with 0/1")
 
     for col in (c for c in NUMERIC_COLUMNS if c in df.columns and c in required):
+        if n_bool := _booleans(df[col]):
+            problems.append(f"'{col}' has {n_bool} boolean value(s) where a number belongs")
         values = pd.to_numeric(df[col], errors="coerce")
         # Every gap counts, whatever made it. clean_frame has already turned
         # unparseable text into NaN by the time it calls this, and the

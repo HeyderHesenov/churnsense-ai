@@ -8,6 +8,7 @@ import pytest
 from churnsense.config import Config
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
+from churnsense.exceptions import DataError
 from churnsense.explainability.shap_explain import (
     FeatureContribution,
     _shap_values,
@@ -17,6 +18,7 @@ from churnsense.explainability.shap_explain import (
     narrate,
 )
 from churnsense.models.train import train_all
+from tests.conftest import pinned_split_digest, record_provenance
 
 #: Structural tests do not need the production budget: additivity holds for
 #: any number of permutations. Only the stability test uses the real one.
@@ -158,3 +160,94 @@ def test_explanations_are_deterministic(trained):
     first = global_importance(outcome.model, sample, permutations=FAST)
     second = global_importance(outcome.model, sample, permutations=FAST)
     np.testing.assert_allclose(first["mean_abs_shap"], second["mean_abs_shap"])
+
+
+# --- the cached global ranking -----------------------------------------------
+
+
+@pytest.fixture
+def no_shap(monkeypatch) -> list:
+    """Every global_importance call compute_and_cache makes; returns a fixed ranking."""
+    import pandas as pd
+
+    from churnsense.evaluation import figures
+    from churnsense.explainability import shap_explain
+
+    calls: list = []
+
+    def ranking(model, explained, **_):
+        calls.append(explained)
+        return pd.DataFrame(
+            {"feature": ["tenure"], "label": ["Tenure (months)"], "mean_abs_shap": [0.1]}
+        )
+
+    monkeypatch.setattr(shap_explain, "global_importance", ranking)
+    monkeypatch.setattr(figures, "shap_importance", lambda *_, **__: None)
+    return calls
+
+
+@pytest.mark.parametrize(
+    "provenance",
+    [
+        {"data_sha256": "0" * 64},  # another file
+        {"data_sha256": None},  # no file recorded
+        {"split_digest": "f" * 64},  # same file, another split (seed or sizes changed)
+    ],
+)
+def test_the_cached_ranking_is_refused_for_partitions_the_model_was_not_trained_on(
+    pipeline_cfg, no_shap, provenance
+):
+    """The cache says it explains validation customers. After a data or split
+    change without a retrain, the rows rebuilt as "validation" are not the
+    model's validation rows - some it was trained on."""
+    from churnsense.data.download import sha256_of
+    from churnsense.explainability.shap_explain import compute_and_cache
+
+    recorded = {
+        "data_sha256": sha256_of(pipeline_cfg.raw_data_file),
+        "split_digest": pinned_split_digest(pipeline_cfg),
+        **provenance,
+    }
+    record_provenance(pipeline_cfg, **recorded)
+
+    with pytest.raises(DataError):
+        compute_and_cache(pipeline_cfg)
+    assert not no_shap
+    assert not pipeline_cfg.paths.shap_cache_file.exists()
+
+
+def test_the_ranking_is_cached_for_the_partitions_the_model_records(pipeline_cfg, no_shap):
+    import json
+
+    from churnsense.data.download import sha256_of
+    from churnsense.explainability.shap_explain import compute_and_cache
+
+    record_provenance(
+        pipeline_cfg,
+        data_sha256=sha256_of(pipeline_cfg.raw_data_file),
+        split_digest=pinned_split_digest(pipeline_cfg),
+    )
+    compute_and_cache(pipeline_cfg)
+
+    cached = json.loads(pipeline_cfg.paths.shap_cache_file.read_text())
+    assert len(no_shap) == 1
+    assert cached["partition"] == "validation"
+    assert (
+        cached["model_sha256"]
+        == json.loads(pipeline_cfg.paths.model_meta_file.read_text())["model_sha256"]
+    )
+
+
+def test_make_explain_reports_a_refusal_instead_of_a_traceback(
+    pipeline_cfg, no_shap, monkeypatch, caplog
+):
+    from churnsense.explainability import shap_explain
+
+    record_provenance(pipeline_cfg, data_sha256="0" * 64, split_digest="f" * 64)
+    monkeypatch.setattr(shap_explain, "load_config", lambda: pipeline_cfg)
+    # The real one replaces the root handlers on first use, caplog's included.
+    monkeypatch.setattr(shap_explain, "configure_logging", lambda: None)
+
+    assert shap_explain.main([]) == 1
+    assert "dataset differs" in caplog.text
+    assert not no_shap

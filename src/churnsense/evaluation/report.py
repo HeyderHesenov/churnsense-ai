@@ -746,7 +746,7 @@ def main(argv: list[str] | None = None) -> int:
     import json
 
     from churnsense.data.loader import features_and_target, load_clean
-    from churnsense.data.split import check_split, make_splits
+    from churnsense.data.split import check_provenance, make_splits
     from churnsense.evaluation import figures
     from churnsense.models.train import META_FILENAME, load_artifact
 
@@ -771,12 +771,7 @@ def main(argv: list[str] | None = None) -> int:
         splits = make_splits(X, y, cfg)
         # Refuse before anything is scored if the data or the split is not the
         # one the artifact - and its threshold - were built on.
-        if cleaning.source_sha256 != meta.get("data_sha256"):
-            raise ChurnSenseError(
-                "the dataset differs from the one the model was trained on. "
-                "Retrain with `make train`."
-            )
-        check_split(splits, meta)
+        check_provenance(splits, cleaning.source_sha256, meta)
     except ChurnSenseError as exc:
         logger.error("final evaluation refused: %s", exc)
         return 1

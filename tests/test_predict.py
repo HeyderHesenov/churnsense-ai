@@ -129,6 +129,20 @@ def test_predict_one_rejects_an_incomplete_record(predictor: Predictor, sample):
         predictor.predict_one(record)
 
 
+@pytest.mark.parametrize("column", ["tenure", "MonthlyCharges", "TotalCharges"])
+def test_the_library_path_refuses_a_boolean_where_a_number_belongs(
+    predictor: Predictor, sample, column
+):
+    """pd.to_numeric keeps a bool as a bool, which passed every range check and
+    was scored as 0 or 1. Refused whether the column is all booleans or one
+    boolean among numbers (an object column)."""
+    first, second = sample.iloc[0].to_dict(), sample.iloc[1].to_dict()
+    with pytest.raises(SchemaValidationError, match=f"'{column}' has 1 boolean"):
+        predictor.predict_one({**first, column: True})
+    with pytest.raises(SchemaValidationError, match=f"'{column}' has 1 boolean"):
+        predictor.predict_frame(pd.DataFrame([first, {**second, column: False}]))
+
+
 def test_an_empty_frame_is_rejected(predictor: Predictor, sample):
     with pytest.raises(SchemaValidationError, match="no rows"):
         predictor.predict_frame(sample.head(0))
