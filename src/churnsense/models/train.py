@@ -601,6 +601,87 @@ def save_artifact(
     return model_path
 
 
+#: Sidecar keys read on every load or request - by serving, the dashboard's
+#: sidebar and ``GET /model-info``. Checking them here turns a missing one into
+#: "no model available" (503) instead of a KeyError deep in a request (500).
+#: ``build_metadata`` writes every one, none of them null, so an absent or
+#: null key means a stale or edited file.
+REQUIRED_METADATA: tuple[str, ...] = (
+    "model_key",
+    "display_name",
+    "trained_at",
+    "threshold",
+    "threshold_source",
+    "calibrated",
+    "feature_columns",
+    "dropped_columns",
+    "n_train",
+    "n_validation",
+    "probability_epsilon",
+    "validation_metrics",
+    "sklearn_version",
+    "model_sha256",
+)
+
+
+#: The type ``build_metadata`` writes for each value, which is the type its
+#: readers assume. ``trained_at: 5``, for example, used to load; then
+#: /model-info returned 500 and the sidebar raised. The threshold and the
+#: column lists need more than a type and are checked on their own.
+_METADATA_TYPES: dict[str, tuple[type, ...]] = {
+    "model_key": (str,),
+    "display_name": (str,),
+    "trained_at": (str,),
+    "threshold_source": (str,),
+    "sklearn_version": (str,),
+    "model_sha256": (str,),
+    "calibrated": (bool,),
+    "n_train": (int,),
+    "n_validation": (int,),
+    "probability_epsilon": (int, float),
+    "validation_metrics": (dict,),
+    # Null when calibration was not kept, or before a final evaluation.
+    "calibration_method": (str, type(None)),
+    "test_metrics": (dict, type(None)),
+}
+
+
+def _invalid_metadata(meta: dict[str, Any]) -> list[str]:
+    """What in a complete sidecar no model could be served with."""
+    problems = []
+    for key, types in _METADATA_TYPES.items():
+        value = meta.get(key)
+        # A bool is an int to Python, but neither a count nor a rate.
+        if not isinstance(value, types) or (isinstance(value, bool) and bool not in types):
+            expected = " or ".join("null" if t is type(None) else t.__name__ for t in types)
+            problems.append(f"{key} must be {expected}, got {type(value).__name__}")
+    # build_metadata records a method exactly when calibration was kept, and
+    # the performance page names it whenever calibrated is true.
+    if meta["calibrated"] is True and meta.get("calibration_method") is None:
+        problems.append("calibration_method must be recorded when calibrated is true")
+    threshold = meta["threshold"]
+    # A bool is an int but not a probability; written this way round, NaN fails too.
+    if (
+        isinstance(threshold, bool)
+        or not isinstance(threshold, int | float)
+        or not 0.0 <= threshold <= 1.0
+    ):
+        problems.append(f"threshold must be a number in [0, 1], got {threshold!r}")
+    columns = meta["feature_columns"]
+    # Outside the contract, every request would be refused as "missing columns".
+    if not (
+        isinstance(columns, list)
+        and columns
+        and all(isinstance(c, str) for c in columns)
+        and set(columns) <= set(schema.model_input_columns())
+    ):
+        problems.append("feature_columns must be a non-empty list of data-contract columns")
+    dropped = meta["dropped_columns"]
+    if not (isinstance(dropped, list) and all(isinstance(c, str) for c in dropped)):
+        problems.append("dropped_columns must be a list of column names")
+    return problems
+
+
 def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
     """Load the trained model and its metadata.
 
@@ -610,9 +691,12 @@ def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
     user-supplied path is never passed to ``joblib.load``, since unpickling is
     equivalent to executing the file.
 
-    The metadata is read first, and a model whose bytes differ from the hash it
-    records is refused before it is unpickled: the sidecar's threshold and
-    metrics would otherwise describe a different model.
+    The metadata is read and checked first, and the model is unpickled only
+    when the sidecar is complete, its values can be served, and the file's
+    bytes match the hash it records: otherwise its threshold and metrics would
+    describe a different model, or none. The hash proves the two files belong
+    together, not where they came from: whoever can replace the pickle can
+    rewrite the sidecar too.
     """
     directory = Path(directory)
     model_path, meta_path = directory / MODEL_FILENAME, directory / META_FILENAME
@@ -632,7 +716,24 @@ def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
         raise ModelNotAvailableError(
             f"the metadata in {directory} is not a JSON object. Retrain with `make train`."
         )
-    if (expected := meta.get("model_sha256")) and sha256_of(model_path) != expected:
+    if absent := [key for key in REQUIRED_METADATA if meta.get(key) is None]:
+        raise ModelNotAvailableError(
+            f"the artifact in {directory} has incomplete metadata (missing or null "
+            f"{', '.join(absent)}). Retrain with `make train`."
+        )
+    if problems := _invalid_metadata(meta):
+        raise ModelNotAvailableError(
+            f"the metadata in {directory} cannot be served: {'; '.join(problems)}. "
+            "Retrain with `make train`."
+        )
+    try:
+        digest = sha256_of(model_path)
+    except OSError as exc:
+        raise ModelNotAvailableError(
+            f"{MODEL_FILENAME} in {directory} could not be read ({exc.__class__.__name__}). "
+            "Check its permissions, or retrain with `make train`."
+        ) from exc
+    if digest != meta["model_sha256"]:
         raise ModelNotAvailableError(
             f"{MODEL_FILENAME} in {directory} does not match the model_sha256 its metadata "
             "records. Retrain with `make train`."
@@ -645,21 +746,11 @@ def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
             "Retrain with `make train`."
         ) from exc
 
-    # Serving reads these on every prediction. Validating here turns a missing
-    # key into "no model available" at load time rather than a bare KeyError
-    # deep inside predict_frame, where the API would return 500 instead of 503.
-    required = ("model_key", "threshold", "feature_columns", "n_train", "probability_epsilon")
-    if absent := [key for key in required if key not in meta]:
-        raise ModelNotAvailableError(
-            f"the artifact in {directory} has incomplete metadata (missing "
-            f"{', '.join(absent)}). Retrain with `make train`."
-        )
-
-    if meta.get("sklearn_version") != sklearn.__version__:
+    if meta["sklearn_version"] != sklearn.__version__:
         logger.warning(
             "artifact was trained with scikit-learn %s but %s is installed; "
             "predictions may differ. Retrain to be sure.",
-            meta.get("sklearn_version"),
+            meta["sklearn_version"],
             sklearn.__version__,
         )
     return model, meta

@@ -103,6 +103,21 @@ def make_synthetic_raw(n: int = 400, seed: int = 0) -> pd.DataFrame:
     return frame.astype(str)
 
 
+def pinned_copy(demo_csv: Path, tmp_path: Path, cfg: Config, sha256: str | None) -> Config:
+    """A config whose dataset is a copy of the demo file in ``tmp_path/raw``, pinned to ``sha256``."""
+    from dataclasses import replace
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / cfg.dataset.filename).write_bytes(demo_csv.read_bytes())
+    rows = len(demo_csv.read_bytes().splitlines()) - 1
+    return replace(
+        cfg,
+        paths=replace(cfg.paths, raw_dir=raw),
+        dataset=replace(cfg.dataset, sha256=sha256, expected_rows=rows),
+    )
+
+
 @pytest.fixture(scope="session")
 def raw_frame() -> pd.DataFrame:
     """Raw-shaped synthetic data, identical on every run."""
@@ -179,6 +194,61 @@ def book(clean_frame: pd.DataFrame, dashboard_predictor):
     from app import data
 
     return data.score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
+
+
+@pytest.fixture
+def pipeline_cfg(demo_csv, tmp_path, cfg: Config, dashboard_predictor) -> Config:
+    """A config with every path under ``tmp_path``: the demo file as the pinned
+    dataset and a copy of the synthetic artifact, for running a pipeline step."""
+    import shutil
+    from dataclasses import replace
+
+    from churnsense.data.download import sha256_of
+
+    pinned = pinned_copy(demo_csv, tmp_path, cfg, sha256=sha256_of(demo_csv))
+    artifacts = tmp_path / "artifacts"
+    shutil.copytree(dashboard_predictor.source, artifacts)
+    paths = replace(
+        pinned.paths,
+        interim_dir=tmp_path / "interim",
+        processed_dir=tmp_path / "processed",
+        artifacts_dir=artifacts,
+        reports_dir=tmp_path / "reports",
+        figures_dir=tmp_path / "reports" / "figures",
+    )
+    return replace(pinned, paths=paths)
+
+
+#: Marks a key ``edit_sidecar`` removes, as opposed to setting it to null.
+DROP = object()
+
+
+def edit_sidecar(directory: Path, **changes) -> None:
+    """Edit a saved ``model_meta.json`` in place, as a hand edit or a stale file would."""
+    import json
+
+    path = directory / "model_meta.json"
+    meta = json.loads(path.read_text())
+    for key, value in changes.items():
+        if value is DROP:
+            del meta[key]
+        else:
+            meta[key] = value
+    path.write_text(json.dumps(meta))
+
+
+def record_provenance(cfg: Config, *, data_sha256: str | None, split_digest: str | None) -> None:
+    """Rewrite the artifact's recorded provenance."""
+    edit_sidecar(cfg.paths.artifacts_dir, data_sha256=data_sha256, split_digest=split_digest)
+
+
+def pinned_split_digest(cfg: Config) -> str:
+    """The split digest of ``cfg``'s pinned dataset, rebuilt the way every step rebuilds it."""
+    from churnsense.data.loader import features_and_target, load_clean
+    from churnsense.data.split import make_splits
+
+    frame, _ = load_clean(cfg)
+    return make_splits(*features_and_target(frame, cfg), cfg, log=False).digest()
 
 
 @pytest.fixture

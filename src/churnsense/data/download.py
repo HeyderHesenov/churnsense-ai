@@ -8,16 +8,18 @@ bundled ``Install Certificates.command`` has been run, so ``urllib`` raises
 therefore builds its SSL context from ``certifi`` explicitly rather than
 relying on the interpreter's default trust store.
 
-**Immutability.** The raw file is written once, atomically, and verified
-against a SHA-256 recorded in ``configs/config.yaml``. If upstream ever
-changes the file, the pipeline stops instead of silently producing different
-numbers from the ones documented in the README.
+**Immutability.** The raw file is downloaded beside its final path, verified
+against a SHA-256 recorded in ``configs/config.yaml``, and only then moved
+into place, atomically: a file that fails the check never replaces one that
+passed it. If upstream ever changes the file, the pipeline stops instead of
+silently producing different numbers from the ones documented in the README.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import http.client
 import logging
 import ssl
 import urllib.error
@@ -60,8 +62,11 @@ def _manual_instructions(cfg: Config) -> str:
     )
 
 
-def _fetch(url: str, dest: Path) -> None:
-    """Download ``url`` to ``dest`` atomically, verifying TLS via certifi."""
+def _fetch(url: str, dest: Path) -> Path:
+    """Download ``url`` next to ``dest`` and return that file, verifying TLS via certifi.
+
+    ``dest`` itself is not touched: the caller checks the download first.
+    """
     if not url.startswith("https://"):
         raise DataError(f"refusing to download over a non-HTTPS URL: {url}")
 
@@ -74,10 +79,12 @@ def _fetch(url: str, dest: Path) -> None:
             with tmp.open("wb") as fh:
                 while chunk := response.read(_CHUNK):
                     fh.write(chunk)
-    except (urllib.error.URLError, OSError, ssl.SSLError) as exc:
+    # HTTPException covers a body cut off mid-transfer (IncompleteRead), which
+    # is not an OSError.
+    except (urllib.error.URLError, OSError, ssl.SSLError, http.client.HTTPException) as exc:
         tmp.unlink(missing_ok=True)
         raise DataError(f"download failed ({exc.__class__.__name__}: {exc})") from exc
-    tmp.replace(dest)  # atomic: a reader never sees a partial file
+    return tmp
 
 
 def verify_dataset(path: Path, cfg: Config) -> str:
@@ -125,10 +132,14 @@ def download_dataset(cfg: Config | None = None, *, force: bool = False) -> Path:
     else:
         logger.info("downloading dataset url=%s", cfg.dataset.url)
         try:
-            _fetch(cfg.dataset.url, dest)
+            part = _fetch(cfg.dataset.url, dest)
         except DataError as exc:
             raise DataError(f"{exc}\n\n{_manual_instructions(cfg)}") from exc
-        digest = verify_dataset(dest, cfg)
+        try:
+            digest = verify_dataset(part, cfg)
+            part.replace(dest)  # atomic: a reader never sees a partial or unverified file
+        finally:
+            part.unlink(missing_ok=True)  # gone already if it was moved into place
         logger.info("downloaded bytes=%d sha256=%s", dest.stat().st_size, digest)
 
     if not cfg.dataset.sha256:

@@ -14,8 +14,10 @@ from fastapi.testclient import TestClient
 from churnsense.config import Config
 from churnsense.data.loader import features_and_target
 from churnsense.data.split import make_splits
+from churnsense.exceptions import ModelNotAvailableError
 from churnsense.models.predict import load_predictor
 from churnsense.models.train import save_artifact, train_all
+from tests.conftest import DROP, edit_sidecar
 
 #: TestClient's default host, "testserver", is not an allowed host.
 LOCAL = "http://localhost"
@@ -211,6 +213,45 @@ def test_unavailable_model_is_a_503_in_the_documented_shape(tmp_path, monkeypatc
     api_main.get_predictor.cache_clear()
     with TestClient(api_main.app, base_url=LOCAL) as unloaded:
         response = unloaded.post("/predict", json=payload)
+    assert response.status_code == 503
+    assert response.json()["error"] == "model_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("changes", "route"),
+    [
+        ({"threshold": 1.5}, "/predict"),  # was 500 on every prediction
+        ({"threshold": "abc"}, "/predict"),  # was a ValueError that stopped startup
+        ({"display_name": DROP}, "/model-info"),  # was a KeyError -> 500
+        ({"display_name": None}, "/model-info"),  # was a response-validation 500
+        ({"trained_at": 5}, "/model-info"),  # the same 500, while /health said ok
+    ],
+)
+def test_a_sidecar_no_model_can_be_served_with_is_a_503(
+    artifacts, tmp_path, monkeypatch, payload, changes, route
+):
+    import shutil
+
+    from churnsense.api import main as api_main
+
+    edited = tmp_path / "edited"
+    shutil.copytree(artifacts, edited)
+    edit_sidecar(edited, **changes)
+    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", edited)
+    api_main.get_predictor.cache_clear()
+    try:
+        with TestClient(api_main.app, base_url=LOCAL) as served:
+            health = served.get("/health").json()
+            response = (
+                served.post(route, json=payload) if route == "/predict" else served.get(route)
+            )
+        # The edited sidecar is what was refused, not a missing model: in CI
+        # there is none, and a 503 alone would pass without the edit.
+        with pytest.raises(ModelNotAvailableError, match=next(iter(changes))):
+            api_main.get_predictor()
+    finally:
+        api_main.get_predictor.cache_clear()
+    assert health["model_loaded"] is False
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
 
@@ -435,14 +476,47 @@ def test_responses_are_neither_sniffed_nor_cached(client, payload, cfg: Config):
         assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf")])
-def test_predict_rejects_non_finite_numbers(client, payload, value):
-    """Python's json accepts NaN and Infinity; the field bounds must still refuse them."""
+@pytest.mark.parametrize("field", ["MonthlyCharges", "TotalCharges"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_predict_rejects_non_finite_numbers(client, payload, field, value):
+    """Python's json accepts NaN and Infinity. They are refused as what they are,
+    not with a bound they happen to fail ("less than or equal to 1000" for NaN)."""
     import json
 
-    body = json.dumps({**payload, "MonthlyCharges": value})
+    body = json.dumps({**payload, field: value})
     response = client.post("/predict", content=body, headers={"content-type": "application/json"})
     assert response.status_code == 422
+    assert response.json()["problems"] == [f"{field}: Input should be a finite number"]
+
+
+@pytest.mark.parametrize("field", ["tenure", "MonthlyCharges", "TotalCharges"])
+@pytest.mark.parametrize("value", [True, False])
+def test_predict_refuses_a_boolean_where_a_number_belongs(client, payload, field, value):
+    """JSON true was read as 1 (a one-month customer, or $1.00 a month) and scored
+    with full confidence; the CSV path refuses "True". Asserting the error code
+    matters: tenure or TotalCharges false is already refused, but by the
+    zero-tenure rule (invalid_input), which would let this test pass for the
+    wrong reason."""
+    response = client.post("/predict", json={**payload, field: value})
+    assert response.status_code == 422
+    body = response.json()
+    assert body["error"] == "validation_error"
+    assert body["problems"] == [f"{field}: Value error, Input should be a number, not a boolean"]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"tenure": 5.0},  # a pandas float column, serialised as it is
+        {"tenure": "5"},
+        {"MonthlyCharges": "95.5"},
+        {"TotalCharges": 0, "tenure": 0},
+    ],
+)
+def test_predict_still_reads_numbers_written_as_text_or_floats(client, payload, changes):
+    """Refusing booleans must not turn into strict mode, which would refuse these."""
+    response = client.post("/predict", json={**payload, **changes})
+    assert response.status_code == 200, response.json()
 
 
 @pytest.mark.parametrize("host", ["attacker.example", "attacker.example:8000", "localhost.evil"])

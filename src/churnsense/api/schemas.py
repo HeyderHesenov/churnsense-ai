@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from churnsense.data import schema as columns
 
@@ -57,9 +57,13 @@ CATEGORY_ALIASES: dict[str, object] = {
 
 
 def _bounded(column: str, *, description: str | None = None) -> Field:
-    """The range the training contract enforces, read from it rather than restated."""
+    """The range the training contract enforces, read from it rather than restated.
+
+    Python's json reads NaN and Infinity; they are refused as non-finite, not
+    by whichever bound they happen to fail.
+    """
     low, high = columns.NUMERIC_BOUNDS[column]
-    return Field(ge=low, le=high, description=description)
+    return Field(ge=low, le=high, allow_inf_nan=False, description=description)
 
 
 class CustomerFeatures(BaseModel):
@@ -89,6 +93,16 @@ class CustomerFeatures(BaseModel):
     PaymentMethod: PaymentMethodValue
     MonthlyCharges: Annotated[float, _bounded("MonthlyCharges")]
     TotalCharges: Annotated[float, _bounded("TotalCharges")]
+
+    @field_validator(*columns.NUMERIC_COLUMNS, mode="before")
+    @classmethod
+    def _not_a_boolean(cls, value: Any) -> Any:
+        """Lax mode reads JSON true as 1, because a bool is an int to Python: a
+        one-month customer, or $1.00 a month, scored with full confidence. The
+        CSV path refuses "True", and so does this."""
+        if isinstance(value, bool):
+            raise ValueError("Input should be a number, not a boolean")
+        return value
 
 
 class PredictionResponse(BaseModel):

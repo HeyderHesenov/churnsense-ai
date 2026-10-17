@@ -609,15 +609,15 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**544 tests, all passing on Python 3.12.13** (2026-10-15). Measured, not
+**634 tests, all passing on Python 3.12.13** (2026-10-17). Measured, not
 claimed:
 
 ```
 $ make test
-544 passed
+634 passed
 ```
 
-The same 544 pass on a fresh copy of the tracked files with no dataset and no
+The same 634 pass on a fresh copy of the tracked files with no dataset and no
 trained artifact — the state GitHub Actions runs in. No test reads the real
 dataset: the dashboard tests run the real app script on a synthetic model and
 book, and fail if anything tries to load the real file.
@@ -712,7 +712,7 @@ src/churnsense/
   api/       main, schemas
 app/                         Streamlit dashboard (theme, components, 8 sections)
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       544 tests + seeded synthetic fixtures
+tests/                       634 tests + seeded synthetic fixtures
 docs/                        walkthrough, interview prep, model card
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
@@ -762,7 +762,10 @@ Found a vulnerability? Please report it privately, as described in
   a tab mid-cell, where Excel in `;`-separator locales would split the cell.
   Opened in Excel or Sheets they read as text instead of running.
 - **No arbitrary deserialization.** The artifact path comes from config and is
-  never caller-supplied; unpickling is equivalent to executing a file.
+  never caller-supplied; unpickling is equivalent to executing a file. Nothing
+  is unpickled until the metadata is complete and servable and `model.joblib`
+  matches the `model_sha256` it records — a check that the two files belong
+  together, not of where they came from.
 - **No SQL, no `eval`,** no execution of uploaded content.
 - **Errors do not leak internals.** Generic messages to users, detail to logs,
   no filesystem paths in any API response. Every API error, the framework's

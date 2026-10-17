@@ -24,8 +24,9 @@ import pytest
 
 from churnsense.config import Config
 from churnsense.data.loader import features_and_target
-from churnsense.data.split import check_split, make_splits
+from churnsense.data.split import check_provenance, check_split, make_splits
 from churnsense.exceptions import DataError
+from tests.conftest import pinned_split_digest, record_provenance
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -71,6 +72,27 @@ def test_the_final_evaluation_refuses_without_confirmation(monkeypatch, capsys):
     assert "Refusing to run" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("recorded", ["0" * 64, None])
+def test_the_final_evaluation_refuses_another_dataset_before_scoring(
+    pipeline_cfg, monkeypatch, recorded
+):
+    """The artifact's threshold was chosen on the data it records; a different
+    file, or none recorded, is refused before a single test row is scored."""
+    from churnsense.evaluation import report
+
+    record_provenance(
+        pipeline_cfg, data_sha256=recorded, split_digest=pinned_split_digest(pipeline_cfg)
+    )
+    scored = []
+    monkeypatch.setattr(report, "load_config", lambda: pipeline_cfg)
+    monkeypatch.setattr(report, "configure_logging", lambda: None)
+    monkeypatch.setattr(report, "run_final_evaluation", lambda *args, **_: scored.append(args))
+
+    assert report.main(["--confirm-test-read"]) == 1
+    assert not scored
+    assert not (pipeline_cfg.paths.reports_dir / "final_evaluation.md").exists()
+
+
 @pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
 @pytest.mark.parametrize(
     ("args", "confirmed"),
@@ -109,6 +131,23 @@ def test_an_artifact_without_a_split_digest_is_refused(clean_frame, cfg: Config)
     X, y = features_and_target(clean_frame, cfg)
     with pytest.raises(DataError, match="no split digest"):
         check_split(make_splits(X, y, cfg), {})
+
+
+def test_partitions_are_trusted_only_for_the_dataset_the_model_records(clean_frame, cfg: Config):
+    X, y = features_and_target(clean_frame, cfg)
+    splits = make_splits(X, y, cfg)
+    meta = {"data_sha256": "a" * 64, "split_digest": splits.digest()}
+
+    check_provenance(splits, "a" * 64, meta)  # the recorded file, the recorded split
+
+    with pytest.raises(DataError, match="dataset differs"):
+        check_provenance(splits, "b" * 64, meta)
+    with pytest.raises(DataError, match="dataset differs"):
+        check_provenance(splits, None, meta)  # a file read without its hash proves nothing
+    with pytest.raises(DataError, match="records no dataset hash"):
+        check_provenance(splits, None, {"split_digest": splits.digest()})  # None == None
+    with pytest.raises(DataError, match="no split digest"):
+        check_provenance(splits, "a" * 64, {"data_sha256": "a" * 64})
 
 
 def test_the_split_log_gives_no_test_base_rate(clean_frame, cfg: Config, caplog):

@@ -11,6 +11,7 @@ from churnsense.data import schema
 from churnsense.data.loader import clean_frame, features_and_target, read_raw
 from churnsense.data.split import make_splits
 from churnsense.exceptions import DataError, SchemaValidationError
+from tests.conftest import pinned_copy
 
 
 def test_blank_total_charges_at_zero_tenure_becomes_zero(raw_frame: pd.DataFrame):
@@ -134,21 +135,6 @@ def test_string_dtype_text_is_cleaned_like_object_text(raw_frame: pd.DataFrame):
     pd.testing.assert_frame_equal(cleaned, expected, check_dtype=False)
 
 
-def _pinned_copy(demo_csv, tmp_path, cfg: Config, sha256: str | None) -> Config:
-    """A config whose dataset is a copy of the demo file, pinned to ``sha256``."""
-    from dataclasses import replace
-
-    raw = tmp_path / "raw"
-    raw.mkdir()
-    (raw / cfg.dataset.filename).write_bytes(demo_csv.read_bytes())
-    rows = len(demo_csv.read_bytes().splitlines()) - 1
-    return replace(
-        cfg,
-        paths=replace(cfg.paths, raw_dir=raw),
-        dataset=replace(cfg.dataset, sha256=sha256, expected_rows=rows),
-    )
-
-
 def test_loading_the_configured_dataset_verifies_its_pin_every_time(demo_csv, tmp_path, cfg):
     """Not only at download: a file changed afterwards must stop the pipeline."""
     from dataclasses import replace
@@ -156,7 +142,7 @@ def test_loading_the_configured_dataset_verifies_its_pin_every_time(demo_csv, tm
     from churnsense.data.download import sha256_of
     from churnsense.data.loader import load_clean
 
-    pinned = _pinned_copy(demo_csv, tmp_path, cfg, sha256="0" * 64)
+    pinned = pinned_copy(demo_csv, tmp_path, cfg, sha256="0" * 64)
     with pytest.raises(DataError, match="SHA-256 mismatch"):
         load_clean(pinned)
 
