@@ -418,3 +418,94 @@ rules above. Each was fixed or decided explicitly; none is left implicit.
   SHAP cache or a report with a blank number reads as "not recorded", is
   logged, and never fails a page. A missing dataset is retried at most every
   30 s, so polling does not reload or log it on every request.
+
+## Decisions recorded during Phase 2 (2026-10-24)
+
+- **Fonts: the latin subset only.** fontsource's per-subset files
+  (`latin-400.css`, `latin-ext-400.css`) declare no `unicode-range`, so two
+  subsets of one weight would make the second replace the first for every
+  character. The interface copy is English and the data is ASCII, so latin
+  covers it; a rare symbol outside it (∋, ≥) falls back to the system font.
+- **Focus after navigation goes to `<main>`, not the `<h1>`.** Pages load
+  lazily, so the heading does not exist yet when the address changes; `main`
+  always does, and a screen reader announces the landmark and reads on.
+- **The open drawer is modal for real.** `main` is `inert` while it is open
+  (not only `aria-modal`), and closing it commits synchronously
+  (`flushSync`) so focus can return to the menu button. jsdom does not
+  implement `inert`, so this is checked in Chromium (Playwright e2e, phase 4).
+- **UI kit scope.** `components/ui` holds only primitives two or more pages
+  use. A piece only one page draws (drop zone, stepper, waterfall, heat cell,
+  confusion cell, CI whisker) lives with that page.
+- **Accessibility fixes over the artboards.** `aria-sort` on every sortable
+  header, table roles on every grid table, hover and disabled states for
+  solid buttons, `aria-current="step"` on the batch stepper.
+- **Toolchain.** `tsconfig.json` is a solution file referencing
+  `tsconfig.app.json` and `tsconfig.node.json`, so `vite.config.ts` is
+  type-checked and linted with Node's types. ESLint uses `defineConfig` and
+  `no-confusing-void-expression` with `ignoreArrowShorthand`
+  (`onClick={() => setOpen(true)}`). MSW 3 imports handlers from `msw/http`
+  and fails a test on any request nobody answers (`onUnhandledFrame`).
+
+### Follow-ups found in this phase
+
+- **Phase 4 e2e:** in Chromium, open the drawer at 375 px, press Escape, and
+  check that `main` is no longer inert and that focus is on the menu button.
+- **Proposed hardening (not yet approved):** refuse requests that carry
+  `Forwarded`, `X-Forwarded-For` or `X-Real-IP`. A reverse proxy on the same
+  host makes every peer look like loopback, and such headers are the only
+  sign of one the service can see.
+
+### Phase 2 review (code-reviewer, 2026-10-24)
+
+0 critical, 0 high, 4 medium, 11 low and 6 nits. Every one was fixed with a
+test that failed first, and each fix was mutation-checked.
+
+- **The query is rebuilt from the address at the moment of each change**, not
+  from the last render. Two changes made in one handler both land.
+- **"Reload the page" instead of "Try again" after a page fails.** `lazy`
+  keeps a failed download, and after a rebuild only a fresh load knows the
+  new file names. The way back is a plain link to the same address.
+- **An unanswered request fails its test.** MSW 3's `'error'` strategy only
+  logs, so the harness records every unanswered request and asserts there
+  are none after each test.
+- **No band chosen means no request.** The API reads a missing `bands` as
+  "any band", so the listing hooks stay idle for an empty choice and the page
+  says so.
+- **Addresses.**
+  - They compare canonically: query keys sorted, fragment included.
+  - A list parameter is written in its declared order, and the default in
+    any order is the default.
+  - `navigate` and `Link` throw on another origin.
+  - A customer ID outside the API's pattern (`..`, `.`, empty) never reaches
+    a path.
+- **Retries.** A server or network failure is retried once; `Retry-After`
+  is capped at 10 s.
+- **Truthful states.**
+  - The Serving card says "Unreachable" when the health check fails, and "—"
+    until the model's description arrives.
+  - The skeleton announces its words.
+  - A sign is taken from the rounded figure, so there is no "−0.0", and an
+    attribution that rounds to zero is coloured as neither.
+- **Accessibility.**
+  - A skip link.
+  - The provenance panel takes focus when it opens.
+  - Tab ids are built from position.
+  - Choosing the page already shown closes the drawer.
+- **Lint closes its bypasses.**
+  - `window.localStorage`, `sessionStorage`, `insertAdjacentHTML` and
+    `document.write` are restricted.
+  - `dangerouslySetInnerHTML` is caught inside an object as well.
+  - Only `lib/preferences.ts` and the tests may touch storage.
+- **Test fixtures are typed by the schema.** `answer(method, path, body)`
+  does not compile for a body or path the API does not have.
+
+### API additions for the overview (2026-10-24)
+
+- **`GET /api/customers?ids=…`** lists exactly those customers (at most 200;
+  with any filter it is a 422, as for the export). The overview's selection
+  bar reads its "$ / mo at risk" from `summary.at_risk`, so the browser still
+  sums nothing. The ids-or-filters rule is one dependency
+  (`customer_selection`), shared by the listing and the export.
+- **`OverviewResponse.importance_basis`**: `{partition, customers}` of the
+  cached SHAP sample, so "Mean |SHAP| on 300 validation customers" is a
+  figure from the API. It is `null` exactly when `importance` is.

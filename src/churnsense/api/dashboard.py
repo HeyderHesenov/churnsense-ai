@@ -143,13 +143,18 @@ def _association(d: Dashboard) -> list[out.Association] | None:
     ]
 
 
-def _importance(d: Dashboard) -> list[out.Importance] | None:
+def _importance(d: Dashboard) -> tuple[list[out.Importance], out.ImportanceBasis] | None:
+    """The cached importance ranking and the customers it was computed on, or ``None``."""
     cached = read_cache(d.shap_cache, d.model.meta.get("model_sha256", ""))
+    if cached is None:
+        return None
     try:
-        return None if cached is None else [out.Importance(**r) for r in cached["importance"]]
+        ranking = [out.Importance(**r) for r in cached["importance"]]
+        basis = out.ImportanceBasis(partition=cached["partition"], customers=cached["n_explained"])
     except (KeyError, TypeError, ValidationError):
         logger.warning("the SHAP cache's importance ranking is malformed; ignoring it")
         return None
+    return ranking, basis
 
 
 def recorded_evaluation(reports_dir: Path, model_sha256: str) -> out.HoldoutEvaluation | None:
@@ -262,6 +267,7 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
             ],
         )
     association = _association(d)
+    importance, importance_basis = _importance(d) or (None, None)
     return out.OverviewResponse(
         customers=len(d.frame),
         monthly_charges=float(d.frame["MonthlyCharges"].sum()),
@@ -281,7 +287,8 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
             median_tenure_churned=lifecycle.median_tenure_churned,
             median_tenure_stayed=lifecycle.median_tenure_stayed,
         ),
-        importance=_importance(d),
+        importance=importance,
+        importance_basis=importance_basis,
         association=association,
         campaign=campaign,
         withheld_reason=d.book.withheld,
@@ -322,6 +329,22 @@ def customer_filter(
     )
 
 
+def customer_selection(
+    selection: Annotated[insights.CustomerFilter, Depends(customer_filter)],
+    ids: Annotated[list[CustomerId] | None, Query(max_length=200)] = None,
+) -> insights.CustomerFilter:
+    """The book filtered, or exactly the listed customers.
+
+    ``ids`` and the filters are alternatives: both at once is a 422 rather
+    than a guess at which wins.
+    """
+    if ids is None:
+        return selection
+    if selection != insights.CustomerFilter():
+        raise _invalid("ids", "list customers by ids or filter the book, not both")
+    return insights.CustomerFilter(ids=tuple(ids))
+
+
 SortKey = Literal["id", "probability", "tenure", "monthly", "at_risk"]
 Direction = Literal["asc", "desc"]
 
@@ -329,7 +352,7 @@ Direction = Literal["asc", "desc"]
 @router.get("/customers", response_model=out.CustomerPage, responses=_ERRORS)
 def customers(
     d: Annotated[Dashboard, Depends(get_dashboard)],
-    selection: Annotated[insights.CustomerFilter, Depends(customer_filter)],
+    selection: Annotated[insights.CustomerFilter, Depends(customer_selection)],
     sort: SortKey = "probability",
     direction: Annotated[Direction, Query(alias="dir")] = "desc",
     page: Annotated[int, Query(ge=1, le=100_000)] = 1,
@@ -338,7 +361,8 @@ def customers(
     """One page of the scored book, filtered and sorted, with a summary of every match.
 
     A page past the end is clamped to the last one, so a stale link still
-    shows rows. ``outcome`` is ``"withheld"`` for every test customer.
+    shows rows. ``outcome`` is ``"withheld"`` for every test customer. With
+    ``ids``, the summary totals exactly those customers (a page's selection).
     """
     matches = insights.select(d.frame, selection)
     pages = max(1, -(-len(matches) // page_size))
@@ -380,21 +404,14 @@ def customers(
 )
 def export_customers(
     d: Annotated[Dashboard, Depends(get_dashboard)],
-    selection: Annotated[insights.CustomerFilter, Depends(customer_filter)],
-    ids: Annotated[list[CustomerId] | None, Query(max_length=200)] = None,
+    selection: Annotated[insights.CustomerFilter, Depends(customer_selection)],
     sort: SortKey = "probability",
     direction: Annotated[Direction, Query(alias="dir")] = "desc",
 ) -> Response:
     """The filtered book, or exactly the listed customers, as CSV; every cell spreadsheet-safe.
 
-    ``ids`` and the filters are alternatives: both at once is a 422 rather
-    than a guess at which wins. The outcome column reads ``withheld`` for
-    every test customer.
+    The outcome column reads ``withheld`` for every test customer.
     """
-    if ids is not None:
-        if selection != insights.CustomerFilter():
-            raise _invalid("ids", "list customers by ids or filter the book, not both")
-        selection = insights.CustomerFilter(ids=tuple(ids))
     matches = insights.ordered(insights.select(d.frame, selection), sort, direction == "desc")
     body = csv_bytes(insights.export_frame(matches, d.model.feature_columns))
     return Response(

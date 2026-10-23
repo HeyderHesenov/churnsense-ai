@@ -148,6 +148,13 @@ def test_the_overview_counts_outcomes_on_training_and_validation_only(served, sh
     assert body["withheld_reason"] is None
 
 
+def test_the_overview_says_what_its_attributions_were_computed_on(served):
+    """ "Mean |SHAP| on 12 validation customers": the sample behind the ranking."""
+    body = _ok(served.get("/api/overview"))
+    assert body["importance_basis"] == {"partition": "validation", "customers": 12}
+    assert body["importance"]
+
+
 def test_the_overview_breakdowns_read_the_training_partition(served, clean_frame, dashboard_parts):
     body = _ok(served.get("/api/overview"))
     train = clean_frame.loc[dashboard_parts.X_train.index]
@@ -595,6 +602,9 @@ def _every_dashboard_response(client, ids, raw_frame) -> Iterator[tuple[str, obj
         yield f"customers {partition}", page.json()
     for customer_id in sorted(ids["test"])[:15]:
         yield customer_id, client.get(f"/api/customers/{customer_id}").json()
+    chosen = sorted(ids["test"])[:100] + sorted(ids["train"])[:100]
+    selection = client.get("/api/customers", params={"ids": chosen, "page_size": 100})
+    yield "customers by ids", selection.json()
     yield "examples", client.get("/api/customers/examples").json()
     yield "performance", client.get("/api/performance").json()
     yield "sweep", client.get("/api/threshold/sweep").json()
@@ -1008,6 +1018,7 @@ def test_a_damaged_shap_cache_is_ignored_not_fatal(served, environment, damage):
         overview = _ok(served.get("/api/overview"))
         if damage != "mismatch":
             assert overview["importance"] is None
+            assert overview["importance_basis"] is None
         response = served.get("/api/explain/global")
         assert response.status_code == 503
         assert response.json()["error"] == "explanations_not_cached"
@@ -1015,10 +1026,39 @@ def test_a_damaged_shap_cache_is_ignored_not_fatal(served, environment, damage):
         path.write_text(original)
 
 
-def test_an_export_takes_ids_or_filters_not_both(served):
-    response = served.get(
-        "/api/customers/export", params={"ids": ["DEMO-00001"], "flagged": "true"}
-    )
+@pytest.mark.parametrize("path", ["/api/customers", "/api/customers/export"])
+def test_a_listing_takes_ids_or_filters_not_both(served, path):
+    response = served.get(path, params={"ids": ["DEMO-00001"], "flagged": "true"})
+    assert response.status_code == 422
+    assert any(p.startswith("ids") for p in response.json()["problems"])
+
+
+def test_a_listing_by_ids_shows_exactly_those_customers_and_totals_them(served):
+    """The overview's selection bar reads its revenue at risk from here, not the browser."""
+    chosen = ["DEMO-00003", "DEMO-00001", "DEMO-00002"]
+    body = _ok(served.get("/api/customers", params={"ids": chosen, "page_size": 100}))
+    assert sorted(row["id"] for row in body["rows"]) == sorted(chosen)
+    assert body["total"] == body["summary"]["customers"] == 3
+    assert body["summary"]["at_risk"] == pytest.approx(sum(r["at_risk"] for r in body["rows"]))
+
+
+def test_a_selection_of_test_customers_reports_no_outcome(served, ids):
+    chosen = sorted(ids["test"])[:25]
+    body = _ok(served.get("/api/customers", params={"ids": chosen, "page_size": 100}))
+    assert {row["outcome"] for row in body["rows"]} == {"withheld"}
+    assert body["summary"]["observed"] is None
+
+
+@pytest.mark.parametrize(
+    "chosen",
+    [
+        [f"DEMO-{i:05d}" for i in range(201)],
+        ["../etc/passwd"],
+    ],
+    ids=["too many", "not an id"],
+)
+def test_a_listing_refuses_ids_it_cannot_take(served, chosen):
+    response = served.get("/api/customers", params={"ids": chosen})
     assert response.status_code == 422
     assert any(p.startswith("ids") for p in response.json()["problems"])
 

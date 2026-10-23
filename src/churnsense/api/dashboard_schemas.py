@@ -129,6 +129,13 @@ class Importance(_Model):
     share: float
 
 
+class ImportanceBasis(_Model):
+    """The customers a cached importance ranking was computed on."""
+
+    partition: str
+    customers: int
+
+
 class CurvePoint(_Model):
     threshold: float
     net_benefit: float
@@ -164,6 +171,8 @@ class OverviewResponse(_Model):
     segments: list[SegmentTab]
     lifecycle: Lifecycle | None
     importance: list[Importance] | None
+    #: The sample behind ``importance``; ``None`` exactly when it is.
+    importance_basis: ImportanceBasis | None
     association: list[Association] | None
     campaign: Campaign | None
     #: Why no outcome is shown, when the partitions could not be verified.
