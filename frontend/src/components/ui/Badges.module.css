@@ -1,0 +1,80 @@
+.swatch {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-2);
+  background: var(--band, var(--muted));
+}
+
+.bandLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.inked {
+  color: var(--band-ink, inherit);
+}
+
+.outcome {
+  display: inline-block;
+  padding: 2px 7px;
+  border: 1px solid var(--line-stayed);
+  border-radius: var(--radius-5);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.outcome[data-outcome='churned'] {
+  border-color: var(--raises-pill-line);
+  color: var(--raises-text);
+}
+.outcome[data-outcome='withheld'] {
+  border-style: dashed;
+  border-color: var(--line-hover);
+}
+
+.attribution {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: var(--radius-5);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.attribution[data-direction='raises'] {
+  background: var(--raises-soft);
+  color: var(--raises-text);
+}
+.attribution[data-direction='lowers'] {
+  background: var(--lowers-soft);
+  color: var(--lowers-text);
+}
+.attribution[data-direction='none'] {
+  background: var(--track);
+  color: var(--ink-2);
+}
+
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.track {
+  width: 52px;
+  height: 5px;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--radius-3);
+  background: var(--track-2);
+}
+.fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--p, 0) * 100%);
+  background: var(--band, var(--accent));
+}
+.value {
+  font-family: var(--font-mono);
+}

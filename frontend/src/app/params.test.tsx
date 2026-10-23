@@ -1,0 +1,152 @@
+import { act, renderHook } from '@testing-library/react';
+import { param, useParams } from './params';
+
+const BANDS = ['Low', 'Moderate', 'High', 'Critical'] as const;
+
+const schema = {
+  bands: param.list(BANDS, ['Critical', 'High', 'Moderate']),
+  sort: param.choice(['probability', 'at_risk', 'tenure'] as const, 'at_risk'),
+  part: param.optional(['train', 'validation', 'test'] as const),
+  page: param.int({ min: 1, max: 1000, fallback: 1 }),
+  q: param.text({ pattern: /^[A-Za-z0-9-]*$/, maxLength: 32 }),
+};
+
+function at(search: string) {
+  window.history.replaceState(null, '', `/explorer${search}`);
+  return renderHook(() => useParams(schema));
+}
+
+describe('useParams reading the address', () => {
+  it('gives every default for an empty query', () => {
+    const { result } = at('');
+    expect(result.current[0]).toEqual({
+      bands: ['Critical', 'High', 'Moderate'],
+      sort: 'at_risk',
+      part: null,
+      page: 1,
+      q: '',
+    });
+  });
+
+  it('reads valid values', () => {
+    const { result } = at('?bands=High&bands=Low&sort=tenure&part=test&page=3&q=DEMO-0001');
+    expect(result.current[0]).toEqual({
+      bands: ['Low', 'High'],
+      sort: 'tenure',
+      part: 'test',
+      page: 3,
+      q: 'DEMO-0001',
+    });
+  });
+
+  it.each([
+    ['an unknown choice', '?sort=churn', { sort: 'at_risk' }],
+    ['an unknown optional choice', '?part=everyone', { part: null }],
+    ['a page below the range', '?page=0', { page: 1 }],
+    ['a page above the range', '?page=1001', { page: 1 }],
+    ['a fractional page', '?page=2.5', { page: 1 }],
+    ['a page with trailing text', '?page=2x', { page: 1 }],
+    ['text outside the pattern', '?q=%3Cscript%3E', { q: '' }],
+    ['text over the length limit', `?q=${'A'.repeat(33)}`, { q: '' }],
+  ])('falls back to the default for %s', (_name, search, expected) => {
+    const { result } = at(search);
+    expect(result.current[0]).toMatchObject(expected);
+  });
+
+  it('drops unknown and repeated list members, and reads them in the declared order', () => {
+    const { result } = at('?bands=High&bands=Severe&bands=High&bands=Low');
+    expect(result.current[0].bands).toEqual(['Low', 'High']);
+  });
+
+  it('treats the default in another order as the default', () => {
+    const { result } = at('?bands=High&bands=Moderate&bands=Critical&page=2');
+    expect(result.current[0].bands).toEqual(['Critical', 'High', 'Moderate']);
+    act(() => result.current[1]({ bands: ['Moderate', 'Critical', 'High'] }));
+    expect(window.location.search).toBe('?page=2');
+  });
+
+  it('falls back to the default list when no member is valid', () => {
+    const { result } = at('?bands=Severe');
+    expect(result.current[0].bands).toEqual(['Critical', 'High', 'Moderate']);
+  });
+
+  it('reads an explicitly empty list as empty, not as the default', () => {
+    const { result } = at('?bands=');
+    expect(result.current[0].bands).toEqual([]);
+  });
+
+  it('refuses a stateful pattern, which would accept a value only every other time', () => {
+    expect(() => param.text({ pattern: /^[A-Z]*$/g, maxLength: 8 })).toThrow(
+      /without the g or y flag/,
+    );
+  });
+
+  it('keeps the same values object while the address is unchanged', () => {
+    const { result, rerender } = at('?page=2');
+    const first = result.current[0];
+    rerender();
+    expect(result.current[0]).toBe(first);
+  });
+});
+
+describe('a list whose default comes from the data', () => {
+  const derived = { bands: param.list(BANDS, null) };
+
+  function hook(search: string) {
+    window.history.replaceState(null, '', `/${search}`);
+    return renderHook(() => useParams(derived));
+  }
+
+  it('reads as null until something is chosen', () => {
+    expect(hook('').result.current[0].bands).toBeNull();
+    expect(hook('?bands=Severe').result.current[0].bands).toBeNull();
+  });
+
+  it('keeps a choice, an empty one included, and forgets it when set back to null', () => {
+    const { result } = hook('?bands=High');
+    expect(result.current[0].bands).toEqual(['High']);
+    act(() => result.current[1]({ bands: [] }));
+    expect(result.current[0].bands).toEqual([]);
+    act(() => result.current[1]({ bands: null }));
+    expect(window.location.search).toBe('');
+    expect(result.current[0].bands).toBeNull();
+  });
+});
+
+describe('useParams writing the address', () => {
+  it('writes non-default values and leaves defaults out of the address', () => {
+    const { result } = at('');
+    act(() => result.current[1]({ sort: 'tenure', page: 1, bands: ['High', 'Low'] }));
+    expect(window.location.search).toBe('?sort=tenure&bands=Low&bands=High');
+    expect(result.current[0]).toMatchObject({ sort: 'tenure', page: 1, bands: ['Low', 'High'] });
+  });
+
+  it('removes a key set back to its default', () => {
+    const { result } = at('?sort=tenure&page=4');
+    act(() => result.current[1]({ sort: 'at_risk', part: null }));
+    expect(window.location.search).toBe('?page=4');
+  });
+
+  it('round-trips an empty list', () => {
+    const { result } = at('');
+    act(() => result.current[1]({ bands: [] }));
+    expect(window.location.search).toBe('?bands=');
+    expect(result.current[0].bands).toEqual([]);
+  });
+
+  it('keeps query keys it does not own', () => {
+    const { result } = at('?id=DEMO-0002');
+    act(() => result.current[1]({ page: 2 }));
+    expect(window.location.search).toBe('?id=DEMO-0002&page=2');
+  });
+
+  it('adds a history entry by default and edits in place when asked', () => {
+    const { result } = at('');
+    const before = window.history.length;
+    act(() => result.current[1]({ page: 2 }));
+    expect(window.history.length).toBe(before + 1);
+    act(() => result.current[1]({ q: 'DEMO' }, { replace: true }));
+    expect(window.history.length).toBe(before + 1);
+    expect(window.location.search).toBe('?page=2&q=DEMO');
+  });
+});

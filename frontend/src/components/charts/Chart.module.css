@@ -1,0 +1,74 @@
+.figure {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.plot {
+  position: relative;
+}
+.picture svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* --- tooltip ---------------------------------------------------------------- */
+.tooltip {
+  position: absolute;
+  left: calc(var(--x) * 100%);
+  top: calc(var(--y) * 100%);
+  z-index: 10;
+  width: max-content;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--radius-8);
+  background: var(--ink);
+  box-shadow: var(--shadow-tip);
+  transform: translateX(14px);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.tooltip.flip {
+  transform: translateX(calc(-100% - 14px));
+}
+.tooltip[data-visible='true'] {
+  opacity: 1;
+}
+.tipTitle {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-light);
+}
+.tipLine {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--on-light-2);
+}
+
+/* --- shared marks ------------------------------------------------------------ */
+.gridLine {
+  stroke: var(--line-soft);
+}
+.axisLine {
+  stroke: var(--line-axis);
+}
+.tick {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  fill: var(--muted);
+}

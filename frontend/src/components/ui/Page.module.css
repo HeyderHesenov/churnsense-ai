@@ -1,0 +1,19 @@
+.page {
+  width: 100%;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 26px 28px 40px;
+}
+.dense {
+  max-width: 1480px;
+  gap: 14px;
+  padding: 24px 28px 40px;
+}
+@media (max-width: 860px) {
+  .page {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

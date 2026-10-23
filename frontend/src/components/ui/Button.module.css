@@ -1,0 +1,150 @@
+/*
+ * Buttons as the artboards draw them: one base, a variant for colour, a size
+ * for the box. A variant only sets the custom properties; the base applies
+ * them, including on hover, so a button that is an <a> keeps its colours
+ * against the page's link rules.
+ */
+.button {
+  --btn-bg: transparent;
+  --btn-line: transparent;
+  --btn-fg: var(--ink);
+  --btn-bg-hover: var(--ghost-hover);
+  --btn-line-hover: var(--line-hover);
+  --btn-fg-hover: var(--btn-fg);
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex: none;
+  background: var(--btn-bg);
+  border: 1px solid var(--btn-line);
+  color: var(--btn-fg);
+  font-family: inherit;
+  font-weight: 550;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease,
+    filter 0.15s ease;
+}
+.button:hover {
+  color: var(--btn-fg);
+}
+.button:hover:not(:disabled, [aria-disabled='true']) {
+  background: var(--btn-bg-hover);
+  border-color: var(--btn-line-hover);
+  color: var(--btn-fg-hover);
+}
+.button:disabled,
+.button[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- sizes ---------------------------------------------------------------- */
+.lg {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-10);
+  font-size: 13px;
+}
+.md {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-9);
+  font-size: 12.5px;
+}
+.sm {
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: var(--radius-8);
+  font-size: 12.5px;
+}
+.xs {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-8);
+  font-size: 12px;
+}
+
+/* --- variants ------------------------------------------------------------- */
+.primary {
+  --btn-bg: var(--accent);
+  --btn-fg: var(--on-accent);
+  --btn-bg-hover: var(--accent);
+  --btn-line-hover: transparent;
+}
+.sim {
+  --btn-bg: var(--sim);
+  --btn-fg: var(--sim-on);
+  --btn-bg-hover: var(--sim);
+  --btn-line-hover: transparent;
+}
+.primary,
+.sim {
+  font-weight: 600;
+}
+/* The design gives solid buttons no hover; a slight lift says they are live. */
+.primary:hover:not(:disabled),
+.sim:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.primary.sm,
+.sim.sm {
+  border-radius: var(--radius-9);
+}
+
+.secondary {
+  --btn-bg: var(--raised);
+  --btn-line: var(--line-strong);
+}
+.outline {
+  --btn-line: var(--line-strong);
+  --btn-fg: var(--ink-2);
+  --btn-fg-hover: var(--ink);
+}
+.quiet {
+  --btn-fg: var(--ink-2);
+  --btn-line-hover: transparent;
+  --btn-fg-hover: var(--ink);
+  padding: 0 10px;
+}
+.simGhost {
+  --btn-bg: var(--sim-soft);
+  --btn-line: var(--sim-line);
+  --btn-fg: var(--sim-text);
+  --btn-bg-hover: var(--sim-soft-2);
+  --btn-line-hover: var(--sim-line);
+}
+.status {
+  --btn-bg: var(--ok-soft);
+  --btn-line: var(--ok-line);
+  --btn-fg: var(--ok-text);
+  --btn-bg-hover: var(--ok-soft);
+  --btn-line-hover: var(--ok-text);
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+/* --- icon-only: a square of the size's height ------------------------------ */
+.icon {
+  --btn-line: var(--line-strong);
+  padding: 0;
+}
+.icon.lg {
+  width: 40px;
+}
+.icon.md {
+  width: 36px;
+}
+.icon.sm {
+  width: 34px;
+}
+.icon.xs {
+  width: 32px;
+}

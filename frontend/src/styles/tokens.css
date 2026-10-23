@@ -1,0 +1,136 @@
+/*
+ * Design tokens, exactly as the artboards in docs/design use them.
+ * Every colour a component paints comes from here; a component that needs a
+ * value missing from this list should add it here, not inline it.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Grounds, darkest first */
+  --ground: #0a0d12;
+  --header: #0b0f14;
+  --sidebar: #0c1016;
+  --well: #0d1117;
+  --surface: #10151c;
+  --raised: #121821;
+  --row-hover: #121820;
+  --hover: #131a23;
+  --nav-hover: #141a22;
+  --selected: #141b24;
+  --selected-row: #141c26;
+  --chip-on: #151c25;
+  --track: #161d26;
+  --track-2: #1c232c;
+  --seg-on: #1c2530;
+  --ghost-hover: #1a212b;
+
+  /* Lines */
+  --line-row: #182029;
+  --line-soft: #1c232c;
+  --line: #1f2730;
+  --line-input: #222a34;
+  --line-strong: #2a3440;
+  --line-hover: #3a4654;
+  --line-axis: #4a5664;
+  --line-dash: #2f3a47;
+  --line-stayed: #26303b;
+  --tile-hover-line: #33404e;
+
+  /* Text */
+  --ink: #e6edf3;
+  --ink-2: #adb7c2;
+  --muted: #8b949e;
+  --placeholder: #7d8792;
+  --disabled: #56606b;
+  --on-light: #0a0d12;
+  --on-light-2: #30363d;
+
+  /* Accent (cyan) */
+  --accent: #1897ae;
+  --accent-text: #5cc8dc;
+  --link: #7fd3e3;
+  --link-hover: #b8e8f1;
+  --accent-line: #1d4c57;
+  --accent-soft: rgba(24, 151, 174, 0.1);
+  --accent-soft-2: rgba(24, 151, 174, 0.12);
+  --accent-soft-3: rgba(24, 151, 174, 0.14);
+  --accent-row: rgba(24, 151, 174, 0.07);
+  --on-accent: #041217;
+
+  /* Simulated money (amber) */
+  --sim: #f0b54a;
+  --sim-text: #f6c873;
+  --sim-line: #5a4316;
+  --sim-card-line: #3a2e17;
+  --sim-soft: rgba(201, 133, 0, 0.1);
+  --sim-soft-2: rgba(201, 133, 0, 0.14);
+  --sim-note: #e9d3a6;
+  --sim-on: #1d1403;
+  --sim-dim: #6e5a33;
+
+  /* Risk ramp: lightness rises with risk */
+  --low: #56667b;
+  --low-ink: #a9b4c2;
+  --low-soft: rgba(86, 102, 123, 0.16);
+  --low-line: #3a4656;
+  --moderate: #6b62b0;
+  --moderate-ink: #b8b0f3;
+  --moderate-soft: rgba(107, 98, 176, 0.16);
+  --moderate-line: #3f3a6b;
+  --high: #a35ec9;
+  --high-ink: #d9aaf0;
+  --high-soft: rgba(163, 94, 201, 0.16);
+  --high-line: #5c3772;
+  --critical: #e8578f;
+  --critical-ink: #f7abc8;
+  --critical-soft: rgba(232, 87, 143, 0.15);
+  --critical-line: #6e2b45;
+
+  /* Attribution: a diverging pair */
+  --raises: #ec835a;
+  --raises-text: #f2a585;
+  --raises-soft: rgba(236, 131, 90, 0.12);
+  --raises-line: #5a3322;
+  --raises-pill-line: #4a2e22;
+  --lowers: #5b8def;
+  --lowers-text: #9dbaf5;
+  --lowers-soft: rgba(91, 141, 239, 0.12);
+  --lowers-line: #23395a;
+
+  /* Status */
+  --ok: #3fa655;
+  --ok-text: #8fd99a;
+  --ok-line: #1f3a2a;
+  --ok-soft: rgba(63, 166, 85, 0.07);
+  --info-text: #c6d6f5;
+  --info-icon: #93b4f6;
+  --info-soft: rgba(91, 141, 239, 0.07);
+
+  /* Charts */
+  --precision: #5cc8dc;
+  --recall: #b7aff4;
+  --whisker: #6e7b8a;
+  --chart-hover: rgba(230, 237, 243, 0.06);
+  --skeleton: #141b24;
+  --skeleton-hi: #1a222c;
+
+  /* Shape and type */
+  /* Radii are named by their size: the artboards use exact pixel values. */
+  --radius-2: 2px;
+  --radius-3: 3px;
+  --radius-5: 5px;
+  --radius-6: 6px;
+  --radius-7: 7px;
+  --radius-8: 8px;
+  --radius-9: 9px;
+  --radius-10: 10px;
+  --radius-11: 11px;
+  --radius-12: 12px;
+  --radius-14: 14px;
+  --radius-16: 16px;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+  --shadow-pop: 0 18px 40px rgba(0, 0, 0, 0.5);
+  --shadow-tip: 0 10px 24px rgba(0, 0, 0, 0.45);
+  --shadow-tip-sm: 0 8px 20px rgba(0, 0, 0, 0.4);
+}

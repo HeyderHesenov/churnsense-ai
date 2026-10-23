@@ -1,0 +1,123 @@
+/* --- card ------------------------------------------------------------------- */
+.card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-16);
+}
+.dense {
+  gap: 10px;
+  padding: 16px 18px;
+}
+.sim {
+  border-color: var(--sim-card-line);
+}
+/* A table runs to the card's edges; its header rows keep the card's inset. */
+.flush {
+  padding: 18px 0 4px;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.heading {
+  min-width: 0;
+}
+.title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.subtitle {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* --- stat tile ---------------------------------------------------------------- */
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-14);
+  color: var(--ink);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+.linkTile:hover {
+  background: var(--row-hover);
+  border-color: var(--tile-hover-line);
+  color: var(--ink);
+}
+.accent {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.tileLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.tileValue {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+.tileSub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.compact {
+  padding: 12px 14px;
+  border-radius: var(--radius-12);
+}
+.compact .tileLabel {
+  font-size: 12px;
+  color: var(--muted);
+}
+.compact .tileValue {
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.compact .tileSub {
+  font-size: 11.5px;
+}
+
+/* --- tag ---------------------------------------------------------------------- */
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-5);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.simTag {
+  border-color: var(--sim-line);
+  background: var(--sim-soft);
+  color: var(--sim);
+}

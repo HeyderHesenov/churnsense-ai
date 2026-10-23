@@ -1,0 +1,123 @@
+/* --- chips --------------------------------------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-9);
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+.chip:hover {
+  border-color: var(--line-hover);
+}
+.chip[aria-pressed='true'] {
+  border-color: var(--line-hover);
+  background: var(--chip-on);
+  color: var(--ink);
+}
+
+/* A preset: a saved view, a little larger, on the card's ground. */
+.preset {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--radius-10);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-weight: 550;
+}
+.preset[aria-pressed='true'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft-2);
+  color: var(--ink);
+}
+
+/* A filter by band takes the band's own colours when on. */
+.band[aria-pressed='true'] {
+  border-color: var(--band-line, var(--line-hover));
+  background: var(--band-soft, var(--chip-on));
+}
+
+.swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--radius-2);
+  background: var(--band, var(--muted));
+  opacity: 0.35;
+}
+.chip[aria-pressed='true'] .swatch {
+  opacity: 1;
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.removable {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--link);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 0 10px;
+}
+.removable:hover {
+  border-color: var(--accent);
+  color: var(--link-hover);
+}
+
+/* --- segmented control --------------------------------------------------- */
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  background: var(--header);
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-10);
+}
+/* Inside a filter bar the control is lighter and tighter. */
+.segmented.compact {
+  padding: 2px;
+  border-color: var(--line-strong);
+  border-radius: var(--radius-9);
+}
+.seg {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-7);
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.seg:hover {
+  color: var(--ink);
+}
+.seg[aria-pressed='true'] {
+  background: var(--seg-on);
+  color: var(--ink);
+}
+.small .seg {
+  min-height: 30px;
+  padding: 0 11px;
+  font-size: 12px;
+}
