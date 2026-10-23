@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -59,6 +60,11 @@ DEFAULT_BACKGROUND = 100
 DEFAULT_SAMPLE = 300
 #: Antithetic feature orderings sampled per explained customer.
 PERMUTATIONS = 10
+
+#: shap's permutation explainer seeds and shuffles numpy's *global* random
+#: state, so two explanations running at once in a server's thread pool would
+#: draw each other's orderings and stop being reproducible. One at a time.
+_EXPLAINER_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,14 +134,14 @@ def _shap_values(
     features.
     """
     columns = list(X.columns)
-    explainer = shap.explainers.PermutationExplainer(
-        lambda codes: model.predict_proba(_from_codes(codes, columns))[:, 1],
-        _as_codes(background[columns]),
-        seed=seed,
-    )
-    explanation = explainer(
-        _as_codes(X), max_evals=permutations * (2 * len(columns) + 1), silent=True
-    )
+    codes, reference = _as_codes(X), _as_codes(background[columns])
+    with _EXPLAINER_LOCK:
+        explainer = shap.explainers.PermutationExplainer(
+            lambda batch: model.predict_proba(_from_codes(batch, columns))[:, 1],
+            reference,
+            seed=seed,
+        )
+        explanation = explainer(codes, max_evals=permutations * (2 * len(columns) + 1), silent=True)
     values = pd.DataFrame(explanation.values, index=X.index, columns=columns)
     values.attrs["base_value"] = float(np.mean(explanation.base_values))
     return values
@@ -165,8 +171,11 @@ def global_importance(
     customers.
     """
     reference = background if background is not None else background_sample(X, seed)
-    values = _shap_values(model, X, reference, seed=seed, permutations=permutations)
+    return importance_from(_shap_values(model, X, reference, seed=seed, permutations=permutations))
 
+
+def importance_from(values: pd.DataFrame) -> pd.DataFrame:
+    """The ranking ``global_importance`` returns, from SHAP values already computed."""
     mean_abs = values.abs().mean().sort_values(ascending=False)
     return pd.DataFrame(
         {
@@ -264,27 +273,101 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
 
     explained = splits.X_val.sample(min(sample, len(splits.X_val)), random_state=cfg.random_seed)
     background = background_sample(splits.X_train, cfg.random_seed)
-    importance = global_importance(model, explained, background=background, seed=cfg.random_seed)
+    payload = explanation_cache(model, meta, explained, background, seed=cfg.random_seed)
+    path = cfg.paths.shap_cache_file
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    logger.info(
+        "cached global SHAP importance for %d features -> %s", len(payload["features"]), path.name
+    )
 
-    payload = {
+    from churnsense.evaluation.figures import shap_importance
+
+    shap_importance(pd.DataFrame(payload["importance"]), cfg.paths.figures_dir)
+    return path
+
+
+def explanation_cache(
+    model: ProbabilityClamp,
+    meta: dict[str, Any],
+    explained: pd.DataFrame,
+    background: pd.DataFrame,
+    *,
+    seed: int,
+    permutations: int = PERMUTATIONS,
+) -> dict[str, Any]:
+    """What ``make explain`` caches: the ranking, and the matrix the dashboard draws.
+
+    One row of contributions per explained customer, the values they were
+    computed for, and how closely base + contributions reproduce the served
+    probability - so the page can state that check instead of assuming it.
+    """
+    values = _shap_values(model, explained, background, seed=seed, permutations=permutations)
+    base_value = float(values.attrs["base_value"])
+    served = model.predict_proba(explained)[:, 1]
+    gap = float(np.max(np.abs(base_value + values.to_numpy().sum(axis=1) - served)))
+    columns = list(values.columns)
+    return {
         "model_key": meta["model_key"],
         "trained_at": meta["trained_at"],
         "model_sha256": meta["model_sha256"],
         "n_explained": len(explained),
         "n_background": len(background),
-        "permutations": PERMUTATIONS,
+        "permutations": permutations,
+        "seed": seed,
         "partition": "validation",
         "caveat": CAVEAT,
-        "importance": importance.to_dict(orient="records"),
+        "importance": importance_from(values).to_dict(orient="records"),
+        "base_value": base_value,
+        "features": columns,
+        "values": values.to_numpy().tolist(),
+        "x": [
+            {f: (str(v) if f in schema.ALLOWED_CATEGORIES else float(v)) for f, v in row.items()}
+            for row in explained[columns].to_dict(orient="records")
+        ],
+        "max_additivity_gap": gap,
     }
-    path = cfg.paths.shap_cache_file
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    logger.info("cached global SHAP importance for %d features -> %s", len(importance), path.name)
 
-    from churnsense.evaluation.figures import shap_importance
 
-    shap_importance(importance, cfg.paths.figures_dir)
-    return path
+def read_cache(path: Path, model_sha256: str) -> dict[str, Any] | None:
+    """``make explain``'s cache for the artifact with ``model_sha256``, or ``None``.
+
+    ``None`` when ``make explain`` has not run or ran for another artifact: a
+    ranking computed for a different model describes nothing being served.
+    """
+    if not path.is_file():
+        return None
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        logger.warning("the SHAP cache could not be read: %s", exc.__class__.__name__)
+        return None
+    if not isinstance(cached, dict):
+        logger.warning("the SHAP cache is not a JSON object")
+        return None
+    return cached if cached.get("model_sha256") == model_sha256 else None
+
+
+def load_cached_explanations(path: Path, model_sha256: str) -> dict[str, Any] | None:
+    """The cached SHAP matrix for the artifact with ``model_sha256``, or ``None``.
+
+    Also ``None`` for a cache written before it carried the matrix: the page
+    then has nothing it could honestly draw until ``make explain`` runs again.
+    """
+    cached = read_cache(path, model_sha256)
+    if cached is None or "values" not in cached:
+        return None
+    features, values, x = cached.get("features"), cached.get("values"), cached.get("x")
+    consistent = (
+        isinstance(features, list)
+        and isinstance(values, list)
+        and isinstance(x, list)
+        and len(values) == len(x)
+        and all(isinstance(row, list) and len(row) == len(features) for row in values)
+    )
+    if not consistent:
+        logger.warning("the cached SHAP matrix does not match its feature list; ignoring it")
+        return None
+    return cached
 
 
 def load_cached_importance(cfg: Config | None = None) -> pd.DataFrame | None:

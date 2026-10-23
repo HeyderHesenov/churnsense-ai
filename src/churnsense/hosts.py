@@ -70,3 +70,40 @@ def is_allowed_origin(origin: str | None, allowed: Iterable[str]) -> bool:
     if parts.scheme not in {"http", "https"} or "@" in parts.netloc or parts.path:
         return False
     return is_allowed_host(parts.netloc, allowed)
+
+
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _port(netloc: str, default: int) -> int | None:
+    """The port of a ``host[:port]`` or ``[v6][:port]``, ``default`` if none; None if malformed."""
+    tail = netloc.rsplit("]", 1)[-1] if netloc.startswith("[") else netloc
+    if ":" not in tail:
+        return default
+    text = tail.rsplit(":", 1)[1]
+    return int(text) if text.isascii() and text.isdigit() and len(text) <= 5 else None
+
+
+def is_same_origin(origin: str | None, host: str | None, scheme: str) -> bool:
+    """Whether a browser's ``Origin`` is the very site the request was sent to.
+
+    Stricter than ``is_allowed_origin``, which accepts any allowed host name on
+    any port: a page served by another local program (``localhost:3000``) is
+    an allowed host, but it is not this site, and a state-changing request
+    from it is a cross-site request. Scheme, host name and port must all match
+    ``scheme`` (the request's own) and the Host header; a port left out means
+    the scheme's default.
+    """
+    if origin is None or host is None or scheme not in _DEFAULT_PORTS:
+        return False
+    parts = urlsplit(origin.strip())
+    if parts.scheme != scheme or "@" in parts.netloc or parts.path or not parts.netloc:
+        return False
+    default = _DEFAULT_PORTS[scheme]
+    origin_port, host_port = _port(parts.netloc, default), _port(host.strip(), default)
+    return (
+        origin_port is not None
+        and origin_port == host_port
+        and hostname(parts.netloc) == hostname(host)
+        and bool(hostname(host))
+    )

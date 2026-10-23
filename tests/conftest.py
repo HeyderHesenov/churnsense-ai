@@ -156,6 +156,23 @@ def monkeypatch_session():
     patcher.undo()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _api_guards(monkeypatch_session):
+    """No test reads the real dataset through the API, and none waits on a rate limit.
+
+    A test that needs a book points ``state.BOOK_LOADER`` at the synthetic one;
+    the rate-limit tests set their own budgets.
+    """
+    from churnsense.api import middleware, state
+    from churnsense.exceptions import DataError
+
+    def no_real_dataset(_model):
+        raise DataError("tests never read the real dataset")
+
+    monkeypatch_session.setattr(state, "BOOK_LOADER", no_real_dataset)
+    monkeypatch_session.setattr(middleware, "RATE_LIMITS", {})
+
+
 # --- the dashboard, served synthetic data ------------------------------------
 
 #: Stands in for the dataset file's SHA-256 - a real digest, of a fixed string,
@@ -190,10 +207,10 @@ def dashboard_predictor(dashboard_parts, cfg: Config, tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def book(clean_frame: pd.DataFrame, dashboard_predictor):
-    """What app.data builds from the synthetic customers: ``data.Book``."""
-    from app import data
+    """The book the dashboard and the API build from the synthetic customers."""
+    from churnsense.book import score_book
 
-    return data.score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
+    return score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
 
 
 @pytest.fixture
@@ -258,7 +275,7 @@ def dashboard(monkeypatch, dashboard_predictor, book):
     Nothing real is read: the data layer's book and model are replaced, and so
     are the cached SHAP artifacts. Reading the raw file fails the test, by
     whichever path a section reaches it. Call it with a section name,
-    optionally with another ``data.Book``; with no name it runs the landing page.
+    optionally with another ``churnsense.book.Book``; with no name it runs the landing page.
     """
     import streamlit as st
     from app import data

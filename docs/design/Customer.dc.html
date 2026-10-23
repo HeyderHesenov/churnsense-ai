@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Single customer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-current="page" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Model</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Single customer</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<button type="button" class="ghost" onClick="{{downloadOne}}" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-family: inherit; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>
+Download prediction (CSV)</button>
+<button type="button" onClick="{{goLive}}" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #1897ae; border: 0; border-radius: 10px; color: #041217; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+Score a new customer</button>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1400px; padding: 26px 28px 40px; display: flex; flex-direction: column; gap: 16px">
+
+<section style="display: flex; flex-direction: column; gap: 10px; max-width: 780px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5cc8dc">Single customer · explainability</span>
+<h1 style="margin: 0; font-size: 32px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">What moved this estimate</h1>
+<p style="margin: 0; font-size: 14.5px; color: #adb7c2; text-wrap: pretty">Each customer is scored by the same Predictor the API serves. The waterfall shows each attribute's signed contribution against an average training customer, and the contributions add up exactly to the served probability.</p>
+</section>
+
+<!-- Picker -->
+<div role="tablist" aria-label="Customer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px">
+<sc-for list="{{picker}}" as="p" hint-placeholder-count="5">
+<button type="button" role="tab" class="chip" onClick="{{p.pick}}" aria-selected="{{p.sel}}" style="display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px 14px; border-radius: 12px; border: 1px solid {{p.border}}; background: {{p.bg}}; color: #e6edf3; font-family: inherit; text-align: left; cursor: pointer; box-shadow: {{p.shadow}}">
+<span style="display: flex; justify-content: space-between; width: 100%; gap: 8px; align-items: baseline"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; white-space: nowrap">{{p.id}}</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px; font-weight: 600">{{p.pct}}</span></span>
+<span style="display: flex; align-items: center; gap: 8px; width: 100%"><span style="flex: 1; height: 4px; border-radius: 2px; background: #1c232c; overflow: hidden"><span style="display: block; width: {{p.w}}; height: 100%; background: {{p.color}}"></span></span></span>
+<span style="display: flex; justify-content: space-between; width: 100%; gap: 8px; font-size: 11.5px; color: #8b949e; white-space: nowrap"><span style="display: inline-flex; align-items: center; gap: 6px; color: #adb7c2"><span style="width: 7px; height: 7px; border-radius: 2px; background: {{p.color}}"></span>{{p.band}}</span><span>{{p.meta}}</span></span>
+</button>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<!-- Profile -->
+<section aria-label="Customer attributes" style="flex: 1 1 320px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">{{profileTitle}}</h2>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: {{profileTagFg}}">{{profileTag}}</span>
+</div>
+<sc-if value="{{live}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Account</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="lt" style="font-size: 11.5px; color: #8b949e">Tenure (months)</label><input id="lt" type="number" step="1" min="0" value="{{f.tenure}}" onChange="{{set_tenure}}" style="height: 36px; box-sizing: border-box; padding: 0 10px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="lm" style="font-size: 11.5px; color: #8b949e">Monthly charges ($)</label><input id="lm" type="number" step="0.05" min="0" value="{{f.MonthlyCharges}}" onChange="{{set_MonthlyCharges}}" style="height: 36px; box-sizing: border-box; padding: 0 10px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="lc" style="font-size: 11.5px; color: #8b949e">Contract</label><select id="lc" value="{{f.Contract}}" onChange="{{set_Contract}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="Month-to-month">Month-to-month</option><option value="One year">One year</option><option value="Two year">Two year</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="ltc" style="font-size: 11.5px; color: #8b949e">Total charges ($)</label><div style="display: flex; gap: 6px"><input id="ltc" type="number" step="0.05" min="0" value="{{f.TotalCharges}}" onChange="{{set_TotalCharges}}" style="flex: 1; min-width: 0; height: 36px; box-sizing: border-box; padding: 0 10px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px"><button type="button" class="ghost" onClick="{{estimateTotal}}" title="Set to tenure × monthly charges" aria-label="Set total charges to tenure times monthly charges" style="flex: none; width: 36px; height: 36px; border-radius: 9px; border: 1px solid #2a3440; background: transparent; color: #adb7c2; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; cursor: pointer">=×</button></div></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="lp" style="font-size: 11.5px; color: #8b949e">Payment method</label><select id="lp" value="{{f.PaymentMethod}}" onChange="{{set_PaymentMethod}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="Electronic check">Electronic check</option><option value="Mailed check">Mailed check</option><option value="Bank transfer (automatic)">Bank transfer (automatic)</option><option value="Credit card (automatic)">Credit card (automatic)</option></select></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding-top: 4px">Services</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="li" style="font-size: 11.5px; color: #8b949e">Internet service</label><select id="li" value="{{f.InternetService}}" onChange="{{set_InternetService}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="Fiber optic">Fiber optic</option><option value="DSL">DSL</option><option value="No">None</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 4px; min-width: 0"><label for="lml" style="font-size: 11.5px; color: #8b949e">Multiple lines</label><select id="lml" value="{{f.MultipleLines}}" onChange="{{set_MultipleLines}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="No">No</option><option value="Yes">Yes</option><option value="No phone service">No phone service</option></select></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.PhoneServiceFg}}; cursor: pointer">Phone service<input type="checkbox" checked="{{t.PhoneService}}" disabled="{{t.PhoneServiceDis}}" onChange="{{set_PhoneService}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.OnlineSecurityFg}}; cursor: pointer">Online security<input type="checkbox" checked="{{t.OnlineSecurity}}" disabled="{{t.OnlineSecurityDis}}" onChange="{{set_OnlineSecurity}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.OnlineBackupFg}}; cursor: pointer">Online backup<input type="checkbox" checked="{{t.OnlineBackup}}" disabled="{{t.OnlineBackupDis}}" onChange="{{set_OnlineBackup}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.DeviceProtectionFg}}; cursor: pointer">Device protection<input type="checkbox" checked="{{t.DeviceProtection}}" disabled="{{t.DeviceProtectionDis}}" onChange="{{set_DeviceProtection}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.TechSupportFg}}; cursor: pointer">Tech support<input type="checkbox" checked="{{t.TechSupport}}" disabled="{{t.TechSupportDis}}" onChange="{{set_TechSupport}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.StreamingTVFg}}; cursor: pointer">Streaming TV<input type="checkbox" checked="{{t.StreamingTV}}" disabled="{{t.StreamingTVDis}}" onChange="{{set_StreamingTV}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.StreamingMoviesFg}}; cursor: pointer">Streaming movies<input type="checkbox" checked="{{t.StreamingMovies}}" disabled="{{t.StreamingMoviesDis}}" onChange="{{set_StreamingMovies}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.PaperlessBillingFg}}; cursor: pointer">Paperless billing<input type="checkbox" checked="{{t.PaperlessBilling}}" disabled="{{t.PaperlessBillingDis}}" onChange="{{set_PaperlessBilling}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label>
+</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding-top: 4px">Household</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+<label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.SeniorCitizenFg}}; cursor: pointer">Senior<input type="checkbox" checked="{{t.SeniorCitizen}}" disabled="{{t.SeniorCitizenDis}}" onChange="{{set_SeniorCitizen}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.PartnerFg}}; cursor: pointer">Partner<input type="checkbox" checked="{{t.Partner}}" disabled="{{t.PartnerDis}}" onChange="{{set_Partner}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label><label style="display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 0 10px; border: 1px solid #2a3440; border-radius: 9px; font-size: 12.5px; color: {{t.DependentsFg}}; cursor: pointer">Dependents<input type="checkbox" checked="{{t.Dependents}}" disabled="{{t.DependentsDis}}" onChange="{{set_Dependents}}" style="width: 17px; height: 17px; margin: 0; accent-color: #1897ae; cursor: pointer"></label>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<button type="button" class="ghost" onClick="{{resetForm}}" style="min-height: 34px; padding: 0 12px; border-radius: 9px; border: 1px solid #2a3440; background: transparent; color: #adb7c2; font-family: inherit; font-size: 12.5px; cursor: pointer">Reset to the README example</button>
+<span style="font-size: 11.5px; color: #8b949e">{{liveNote}}</span>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{notLive}}" hint-placeholder-val="{{ true }}">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding-bottom: 6px">{{g.title}}</span>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px">
+<sc-for list="{{g.items}}" as="it" hint-placeholder-count="4">
+<div style="display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid #182029; min-width: 0">
+<dt style="font-size: 12.5px; color: #8b949e; white-space: nowrap">{{it.k}}</dt>
+<dd style="margin: 0; font-size: 12.5px; color: {{it.fg}}; font-weight: {{it.fw}}; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{it.v}}</dd>
+</div>
+</sc-for>
+</dl>
+</div>
+</sc-for>
+</sc-if>
+<p style="margin: 0; font-size: 12px; color: #8b949e">Highlighted values are among this customer's four strongest contributions. Gender is not an input: it is excluded as a protected attribute.</p>
+</section>
+
+<!-- Result + explanation -->
+<div style="flex: 1.75 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section aria-label="Prediction" aria-live="polite" style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 20px 28px; align-items: center">
+<div style="flex: 0 1 auto; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Estimated churn probability</span>
+<span style="font-size: 50px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.05">{{pct}}</span>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px">
+<span style="display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px; border-radius: 7px; background: {{bandBg}}; border: 1px solid {{bandBorder}}; font-size: 12.5px; font-weight: 600; color: {{bandFg}}"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{bandColor}}"></span>{{band}} band</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid #2a3440; font-size: 12.5px; color: {{flagFg}}">
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"></path></svg>
+{{flagText}}</span>
+</div>
+</div>
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<div style="position: relative; padding-top: 24px">
+<div class="bar" style="position: absolute; left: {{pLeft}}; top: 0; display: flex; flex-direction: column; align-items: {{pAlign}}; transform: translateX({{pShift}})">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #0a0d12; background: #e6edf3; border-radius: 5px; padding: 0 6px; line-height: 18px; font-weight: 600">{{p3}}</span>
+<span style="width: 2px; height: 16px; background: #e6edf3"></span>
+</div>
+<div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px">
+<span style="flex: 25; background: #56667b; opacity: {{o0}}"></span><span style="flex: 25; background: #6b62b0; opacity: {{o1}}"></span><span style="flex: 25; background: #a35ec9; opacity: {{o2}}"></span><span style="flex: 25; background: #e8578f; opacity: {{o3}}"></span>
+</div>
+<div style="position: absolute; left: 36%; top: 20px; height: 22px; border-left: 1.5px dashed #adb7c2"></div>
+</div>
+<div style="position: relative; height: 16px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e"><span style="position: absolute; left: 0">0</span><span style="position: absolute; left: 36%; transform: translateX(-50%); white-space: nowrap">threshold 0.36</span><span style="position: absolute; right: 0">1.0</span></div>
+<p style="margin: 2px 0 0; font-size: 12.5px; color: #adb7c2">{{gapNote}}</p>
+</div>
+</section>
+
+<section style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Contribution waterfall</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Which attributes moved the estimate, and by how much? SHAP, in percentage points.</p>
+</div>
+<div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+<div style="display: flex; gap: 12px; font-size: 12px; color: #adb7c2">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 8px; border-radius: 2px; background: #ec835a"></span>raises</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 8px; border-radius: 2px; background: #5b8def"></span>lowers</span>
+</div>
+<div role="group" aria-label="Contributions shown" style="display: inline-flex; padding: 3px; background: #0b0f14; border: 1px solid #222a34; border-radius: 10px; gap: 2px">
+<sc-for list="{{kOpts}}" as="o" hint-placeholder-count="3">
+<button type="button" class="seg" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" style="min-height: 30px; padding: 0 11px; border: 0; border-radius: 7px; background: {{o.bg}}; color: {{o.fg}}; font-family: inherit; font-size: 12px; font-weight: 550; cursor: pointer; white-space: nowrap">{{o.label}}</button>
+</sc-for>
+</div>
+</div>
+</div>
+<div style="display: flex; flex-direction: column">
+<div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 64px; gap: 14px; align-items: center; min-height: 36px; border-bottom: 1px solid #1f2730">
+<span style="font-size: 13px; color: #adb7c2; white-space: nowrap">Average customer <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e">base</span></span>
+<div style="position: relative; height: 16px"><div class="bar" style="position: absolute; left: 0; width: {{baseW}}; top: 3px; height: 10px; border-radius: 3px; background: #2f3a47"></div></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right">{{basePct}}</span>
+</div>
+<sc-for list="{{wf}}" as="w" hint-placeholder-count="8">
+<div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 64px; gap: 14px; align-items: center; min-height: 36px; border-bottom: 1px solid #182029">
+<span style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{w.label}} <span style="color: #8b949e">· {{w.value}}</span></span>
+<div style="position: relative; height: 16px"><div class="bar" style="position: absolute; left: {{w.left}}; width: {{w.width}}; top: 3px; height: 10px; border-radius: 3px; background: {{w.color}}; opacity: {{w.op}}"></div><div style="position: absolute; left: 36%; top: -2px; bottom: -2px; border-left: 1px dashed #2f3a47"></div></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right; color: {{w.fg}}">{{w.pp}}</span>
+</div>
+</sc-for>
+<div style="display: grid; grid-template-columns: 220px minmax(0, 1fr) 64px; gap: 14px; align-items: center; min-height: 42px">
+<span style="font-size: 13px; font-weight: 600">This customer</span>
+<div style="position: relative; height: 16px"><div class="bar" style="position: absolute; left: 0; width: {{pLeft}}; top: 3px; height: 10px; border-radius: 3px; background: {{bandColor}}"></div><div style="position: absolute; left: 36%; top: -6px; bottom: -6px; border-left: 1.5px dashed #adb7c2"></div></div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right; font-weight: 600">{{pct}}</span>
+</div>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8b949e">Base plus contributions reproduces the served probability; a test checks that sum. Permutation explainer, 10 orderings, fixed seed, the same 100-customer training background on every page. Dashed line: threshold 0.36.</p>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+<section style="flex: 1.3 1 340px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">In plain sentences</h2>
+<ul style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #adb7c2">
+<sc-for list="{{sentences}}" as="s" hint-placeholder-count="4">
+<li><b style="color: #e6edf3; font-weight: 550">{{s.label}}</b> ({{s.value}}) {{s.verb}} the estimated risk by {{s.pp}} pp, relative to an average customer.</li>
+</sc-for>
+</ul>
+<p style="margin: auto 0 0; font-size: 12px; color: #8b949e; border-top: 1px solid #1f2730; padding-top: 10px">Model attributions, not causal effects. They do not establish that changing an attribute would change whether this customer stays.</p>
+</section>
+<section style="flex: 1 1 300px; min-width: 0; box-sizing: border-box; background: #0d1117; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center"><h2 style="margin: 0; font-size: 15px; font-weight: 600">API response</h2><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8fd99a; border: 1px solid #1f3a2a; border-radius: 5px; padding: 1px 6px">200 OK</span></div>
+<pre style="margin: 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; line-height: 1.65; color: #adb7c2; white-space: pre-wrap; word-break: break-word">{
+  <span style="color: #7fd3e3">"churn_probability"</span>: {{pJson}},
+  <span style="color: #7fd3e3">"risk_band"</span>: "{{band}}",
+  <span style="color: #7fd3e3">"flagged"</span>: {{flagJson}},
+  <span style="color: #7fd3e3">"threshold"</span>: 0.36,
+  <span style="color: #7fd3e3">"model_key"</span>: "logistic_regression"
+}</pre>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e">POST /predict · 127.0.0.1:8000 · same number as the library</span>
+</section>
+</div>
+
+</div>
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+// In-browser copy of the shipped predictor: 5 calibrated folds averaged, then clamped.
+// Mirrors CalibratedClassifierCV(isotonic, ensemble) over Pipeline(ColumnTransformer -> LogisticRegression).
+function isoPredict(x, X, Y) {
+  if (x <= X[0]) return Y[0];
+  const n = X.length;
+  if (x >= X[n - 1]) return Y[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (X[mid] <= x) lo = mid; else hi = mid; }
+  const t = (x - X[lo]) / (X[hi] - X[lo]);
+  return Y[lo] + t * (Y[hi] - Y[lo]);
+}
+function scoreRecord(model, rec) {
+  let sum = 0;
+  for (const f of model.folds) {
+    let z = f.intercept, k = 0;
+    for (let j = 0; j < f.num.length; j++) {
+      let v = Number(rec[f.num[j]]);
+      if (!Number.isFinite(v)) v = f.median[j];
+      z += f.coef[k++] * ((v - f.mean[j]) / f.scale[j]);
+    }
+    for (let j = 0; j < f.cat.length; j++) {
+      const v = String(rec[f.cat[j]]);
+      const cats = f.cats[j];
+      for (let c = 0; c < cats.length; c++) { if (cats[c] === v) z += f.coef[k + c]; }
+      k += cats.length;
+    }
+    sum += isoPredict(z, f.isoX, f.isoY);
+  }
+  const p = sum / model.folds.length;
+  return Math.min(1 - model.epsilon, Math.max(model.epsilon, p));
+}
+function bandOf(model, p) {
+  for (const b of model.bands) if (p >= b.min && p < b.max) return b.name;
+  return model.bands[model.bands.length - 1].name;
+}
+
+// Permutation SHAP against a fixed background, antithetic orderings, seeded.
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function explainRecord(model, rec, background, permutations, seed) {
+  const cols = model.columns, n = cols.length, rand = mulberry32(seed || 42);
+  const phi = new Array(n).fill(0);
+  let base = 0; for (const b of background) base += scoreRecord(model, b); base /= background.length;
+  const evalOrder = (order) => {
+    for (const b of background) {
+      const cur = Object.assign({}, b);
+      let prev = scoreRecord(model, cur);
+      for (const j of order) { cur[cols[j]] = rec[cols[j]]; const now = scoreRecord(model, cur); phi[j] += now - prev; prev = now; }
+    }
+  };
+  for (let k = 0; k < permutations; k++) {
+    const order = cols.map((_, i) => i);
+    for (let i = n - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    evalOrder(order); evalOrder(order.slice().reverse());
+  }
+  const denom = permutations * 2 * background.length;
+  return { base, values: phi.map((v) => v / denom), p: scoreRecord(model, rec) };
+}
+const CUSTOMERS = [{"id":"API example","p":0.802979,"band":"Critical","flagged":true,"part":"not in dataset","outcome":"—","base":0.25764,"a":{"SeniorCitizen":"0","Partner":"No","Dependents":"No","tenure":"3","PhoneService":"Yes","MultipleLines":"No","InternetService":"Fiber optic","OnlineSecurity":"No","OnlineBackup":"No","DeviceProtection":"No","TechSupport":"No","StreamingTV":"Yes","StreamingMovies":"Yes","Contract":"Month-to-month","PaperlessBilling":"Yes","PaymentMethod":"Electronic check","MonthlyCharges":"95.0","TotalCharges":"285.0"},"c":[["Tenure (months)","3",30.8],["Monthly charges","95.0",-16.09],["Internet service","Fiber optic",16.05],["Total charges to date","285.0",-9.14],["Streaming TV","Yes",7.7],["Streaming movies","Yes",7.57],["Contract type","Month-to-month",7.42],["Multiple lines","No",-5.3],["Payment method","Electronic check",3.8],["Tech support add-on","No",2.9],["Online security add-on","No",2.89],["Paperless billing","Yes",2.81],["Has dependents","No",1.52],["Online backup add-on","No",1.04],["Senior citizen","0",-0.65],["Device protection add-on","No",0.45],["Has partner","No",0.43],["Phone service","Yes",0.33]]},{"id":"DEMO-00005","p":0.030126,"band":"Low","flagged":false,"part":"validation","outcome":"Stayed","base":0.25764,"a":{"SeniorCitizen":"0","Partner":"No","Dependents":"No","tenure":"65","PhoneService":"Yes","MultipleLines":"Yes","InternetService":"No","OnlineSecurity":"No internet service","OnlineBackup":"No internet service","DeviceProtection":"No internet service","TechSupport":"No internet service","StreamingTV":"No internet service","StreamingMovies":"No internet service","Contract":"Two year","PaperlessBilling":"No","PaymentMethod":"Electronic check","MonthlyCharges":"27.85","TotalCharges":"1810.25"},"c":[["Internet service","No",-11.26],["Contract type","Two year",-4.07],["Monthly charges","27.85",2.62],["Streaming TV","No internet service",-2.55],["Multiple lines","Yes",-2.24],["Streaming movies","No internet service",-2.21],["Device protection add-on","No internet service",1.81],["Has dependents","No",-1.68],["Paperless billing","No",-1.68],["Online backup add-on","No internet service",1.14],["Payment method","Electronic check",-1.04],["Total charges to date","1810.25",-0.65],["Online security add-on","No internet service",-0.59],["Senior citizen","0",-0.33],["Tech support add-on","No internet service",-0.2],["Phone service","Yes",0.19],["Tenure (months)","65",0.17],["Has partner","No",-0.16]]},{"id":"DEMO-00006","p":0.290672,"band":"Moderate","flagged":false,"part":"validation","outcome":"Stayed","base":0.25764,"a":{"SeniorCitizen":"0","Partner":"No","Dependents":"Yes","tenure":"38","PhoneService":"Yes","MultipleLines":"Yes","InternetService":"No","OnlineSecurity":"No internet service","OnlineBackup":"No internet service","DeviceProtection":"No internet service","TechSupport":"No internet service","StreamingTV":"No internet service","StreamingMovies":"No internet service","Contract":"Month-to-month","PaperlessBilling":"No","PaymentMethod":"Mailed check","MonthlyCharges":"38.42","TotalCharges":"1459.96"},"c":[["Internet service","No",12.48],["Monthly charges","38.42",-9.55],["Contract type","Month-to-month",6.17],["Tenure (months)","38",5.15],["Streaming TV","No internet service",-4.38],["Multiple lines","Yes",-4.0],["Streaming movies","No internet service",-3.94],["Payment method","Mailed check",-3.34],["Device protection add-on","No internet service",3.25],["Paperless billing","No",-2.76],["Online security add-on","No internet service",2.27],["Online backup add-on","No internet service",2.08],["Total charges to date","1459.96",-1.17],["Has dependents","Yes",0.95],["Senior citizen","0",-0.57],["Has partner","No",0.56],["Phone service","Yes",0.28],["Tech support add-on","No internet service",-0.2]]},{"id":"DEMO-00007","p":0.419123,"band":"Moderate","flagged":true,"part":"validation","outcome":"Churned","base":0.25764,"a":{"SeniorCitizen":"0","Partner":"No","Dependents":"No","tenure":"43","PhoneService":"Yes","MultipleLines":"No","InternetService":"DSL","OnlineSecurity":"No","OnlineBackup":"No","DeviceProtection":"No","TechSupport":"Yes","StreamingTV":"Yes","StreamingMovies":"Yes","Contract":"Two year","PaperlessBilling":"Yes","PaymentMethod":"Credit card (automatic)","MonthlyCharges":"110.79","TotalCharges":"4763.97"},"c":[["Tenure (months)","43",21.47],["Internet service","DSL",-14.96],["Total charges to date","4763.97",-8.53],["Monthly charges","110.79",7.35],["Contract type","Two year",6.05],["Device protection add-on","No",3.71],["Multiple lines","No",-3.64],["Streaming movies","Yes",-3.3],["Payment method","Credit card (automatic)",3.01],["Streaming TV","Yes",-2.93],["Senior citizen","0",2.54],["Tech support add-on","Yes",2.49],["Online security add-on","No",2.46],["Paperless billing","Yes",-2.45],["Has dependents","No",0.99],["Online backup add-on","No",0.93],["Has partner","No",0.51],["Phone service","Yes",0.44]]},{"id":"DEMO-00008","p":0.626952,"band":"High","flagged":true,"part":"validation","outcome":"Stayed","base":0.25764,"a":{"SeniorCitizen":"1","Partner":"No","Dependents":"Yes","tenure":"61","PhoneService":"Yes","MultipleLines":"Yes","InternetService":"DSL","OnlineSecurity":"Yes","OnlineBackup":"No","DeviceProtection":"No","TechSupport":"Yes","StreamingTV":"Yes","StreamingMovies":"No","Contract":"Two year","PaperlessBilling":"Yes","PaymentMethod":"Bank transfer (automatic)","MonthlyCharges":"72.91","TotalCharges":"4447.51"},"c":[["Tenure (months)","61",19.91],["Internet service","DSL",17.1],["Contract type","Two year",7.49],["Total charges to date","4447.51",-7.46],["Streaming movies","No",-5.11],["Multiple lines","Yes",-5.04],["Streaming TV","Yes",-4.76],["Payment method","Bank transfer (automatic)",3.49],["Senior citizen","1",2.56],["Online security add-on","Yes",2.41],["Tech support add-on","Yes",2.27],["Paperless billing","Yes",2.22],["Has dependents","Yes",1.08],["Online backup add-on","No",0.84],["Monthly charges","72.91",-0.7],["Device protection add-on","No",0.45],["Phone service","Yes",0.36],["Has partner","No",-0.17]]}];
+const BAND_COLOR = { Low: RISK.Low.fill, Moderate: RISK.Moderate.fill, High: RISK.High.fill, Critical: RISK.Critical.fill };
+const BAND_CHIP = {};
+BAND_ORDER.forEach((k) => { BAND_CHIP[k] = { bg: RISK[k].soft, border: RISK[k].line, fg: RISK[k].ink }; });
+const SHORT = { 'Tenure (months)': 'Tenure', 'Total charges to date': 'Total charges', 'Contract type': 'Contract' };
+const FEATURE_OF = {
+  'Tenure (months)': 'tenure', 'Monthly charges': 'MonthlyCharges', 'Internet service': 'InternetService', 'Total charges to date': 'TotalCharges',
+  'Streaming TV': 'StreamingTV', 'Streaming movies': 'StreamingMovies', 'Contract type': 'Contract', 'Multiple lines': 'MultipleLines',
+  'Payment method': 'PaymentMethod', 'Tech support add-on': 'TechSupport', 'Online security add-on': 'OnlineSecurity', 'Paperless billing': 'PaperlessBilling',
+  'Has dependents': 'Dependents', 'Online backup add-on': 'OnlineBackup', 'Senior citizen': 'SeniorCitizen', 'Device protection add-on': 'DeviceProtection',
+  'Has partner': 'Partner', 'Phone service': 'PhoneService',
+};
+const GROUPS = [
+  ['Account', [['Tenure', 'tenure'], ['Contract', 'Contract'], ['Monthly charges', 'MonthlyCharges'], ['Total charges', 'TotalCharges'], ['Payment', 'PaymentMethod'], ['Paperless billing', 'PaperlessBilling']]],
+  ['Services', [['Phone', 'PhoneService'], ['Multiple lines', 'MultipleLines'], ['Internet', 'InternetService'], ['Online security', 'OnlineSecurity'], ['Online backup', 'OnlineBackup'], ['Device protection', 'DeviceProtection'], ['Tech support', 'TechSupport'], ['Streaming TV', 'StreamingTV'], ['Streaming movies', 'StreamingMovies']]],
+  ['Household', [['Senior citizen', 'SeniorCitizen'], ['Partner', 'Partner'], ['Dependents', 'Dependents']]],
+];
+function fmt(key, v) {
+  if (key === 'tenure') return v + (v === '1' ? ' month' : ' months');
+  if (key === 'MonthlyCharges' || key === 'TotalCharges') return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (key === 'SeniorCitizen') return v === '1' ? 'Yes' : 'No';
+  return v.replace(' (automatic)', ' (auto)');
+}
+const K_OPTS = [5, 8, 18];
+const LIVE = CUSTOMERS.length;
+const LABEL_OF = {}; Object.keys(FEATURE_OF).forEach((l) => { LABEL_OF[FEATURE_OF[l]] = l; });
+const YESNO = ['PhoneService', 'PaperlessBilling', 'Partner', 'Dependents'];
+const ADD = ['OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies'];
+const DEFAULT_FORM = Object.assign({}, CUSTOMERS[0].a, { tenure: 3, MonthlyCharges: 95, TotalCharges: 285 });
+function coherent(f) {
+  const g = Object.assign({}, f);
+  if (g.InternetService === 'No') ADD.forEach((k) => { g[k] = 'No internet service'; });
+  else ADD.forEach((k) => { if (g[k] === 'No internet service') g[k] = 'No'; });
+  if (g.PhoneService === 'No') g.MultipleLines = 'No phone service';
+  else if (g.MultipleLines === 'No phone service') g.MultipleLines = 'No';
+  if (Number(g.tenure) === 0) g.TotalCharges = 0;
+  return g;
+}
+
+
+class Component extends DCLogic {
+  componentDidMount() {
+    Promise.all([loadJson(ASSET.model), loadJson(ASSET.background)]).then(([model, background]) => { this.ingest({ model, background }); this.setState({ modelReady: true }); }).catch(() => this.setState({ modelErr: true }));
+  }
+  ingest({ model, background }) { this.model = model; this.bg = background; this.cache = {}; }
+  liveCustomer(form) {
+    const rec = Object.assign({}, form, { tenure: Number(form.tenure), MonthlyCharges: Number(form.MonthlyCharges), TotalCharges: Number(form.TotalCharges) });
+    const key = JSON.stringify(rec);
+    if (!this.cache[key]) {
+      const e = explainRecord(this.model, rec, this.bg, 16, 11);
+      const contrib = e.values.map((v, j) => [LABEL_OF[this.model.columns[j]] || this.model.columns[j], String(rec[this.model.columns[j]]), v * 100]).sort((x, y) => Math.abs(y[2]) - Math.abs(x[2]));
+      this.cache[key] = { id: 'New customer', p: e.p, band: bandOf(this.model, e.p), flagged: e.p >= this.model.threshold, part: 'live', outcome: '—', base: e.base, a: Object.assign({}, form, { tenure: String(rec.tenure), MonthlyCharges: String(rec.MonthlyCharges), TotalCharges: String(rec.TotalCharges) }), c: contrib };
+    }
+    return this.cache[key];
+  }
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const ci = st.ci ?? 0;
+    const k = st.k ?? 8;
+    const form = coherent(st.form ?? DEFAULT_FORM);
+    const live = ci === LIVE && !!this.model;
+    const c = live ? this.liveCustomer(form) : CUSTOMERS[ci === LIVE ? 0 : ci];
+    const p = c.p;
+
+    const picker = CUSTOMERS.map((x, i) => ({
+      id: x.id, pct: (x.p * 100).toFixed(1) + '%', w: x.p * 100 + '%', color: BAND_COLOR[x.band], band: x.band,
+      meta: x.part === 'not in dataset' ? 'README example' : x.part + ' · ' + x.outcome.toLowerCase(),
+      sel: i === ci ? 'true' : 'false', border: i === ci ? '#3a4654' : '#1f2730', bg: i === ci ? '#141b24' : '#10151c',
+      shadow: i === ci ? 'inset 0 2px 0 ' + BAND_COLOR[x.band] : 'none',
+      pick: () => set({ ci: i }),
+    }));
+    picker.push({ id: 'New customer', pct: ci === LIVE && live ? (p * 100).toFixed(1) + '%' : 'live', w: ci === LIVE && live ? p * 100 + '%' : '0%', color: ci === LIVE && live ? BAND_COLOR[c.band] : '#1897ae', band: ci === LIVE && live ? c.band : 'Edit any input', meta: this.model ? 'scored in your browser' : 'loading model…', sel: ci === LIVE ? 'true' : 'false', border: ci === LIVE ? '#1d4c57' : '#1f2730', bg: ci === LIVE ? 'rgba(24,151,174,0.1)' : '#10151c', shadow: ci === LIVE ? 'inset 0 2px 0 #1897ae' : 'none', pick: () => set({ ci: LIVE }) });
+
+    const top4 = c.c.slice(0, 4).map((x) => FEATURE_OF[x[0]]);
+    const groups = GROUPS.map(([title, items]) => ({
+      title,
+      items: items.map(([label, key]) => {
+        const hot = top4.includes(key);
+        return { k: label, v: fmt(key, c.a[key]), fg: hot ? '#e6edf3' : '#adb7c2', fw: hot ? 600 : 400 };
+      }),
+    }));
+
+    let run = c.base * 100;
+    const shown = c.c.slice(0, k);
+    const wf = shown.map(([label, value, pp]) => {
+      const start = run, end = run + pp;
+      run = end;
+      return {
+        label: SHORT[label] ?? label.replace(' add-on', ''), value: fmt(FEATURE_OF[label], value),
+        left: Math.min(start, end) + '%', width: Math.max(0.4, Math.abs(pp)) + '%',
+        color: pp > 0 ? '#ec835a' : '#5b8def', op: 1, fg: pp > 0 ? '#f2a585' : '#9dbaf5',
+        pp: (pp > 0 ? '+' : '−') + Math.abs(pp).toFixed(1),
+      };
+    });
+    const rest = c.c.slice(k);
+    if (rest.length) {
+      const pp = rest.reduce((s, x) => s + x[2], 0);
+      const start = run, end = run + pp;
+      wf.push({
+        label: rest.length + ' other inputs', value: 'combined', left: Math.min(start, end) + '%', width: Math.max(0.4, Math.abs(pp)) + '%',
+        color: pp > 0 ? '#ec835a' : '#5b8def', op: 0.5, fg: pp > 0 ? '#f2a585' : '#9dbaf5', pp: (pp > 0 ? '+' : '−') + Math.abs(pp).toFixed(1),
+      });
+    }
+
+    const sentences = c.c.slice(0, 4).map(([label, value, pp]) => ({
+      label: SHORT[label] ?? label, value: fmt(FEATURE_OF[label], value), verb: pp > 0 ? 'raises' : 'lowers', pp: Math.abs(pp).toFixed(1),
+    }));
+
+    const kOpts = K_OPTS.map((n) => ({
+      label: n === 18 ? 'All 18' : 'Top ' + n, pressed: n === k ? 'true' : 'false',
+      bg: n === k ? '#1c2530' : 'transparent', fg: n === k ? '#e6edf3' : '#8b949e', pick: () => set({ k: n }),
+    }));
+
+    const bandIdx = ['Low', 'Moderate', 'High', 'Critical'].indexOf(c.band);
+    const chip = BAND_CHIP[c.band];
+    const diff = p - 0.36;
+    return Object.assign(shell(this), {
+      picker, groups, wf, sentences, kOpts,
+      pct: (p * 100).toFixed(1) + '%', p3: p.toFixed(3), pLeft: p * 100 + '%',
+      pShift: p < 0.06 ? '-1px' : p > 0.94 ? 'calc(-100% + 1px)' : '-50%', pAlign: p < 0.06 ? 'flex-start' : p > 0.94 ? 'flex-end' : 'center',
+      band: c.band, bandColor: BAND_COLOR[c.band], bandBg: chip.bg, bandBorder: chip.border, bandFg: chip.fg,
+      o0: bandIdx === 0 ? 1 : 0.45, o1: bandIdx === 1 ? 1 : 0.45, o2: bandIdx === 2 ? 1 : 0.45, o3: bandIdx === 3 ? 1 : 0.45,
+      flagText: c.flagged ? 'Flagged at 0.36' : 'Not flagged at 0.36', flagFg: c.flagged ? '#e6edf3' : '#8b949e',
+      gapNote: (diff >= 0 ? Math.abs(diff).toFixed(3) + ' above' : Math.abs(diff).toFixed(3) + ' below') + ' the threshold. ' + (c.flagged ? 'This customer would receive an offer.' : 'No offer at the current operating point.'),
+      baseW: c.base * 100 + '%', basePct: (c.base * 100).toFixed(1) + '%',
+      pJson: c.id === 'API example' ? '0.802979373568' : live ? p.toFixed(12) : p.toFixed(6), flagJson: c.flagged ? 'true' : 'false',
+      live, notLive: !live,
+      profileTitle: live ? 'New customer' : 'Profile', profileTag: live ? 'scored live' : '18 model inputs', profileTagFg: live ? '#7fd3e3' : '#8b949e',
+      liveNote: live ? 'Probability is exact; contributions use 16 orderings, so they can differ from the API by about a point.' : '',
+      goLive: () => set({ ci: LIVE }),
+      f: form,
+      t: Object.fromEntries(YESNO.concat(ADD).concat(['SeniorCitizen']).flatMap((k) => { const on = k === 'SeniorCitizen' ? form[k] === '1' : form[k] === 'Yes'; const dis = ADD.includes(k) && form.InternetService === 'No'; return [[k, on], [k + 'Dis', dis], [k + 'Fg', dis ? '#56606b' : '#adb7c2']]; })),
+      ...Object.fromEntries(['tenure', 'MonthlyCharges', 'TotalCharges'].map((k) => ['set_' + k, (e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v >= 0) set({ form: Object.assign({}, form, { [k]: k === 'tenure' ? Math.min(120, Math.round(v)) : v }) }); }])),
+      ...Object.fromEntries(['Contract', 'PaymentMethod', 'InternetService', 'MultipleLines'].map((k) => ['set_' + k, (e) => set({ form: coherent(Object.assign({}, form, { [k]: e.target.value })) })])),
+      ...Object.fromEntries(YESNO.concat(ADD).concat(['SeniorCitizen']).map((k) => ['set_' + k, (e) => set({ form: coherent(Object.assign({}, form, { [k]: k === 'SeniorCitizen' ? (e.target.checked ? '1' : '0') : (e.target.checked ? 'Yes' : 'No') })) })])),
+      estimateTotal: () => set({ form: Object.assign({}, form, { TotalCharges: Math.round(Number(form.tenure) * Number(form.MonthlyCharges) * 100) / 100 }) }),
+      resetForm: () => set({ form: DEFAULT_FORM }),
+      downloadOne: () => { const cols = Object.keys(CUSTOMERS[0].a); downloadText('churnsense_single_prediction.csv', cols.concat(['churn_probability', 'risk_band', 'flagged']).join(',') + '\n' + cols.map((k) => csvCell(c.a[k])).concat([p.toFixed(12), c.band, c.flagged]).join(',') + '\n'); },
+    });
+  }
+}
+</script>
+</body>
+</html>

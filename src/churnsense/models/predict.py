@@ -88,7 +88,7 @@ class Predictor:
     def model_key(self) -> str:
         return str(self.meta["model_key"])
 
-    def _validated(self, df: pd.DataFrame) -> pd.DataFrame:
+    def model_inputs(self, df: pd.DataFrame) -> pd.DataFrame:
         """Check ``df`` against the column contract and select the trained columns.
 
         Validation lives here, on the one path every consumer shares, so the
@@ -124,7 +124,7 @@ class Predictor:
         if not 0.0 <= cut <= 1.0:  # also false for NaN
             raise ValueError(f"threshold must lie in [0, 1], got {threshold!r}")
         # Already clamped by the artifact itself; see calibration_clamp.
-        probabilities = self.model.predict_proba(self._validated(df))[:, 1]
+        probabilities = self.model.predict_proba(self.model_inputs(df))[:, 1]
 
         bands = assign_risk_bands(probabilities, self.config)
         return pd.DataFrame(

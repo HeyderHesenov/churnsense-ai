@@ -17,8 +17,8 @@ import hashlib
 from dataclasses import replace
 
 import pytest
-from app import data
 
+from churnsense import book as books
 from churnsense.data import schema
 from tests.conftest import SYNTHETIC_SHA256
 
@@ -109,8 +109,8 @@ def untrusted(request, clean_frame, dashboard_predictor):
         meta["data_sha256"] = hashlib.sha256(b"another file").hexdigest()
     else:
         meta.pop("data_sha256")
-    book = data.score_book(clean_frame, SYNTHETIC_SHA256, replace(dashboard_predictor, meta=meta))
-    assert book.withheld == data.WITHHELD_REASONS[request.param]
+    book = books.score_book(clean_frame, SYNTHETIC_SHA256, replace(dashboard_predictor, meta=meta))
+    assert book.withheld == books.WITHHELD_REASONS[request.param]
     return book
 
 

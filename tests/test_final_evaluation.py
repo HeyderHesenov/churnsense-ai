@@ -151,3 +151,31 @@ def test_the_report_publishes_the_segment_table(evaluated, cfg: Config, tmp_path
     ).read_text()
     assert "### Performance by segment" in text
     assert "| nan |" not in text.lower()
+
+
+# --- the machine-readable record the dashboard shows ------------------------------
+
+
+def test_the_record_holds_aggregates_only_and_is_strict_json(evaluated, tmp_path, cfg: Config):
+    import json
+    from dataclasses import replace
+
+    from churnsense.evaluation.report import final_record, write_final_record
+
+    evaluation, _, splits = evaluated
+    record = final_record(evaluation, {"model_sha256": "a" * 64}, "2026-10-21T00:00:00+00:00")
+    assert record["model_sha256"] == "a" * 64
+    assert record["metrics"]["n"] == len(splits.y_test)
+    assert record["threshold"] == evaluation.threshold
+    assert "test_proba" not in json.dumps(record), "never a per-customer probability"
+    unscanned = [s for s in record["segments"] if s["unscanned"]]
+    assert all(s["flagged"] == 0 and s["churners"] > 0 for s in unscanned)
+    for segment in record["segments"]:
+        if segment["flagged"] == 0:
+            assert segment["precision"] is None  # undefined, written as null, not NaN
+
+    local = replace(cfg, paths=replace(cfg.paths, reports_dir=tmp_path))
+    path = write_final_record(record, local)
+    assert json.loads(path.read_text()) == record
+    with pytest.raises(ValueError):
+        write_final_record({**record, "ece": float("nan")}, local)

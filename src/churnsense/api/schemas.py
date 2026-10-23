@@ -158,9 +158,60 @@ class ModelInfoResponse(BaseModel):
     test_metrics: dict[str, Any] | None = None
     sklearn_version: str
     limitations: list[str]
+    # Added for the dashboard; optional, so older callers see no change.
+    model_sha256: str | None = None
+    probability_epsilon: float | None = None
+    risk_bands: list[RiskBand] | None = None
+    business_defaults: BusinessAssumptions | None = None
+    limits: UploadLimits | None = None
+    provenance: Provenance | None = None
+    test_evaluation: HoldoutSummary | None = None
 
 
 class ErrorResponse(BaseModel):
     error: str
     detail: str
     problems: list[str] = Field(default_factory=list)
+
+
+# --- shared by /model-info and the dashboard endpoints ----------------------------
+
+
+class BusinessAssumptions(BaseModel):
+    """SIMULATED economics: assumptions, never estimates from the data."""
+
+    currency: str
+    retention_offer_cost: float
+    offer_success_rate: Annotated[float, Field(ge=0, le=1)]
+    expected_horizon_months: int
+    gross_margin: Annotated[float, Field(ge=0, le=1)]
+
+
+class Provenance(BaseModel):
+    """Whether the dataset and split are the ones the served model was trained on."""
+
+    verified: bool
+    data_sha256: str | None
+    split_digest: str | None
+    withheld_reason: str | None
+
+
+class RiskBand(BaseModel):
+    name: str
+    min: float
+    max: float
+
+
+class UploadLimits(BaseModel):
+    max_batch_rows: int
+    max_upload_bytes: int
+    max_upload_columns: int
+
+
+class HoldoutSummary(BaseModel):
+    """The recorded test evaluation of the served artifact, from ``make evaluate``."""
+
+    evaluated_at: str
+    roc_auc: float
+    recall: float
+    ece: float | None

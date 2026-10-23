@@ -44,3 +44,12 @@ reports/figures/*
 
 # --- OS ---
 .DS_Store
+
+# --- Front end (frontend/): dependencies and build output are not source ---
+frontend/node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+
+# Intermediate output of `npm run openapi`; the generated types are committed instead.
+frontend/openapi.json

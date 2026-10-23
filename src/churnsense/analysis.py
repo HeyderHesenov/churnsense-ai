@@ -193,3 +193,34 @@ def service_addon_rates(df: pd.DataFrame, *, target: str = schema.TARGET) -> pd.
     out = pd.DataFrame(rows)
     out["difference"] = out["with_addon"] - out["without_addon"]
     return out.sort_values("difference").reset_index(drop=True)
+
+
+def cross_tab(
+    df: pd.DataFrame,
+    index: str,
+    columns: str | None = None,
+    *,
+    target: str = schema.TARGET,
+    min_cell: int = 20,
+) -> pd.DataFrame:
+    """Churn count and rate for every observed level of ``index`` (by ``columns``).
+
+    Tidy where ``risk_concentration`` is a matrix: one row per non-empty cell
+    with ``customers``, ``churned`` and ``churn_rate``. A cell of fewer than
+    ``min_cell`` customers keeps its count and loses both the rest - its churn
+    count would state the same unreliable rate. This is a threshold on what is
+    worth reporting, not disclosure control: a suppressed count can still be
+    recovered by subtracting the reported cells from a margin.
+    """
+    keys = [index] if columns is None else [index, columns]
+    grouped = df.groupby(keys, observed=True)[target].agg(["size", "sum"])
+    out = grouped.rename(columns={"size": "customers", "sum": "churned"}).reset_index()
+    reported = out["customers"] >= min_cell
+    out["churned"] = out["churned"].astype("Int64").where(reported, pd.NA)
+    out["churn_rate"] = (out["churned"].astype("Float64") / out["customers"]).where(reported)
+    return out
+
+
+def median_tenure_by_outcome(df: pd.DataFrame, *, target: str = schema.TARGET) -> dict[int, float]:
+    """Median tenure in months of the customers who stayed (0) and churned (1)."""
+    return {int(k): float(v) for k, v in df.groupby(target)["tenure"].median().items()}

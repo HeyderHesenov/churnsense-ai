@@ -15,6 +15,7 @@ Synthetic data only; nothing here reads the real dataset.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import subprocess
 from dataclasses import replace
@@ -34,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED = {
     "src/churnsense/data/split.py": "defines the partitions",
     "src/churnsense/evaluation/report.py": "the final evaluation",
-    "app/data.py": "labels each row with its partition (index only, no scoring)",
+    "src/churnsense/book.py": "labels each row with its partition (index only, no scoring)",
 }
 
 
@@ -162,3 +163,27 @@ def test_the_split_log_gives_no_test_base_rate(clean_frame, cfg: Config, caplog)
     assert "positive_rate" in lines["train"]
     assert "positive_rate" in lines["validation"]
     assert "positive_rate" not in lines["test"]
+
+
+#: The IBM Telco customer IDs are four digits, a dash and five capitals. The repository
+#: does not redistribute the dataset, so no file in it names a real customer;
+#: synthetic rows use DEMO- IDs, and examples use this format hint.
+_DATASET_ID = re.compile(r"\b[0-9]{4}-[A-Z]{5}\b")
+_ID_FORMAT_HINT = "1234-ABCDE"
+
+
+def test_no_file_in_the_repository_names_a_real_customer():
+    scanned = [
+        path
+        for folder in ("src", "app", "tests", "docs", "configs", "frontend/src", "frontend/e2e")
+        for path in sorted((ROOT / folder).rglob("*"))
+        if path.is_file()
+        and path.suffix in {".py", ".ts", ".tsx", ".css", ".md", ".json", ".yaml", ".html"}
+    ] + [ROOT / "README.md"]
+    named = {
+        str(path.relative_to(ROOT)): sorted(set(found) - {_ID_FORMAT_HINT})
+        for path in scanned
+        if (found := _DATASET_ID.findall(path.read_text(encoding="utf-8", errors="ignore")))
+        and set(found) - {_ID_FORMAT_HINT}
+    }
+    assert not named, f"real customer IDs in tracked files: {named}"

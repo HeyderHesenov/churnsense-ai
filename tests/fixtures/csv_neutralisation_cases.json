@@ -1,0 +1,109 @@
+{
+  "description": "Spreadsheet-formula neutralisation of one text cell. The Python exporter (churnsense.exports) and the front end's CSV builder (frontend/src/lib/csv.ts) are both tested against these cases, so the two cannot drift apart.",
+  "cases": [
+    {
+      "input": "=1+1",
+      "expected": "'=1+1"
+    },
+    {
+      "input": "+1",
+      "expected": "'+1"
+    },
+    {
+      "input": "-1",
+      "expected": "'-1"
+    },
+    {
+      "input": "@SUM(A1)",
+      "expected": "'@SUM(A1)"
+    },
+    {
+      "input": "\tx",
+      "expected": "'\tx"
+    },
+    {
+      "input": "\rx",
+      "expected": "'\rx"
+    },
+    {
+      "input": "=HYPERLINK(\"https://example.test\",\"x\")",
+      "expected": "'=HYPERLINK(\"https://example.test\",\"x\")"
+    },
+    {
+      "input": "safe",
+      "expected": "safe"
+    },
+    {
+      "input": "Month-to-month",
+      "expected": "Month-to-month"
+    },
+    {
+      "input": "Bank transfer (automatic)",
+      "expected": "Bank transfer (automatic)"
+    },
+    {
+      "input": "1234-ABCDE",
+      "expected": "1234-ABCDE"
+    },
+    {
+      "input": "DEMO-00001",
+      "expected": "DEMO-00001"
+    },
+    {
+      "input": "",
+      "expected": ""
+    },
+    {
+      "input": "a-b",
+      "expected": "a-b"
+    },
+    {
+      "input": "=",
+      "expected": "'="
+    },
+    {
+      "input": "a;=b",
+      "expected": "a;'=b"
+    },
+    {
+      "input": "a;+b",
+      "expected": "a;'+b"
+    },
+    {
+      "input": "x\"=y",
+      "expected": "x\"'=y"
+    },
+    {
+      "input": "a\n+b",
+      "expected": "a\n'+b"
+    },
+    {
+      "input": "a\t@b",
+      "expected": "a\t'@b"
+    },
+    {
+      "input": "a\r-b",
+      "expected": "a\r'-b"
+    },
+    {
+      "input": ";-1",
+      "expected": ";'-1"
+    },
+    {
+      "input": "Fiber optic",
+      "expected": "Fiber optic"
+    },
+    {
+      "input": "0.97",
+      "expected": "0.97"
+    },
+    {
+      "input": "-0.5 pp",
+      "expected": "'-0.5 pp"
+    },
+    {
+      "input": "a,=b",
+      "expected": "a,=b"
+    }
+  ]
+}

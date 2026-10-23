@@ -108,12 +108,12 @@ test:  ## Run the test suite
 	$(PY) -m pytest
 
 lint:  ## Lint with ruff
-	$(PY) -m ruff check src app tests
-	$(PY) -m ruff format --check src app tests
+	$(PY) -m ruff check src app tests scripts
+	$(PY) -m ruff format --check src app tests scripts
 
 format:  ## Auto-format and auto-fix with ruff
-	$(PY) -m ruff format src app tests
-	$(PY) -m ruff check --fix src app tests
+	$(PY) -m ruff format src app tests scripts
+	$(PY) -m ruff check --fix src app tests scripts
 
 audit:  ## Check installed dependencies for known vulnerabilities
 	@# --skip-editable: churnsense itself is installed editable and is not on
@@ -125,8 +125,10 @@ audit:  ## Check installed dependencies for known vulnerabilities
 app:  ## Launch the Streamlit dashboard
 	.venv/bin/streamlit run app/streamlit_app.py --server.address 127.0.0.1 --server.port $(APP_PORT)
 
+# --no-proxy-headers: the API's loopback check reads the connection's own peer,
+# never an address a forwarding header claims.
 api:  ## Launch the FastAPI service
-	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port $(API_PORT) --reload
+	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port $(API_PORT) --reload --no-proxy-headers
 
 clean:  ## Remove generated artifacts, reports and caches (raw data is kept)
 	rm -rf artifacts/* reports/figures/* .pytest_cache .ruff_cache

@@ -16,6 +16,7 @@ history (docs/MODEL_CARD.md, "Evaluation history").
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from dataclasses import dataclass
@@ -740,10 +741,60 @@ the wrong customers in the wrong band.
     return path
 
 
+#: The machine-readable record of the final evaluation, next to its report.
+FINAL_RECORD_FILENAME = "final_evaluation.json"
+
+
+def _finite(value: float) -> float | None:
+    """JSON has no NaN: an undefined figure (precision with nothing flagged) is null."""
+    return None if pd.isna(value) else float(value)
+
+
+def final_record(evaluation: FinalEvaluation, meta: dict, evaluated_at: str) -> dict:
+    """What the dashboard shows of a test scoring: aggregates only, never a probability.
+
+    Keyed to the artifact by ``model_sha256``, so a retrained model is never
+    shown its predecessor's figures.
+    """
+    m = evaluation.test_metrics
+    segments = [
+        {key: (_finite(value) if isinstance(value, float) else value) for key, value in row.items()}
+        | {"unscanned": row["flagged"] == 0 and row["churners"] > 0}
+        for row in evaluation.segments.to_dict(orient="records")
+    ]
+    return {
+        "model_sha256": meta.get("model_sha256"),
+        "model_key": meta.get("model_key"),
+        "evaluated_at": evaluated_at,
+        "threshold": evaluation.threshold,
+        "metrics": {k: _finite(v) if isinstance(v, float) else v for k, v in m.as_dict().items()},
+        "metrics_at_half": {
+            k: _finite(v) if isinstance(v, float) else v
+            for k, v in evaluation.test_metrics_at_half.as_dict().items()
+        },
+        "ece": _finite(evaluation.test_ece),
+        "no_skill_accuracy": 1 - m.positives / m.n,
+        "test_optimal_threshold": evaluation.test_optimal_threshold,
+        "segments": segments,
+        "reliability": [
+            {key: _finite(value) for key, value in row.items()}
+            for row in evaluation.reliability.to_dict(orient="records")
+        ],
+    }
+
+
+def write_final_record(record: dict, cfg: Config | None = None) -> Path:
+    """Write ``reports/final_evaluation.json``; refuses NaN rather than writing invalid JSON."""
+    cfg = cfg or load_config()
+    path = cfg.paths.reports_dir / FINAL_RECORD_FILENAME
+    path.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    logger.info("wrote %s", path.name)
+    return path
+
+
 def main(argv: list[str] | None = None) -> int:
     """`make evaluate CONFIRM=yes`: score the test partition and publish the result."""
     import argparse
-    import json
 
     from churnsense.data.loader import features_and_target, load_clean
     from churnsense.data.split import check_provenance, make_splits
@@ -785,10 +836,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Recorded beside the artifact, so the model's metadata says when it was
     # last evaluated on test and what that scoring found.
+    evaluated_at = datetime.now(UTC).isoformat(timespec="seconds")
+    write_final_record(final_record(evaluation, meta, evaluated_at), cfg)
     meta_path = cfg.paths.artifacts_dir / META_FILENAME
     meta["test_metrics"] = evaluation.test_metrics.as_dict()
     meta["test_ece"] = evaluation.test_ece
-    meta["test_evaluated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    meta["test_evaluated_at"] = evaluated_at
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     m = evaluation.test_metrics

@@ -18,11 +18,13 @@ from dataclasses import replace
 
 import pandas as pd
 import pytest
-from app import components, data
+from app import data
 from app.sections.explorer import TABLE_COLUMNS, selection_table
 
 from churnsense import analysis as an
+from churnsense import book as books
 from churnsense.data import schema
+from churnsense.exports import csv_bytes
 from tests.conftest import SYNTHETIC_SHA256
 
 
@@ -171,9 +173,9 @@ def test_untrusted_partitions_withhold_every_outcome(
         case, clean_frame, dashboard_parts, dict(dashboard_predictor.meta)
     )
     model = replace(dashboard_predictor, meta=meta)
-    book = data.score_book(customers, sha, model)
+    book = books.score_book(customers, sha, model)
 
-    assert book.withheld == data.WITHHELD_REASONS[reason]
+    assert book.withheld == books.WITHHELD_REASONS[reason]
     assert book.frame["partition"].eq("unknown").all()
     assert book.outcomes.empty
     assert book.train_index.empty
@@ -186,7 +188,7 @@ def test_untrusted_partitions_withhold_every_outcome(
 
 
 def test_every_withheld_reason_is_distinct_path_free_and_actionable():
-    reasons = list(data.WITHHELD_REASONS.values())
+    reasons = list(books.WITHHELD_REASONS.values())
     assert len(set(reasons)) == len(reasons)
     for reason in reasons:
         assert "/" not in reason and "\\" not in reason, reason
@@ -210,7 +212,7 @@ def test_the_explorer_table_has_an_explicit_schema_and_no_test_outcome(
 
 
 def test_the_explorer_csv_holds_no_test_outcome(book, clean_frame, dashboard_parts):
-    payload = components.csv_bytes(selection_table(book.frame, book.outcomes))
+    payload = csv_bytes(selection_table(book.frame, book.outcomes))
     exported = pd.read_csv(io.BytesIO(payload), dtype=str)
 
     assert list(exported.columns) == TABLE_COLUMNS

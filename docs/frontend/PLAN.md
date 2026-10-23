@@ -1,0 +1,420 @@
+# Front-end implementation plan
+
+Approved 2026-10-21. The working record of how `docs/design/MASTER_PROMPT.md` is applied to this repository: decisions taken with the maintainer, the architecture, the phases and how each is verified.
+
+## Context
+
+The maintainer designed an 8-screen dashboard with Claude Design. Every file in the exported bundle was read:
+- 8 artboards, plus `tools/src` (the same artboards before shell expansion);
+- `canvas.json`, `mini-dc.js`, `build_shell.py`, `dc_check.js`, `export_all.py`, `scorer.js`, `risk.js`;
+- the data files (structure checked), `README.md` and `MASTER_PROMPT.md`.
+
+The goal is to reproduce the design 1:1 as production code, without weakening any repo guarantee: the single prediction path, withheld test outcomes, no causal language, SIMULATED money, and no typed numbers. The work principles also apply: verified, secure, optimal, light.
+
+The prototype computed everything in the browser from exported JSON. Production renders only what the API returns.
+
+**Decisions (asked 2026-10-21):**
+
+| Topic | Decision |
+|---|---|
+| Test metrics | `make evaluate` also writes `reports/final_evaluation.json`. The maintainer runs `make evaluate CONFIRM=yes` once. Until then the UI shows a "not recorded" state. |
+| Auth | Loopback-only now, enforced by the server. No login. |
+| React | React 19. |
+| Design in repo | Artboards plus `canvas.json` and `MASTER_PROMPT.md` go into `docs/design/` (the maintainer asked for "the most correct" option). The repo currently contains no real customer ID, and MODEL_CARD says the dataset is "not redistributed". So the 28 real rows embedded in two artboards (Main `QUEUE` 24, Customer `CUSTOMERS` 4) are replaced by synthetic `DEMO-` rows from `tests/fixtures`. This is documented. Aggregates stay, since the README already publishes them. Excluded: `preview/data/*.json` (the full dataset), `model.json`/`scorer.js` (the in-browser model) and `tools/`. |
+
+**Facts that shaped the plan (verified):**
+- `model_meta.json` has no `test_metrics`: `make train` on 2026-10-13 rewrote it.
+- `shap_global.json` holds importance only.
+- These live only in `app/`: book/provenance/outcome logic, CSV neutralisation, KPIs, `selection_table`.
+- SHAP takes about 0.3 s per row when warm, and 2.4 s on the first call (numba JIT). It uses numpy's **global** RNG (`shap/explainers/_permutation.py:66,182`).
+- `Mount("/")` matches everything with `Match.FULL` (`starlette/routing.py:426,694`).
+- TestClient's default peer is `("testclient", 50000)`; it does accept `client=`.
+- `reports/threshold_sweep.csv` plus `recommend_threshold_from` reproduce 0.36 and 0.88/0.50/0.36/0.23/0.22.
+- The design's demo CSV is identical to `tests/fixtures/demo_customers.csv`.
+- **Toolchain:** TS 5.9 (typescript-eslint and openapi-typescript need < 6) and ESLint 9 (jsx-a11y needs ≤ 9).
+
+## Architecture
+
+```
+browser ──same origin──▶ FastAPI (uvicorn 127.0.0.1, --no-proxy-headers)
+  middleware (outer→inner): SecurityHeaders → LoopbackOnly → TrustedHosts+SameOrigin → RateLimit → BodySizeLimit
+  ├─ /api/*                     new JSON/CSV endpoints + /api aliases of the 4 legacy ones
+  ├─ /health /model-info /predict /predict/batch   legacy paths, unchanged handlers
+  ├─ /docs /redoc /openapi.json docs-only CSP
+  ├─ GET / /explorer /patterns /performance /explainability /customer /simulator /batch → index.html
+  └─ GET /assets/{file}         hashed bundle files (regex-checked name, immutable cache)
+library: predict.py (only inference path) · book.py · insights.py · exports.py · analysis.py · evaluation/* · explainability/*
+```
+
+**Serving the SPA:**
+- explicit routes, never `Mount("/")`, so 404, 405 and redirects keep working;
+- the directory comes from a module-level `FRONTEND_DIST`, read at request time (the pattern `ARTIFACTS_DIR` already uses);
+- if nothing is built, SPA routes answer 404 `frontend_not_built`.
+
+## Phase 0 — setup (after approval)
+
+- Create branch `feature/frontend-design` from `main` 883492f. Nothing is committed or pushed until the maintainer asks; landing is via PR per the protected-main rule.
+- Copy the artboards to `docs/design/` with the synthetic-row substitution, and write `docs/design/README.md`.
+- Write `docs/frontend/PLAN.md` (this plan).
+- Add `frontend/node_modules`, `frontend/dist`, `playwright-report/` and `test-results/` to `.gitignore`.
+
+## Phase 1 — backend (TDD; library first, then endpoints)
+
+### 1a. Move the shared logic into the library (no behaviour change)
+
+**`src/churnsense/book.py`** — moved from `app/data.py`:
+- `Book`, `score_book`, `verified_split`, `is_sha256`, `labelled(frame, *parts, shown)`, `WITHHELD_REASONS`, `SHOWN_PARTITIONS`;
+- `outcome_codes()`: `churned`/`stayed`/`withheld`, the one mapping;
+- `selection_table()`.
+
+Supporting changes:
+- `app/data.py` keeps thin `st.cache_*` wrappers. `labelled(frame, *parts)` defaults `shown` to `outcomes()`, and the names that tests and conftest import are re-exported.
+- Streamlit maps the outcome codes to its display words.
+- The governance allowlist swaps `app/data.py` for `book.py`.
+
+**`src/churnsense/exports.py`** — `neutralise_formulas`, `csv_bytes`, `FORMULA_TRIGGERS`, moved from `app/components.py` and re-exported there.
+
+**`src/churnsense/insights.py`** — pure aggregates over a `Book`:
+- `overview()`: KPIs; band table with train+val observed churn; 20-bin histogram with train+val observed churn per bin; campaign figures from the **validation** sweep;
+- `lifecycle()` and `segment_rates()`: train only;
+- `calibration_by_band()`: train+val;
+- `customer_page()`: filter, sort, paginate, selection summary;
+- `example_customers()`: a deterministic rule, so no IDs are committed. It returns the README example, then the validation customer at the median probability of each case: Low/unflagged, Moderate/unflagged, Moderate/flagged, High/flagged. This is the design picker's structure.
+- `DIMENSIONS`: 14 whitelisted dimensions with the design's fixed level order.
+
+**`analysis.cross_tab()`** — tidy cells: customers, churned, rate, or suppressed when n < 20, plus lift and marginals. `risk_concentration` is kept as is, with a test that the two agree.
+
+**Never exposed:** `DataSplits.summary()`, which contains the test base rate, and any all-rows outcome aggregate.
+
+### 1b. Caches and sidecar
+
+**SHAP:**
+- New `shap_matrix()` returns values plus the base value. `global_importance` is derived from it, and the `no_shap` fixture patches it.
+- `compute_and_cache` keeps `"importance"`, so `load_cached_importance` and Streamlit are unchanged. It adds `base_value`, `values` (300×18), `x`, `max_additivity_gap` and the feature order.
+- `load_cached_explanations()` refuses a cache whose `model_sha256` differs from the served artifact.
+- **A process-wide `threading.Lock` wraps `_shap_values`** (explainer construction and call), because of the global RNG.
+- **I re-run `make explain`.** It reads validation and a train background only.
+
+**Evaluate sidecar** (`report.main`):
+- also writes the tracked `reports/final_evaluation.json`: `model_sha256`, `evaluated_at`, metrics (plus metrics at 0.50 and ECE), confusion matrix, segment table with the unscanned flag, test-optimal threshold, reliability bins, and the "nobody churns" accuracy;
+- written with `allow_nan=False`, NaN converted to `null`; fields are `float | None`. No probabilities.
+- Served only when its `model_sha256` matches the artifact.
+
+**After the maintainer runs `make evaluate CONFIRM=yes`:**
+- review the regenerated `final_evaluation.md`. The archival note disappears and the format gains Wilson intervals and SeniorCitizen rows; the numbers must be identical.
+- move the archival history into MODEL_CARD "Evaluation history";
+- run `test_documentation`.
+
+**Config:** `api.rate_limits` gets a `default_factory`. `_build` reads optional sections with `.get`. No business value changes.
+
+### 1c. Endpoints
+
+`/api` aliases of the 4 legacy endpoints share their handlers and appear in the schema, so the SPA gets typed calls. Static paths are registered **before** `/api/customers/{id}`; a test catches the wrong order.
+
+| Endpoint | Returns (every figure server-side) |
+|---|---|
+| `GET /api/model-info` | Existing fields, plus optional `model_sha256`, `data_sha256`, `provenance{dataset, split, withheld_reason}`, `probability_epsilon`, `risk_bands`, `business_defaults` (`cfg.business`), `limits`, `served_locally`, `test_evaluation` (sidecar block or `null` + reason). |
+| `GET /api/overview` | KPIs; bands; histogram; campaign (validation sweep at the defaults: net, flagged/n, P·R, cost, retained, peak and delta, sparkline); segment tabs with note parameters (spread ratio, price peak); lifecycle; median tenure; top 5 importance and top 5 association. |
+| `GET /api/customers` | Filters: `q` (≤ 32 chars, `[A-Za-z0-9-]`, `regex=False`), repeated `bands`, `contract`, `internet`, `payment`, `tenure_min ≤ tenure_max`, `flagged`, `partition`, `sort` enum, `dir`, `page`, `page_size ≤ 100`. Returns rows (`outcome` is `churned`, `stayed` or `withheld`), `total` and a selection summary. Observed churn uses train+val rows only. |
+| `GET /api/customers/export` | Same filters, or `ids` (≤ 200). Neutralised `text/csv`. Serves Main's "Export scored CSV" and "Export selection", and the Explorer export. |
+| `GET /api/customers/examples` | `example_customers()`. |
+| `GET /api/customers/{id}` | Profile (18 inputs), probability, band, flag, partition, outcome. |
+| `POST /api/explain` | Body is `{customer_ids: [≤ 8]}` or `{record}`. Uses the verified train background (100), seed 42 and 10 permutations, under the lock. Returns all 18 contributions per customer. The LRU cache is keyed on the validated, coerced record. Additivity is asserted (≤ 1e-9, else 500). 503 `explanations_unavailable` if partitions are unverified. |
+| `GET /api/segments?rows=&cols=` | Train cross-tab. A cell with n < 20 becomes `{"suppressed": true, "n": n}`. Returns marginals, base rate, the top 7 combinations and the association list (`association_ranking.csv`). |
+| `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. |
+| `GET /api/threshold/sweep` | Inputs: `cost` (0–10,000), `success`, `margin` (0–1), `horizon` (1–120). Returns the validation sweep (101 points), peak, recommendation (`recommend_threshold_from`), indifference band and sensitivity at 10–50 %. |
+| `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. |
+| `POST /api/batch/score` | Multipart, same body limit and `validate_upload`. Returns rows (validated inputs as scored, id, label, prediction), a summary and notes. **Label P/R excludes rows whose `customerID` is in the book's test or unknown partition**, and reports how many were excluded. `/predict/batch` is unchanged. |
+
+**Rules for every endpoint:**
+- errors use `{"error","detail","problems"}` with explicit codes: `dataset_unavailable`, `rate_limited` (429 added to the map), `explanations_unavailable`;
+- query errors get detail text about parameters;
+- no paths or tracebacks in responses.
+
+**Data access:**
+- The Book, the reports directory and the SHAP cache are FastAPI dependencies, with paths taken from module-level settings. Tests use `dependency_overrides` built from the conftest synthetic `book`/`dashboard_predictor`, plus a guard that makes the real data loader raise.
+- The Book loads lazily (not in the lifespan) and is keyed on `model_sha256`.
+
+### 1d. Security middleware (built early, so the SPA is CSP-clean from day one)
+
+**SecurityHeaders:**
+- The headers go into the `SECURITY_HEADERS` that `_error_response` also uses, so 500s from ServerErrorMiddleware carry them too.
+- Headers: the strict CSP exactly as in the Master Prompt; `nosniff`; `Referrer-Policy: no-referrer`; a `Permissions-Policy` denying camera, mic and geolocation; `X-Frame-Options: DENY`; COOP/CORP `same-origin`; HSTS only when the scheme is https; `no-store`, except `immutable` for `/assets`.
+- `/docs` and `/redoc` get their own CSP allowing exactly what FastAPI's pages load: jsdelivr, inline scripts, the fastapi.tiangolo.com favicon, Google Fonts and `blob:` workers. A Playwright console check verifies it.
+
+**LoopbackOnly:** a peer that is not 127.0.0.0/8 or ::1, or a missing peer, gets 403. One test helper builds `TestClient(…, client=("127.0.0.1", 50000))`, and it is used everywhere, including the `ci.yml` smoke tests. `make api`/`make serve` add `--no-proxy-headers`.
+
+**Same-origin:**
+- `hosts.is_same_origin(origin, host)` normalises case, default ports and IPv6.
+- The existing allowlist check stays for all methods.
+- On unsafe methods, an `Origin` that is present must be same-origin.
+- On `/api/*`, `Sec-Fetch-Site` must be `same-origin` or `none`. This blocks other localhost ports, e.g. NexusBI on :8000, and `<img>`-triggered exports.
+- This closes I-01/R-07. The params in `test_api.py:548` change to `http://localhost`, with new 403 cases for other ports. `test_hosts.py` is unchanged.
+- The Vite dev proxy uses `changeOrigin: false`.
+
+**RateLimit:**
+- a token bucket per route group and client peer, size-capped, configured from `api.rate_limits`;
+- explain: burst 10, 1 per 2 s; batch: burst 5, 1 per 6 s;
+- covers `/api/explain`, `/api/batch/score` and `/api/predict/batch` together with the legacy `/predict/batch`. They share one bucket, so the alias is no bypass;
+- runs after the host and origin checks, so refused requests cost no tokens;
+- tests not about limits disable it through a module-level override;
+- this is a documented behaviour change: 429 is now possible on `/predict/batch`.
+
+### 1e. Backend tests (one per Master-Prompt requirement)
+
+- **Endpoints**: every new endpoint gets happy path, validation, limits, error shape and a no-path check.
+- **Leak and suppression scans**:
+  - crawl every endpoint × parameter set: no test-row outcome, and aggregates use train+val only. The sidecar's recorded aggregate test block is allowlisted.
+  - no rate is returned for n < 20.
+- **Model guarantees**:
+  - parity: `/api/customers/{id}` = `POST /api/predict` = `predict_one`, within 1e-12;
+  - additivity ≤ 1e-9; parallel explanations equal sequential ones (lock);
+  - threshold 0.36 and sensitivity 0.88/0.50/0.36/0.23/0.22, from the tracked sweep CSV through the library rule and cross-checked against `model_comparison.md`. No test reads the real dataset.
+- **Routing**: route order; SPA routes, assets and traversal; JSON 404/405 preserved; the docs CSP.
+- **Security**: headers on 200/4xx/500 (using `raise_server_exceptions=False`), 403 loopback, 403 origin and Sec-Fetch, 429 with `Retry-After`.
+- **Data sources**: sidecar written, consistent and stale-refused; SHAP cache matrix and stale detection; batch label P/R exclusion.
+- **Other**: CSV neutralisation vectors in `tests/fixtures/csv_neutralisation_cases.json`, shared with Vitest; causal-phrase scan over API strings and OpenAPI descriptions.
+- **All 634 existing tests stay green.**
+
+## Phase 2 — front-end shell
+
+**Stack** (`frontend/`):
+- React 19, TS 5.9 strict, Vite 8 (`assetsInlineLimit: 0`, no sourcemaps, a separate vendor chunk), TanStack Query v5, `d3-scale`/`d3-shape`;
+- `@fontsource/geist` latin+latin-ext at 400/500/600/700, and `geist-mono` at 400/500/600. These are static weights matching the canvas's Google Fonts render, where 550 resolves to 600 and 650 to 700.
+- No UI kit and no router library.
+
+**Supply chain:**
+- `.npmrc` sets `ignore-scripts`, `save-exact` and `engine-strict`;
+- `.nvmrc` and `engines` set Node 22;
+- versions are exact, each ≥ 7 days old, and `package-lock.json` is committed.
+
+**Router:** ~100 lines, tested:
+- `<Link>` intercepts plain left clicks only;
+- `popstate`;
+- focus goes to the `<h1>` and scroll to the top on navigation;
+- pages are lazy-loaded.
+
+**URL state:** typed search-param hooks with validation and defaults. Discrete changes push history; text replaces it after a 250 ms debounce. Only filters and IDs go into URLs. The live form stays in memory. `localStorage` holds only the sidebar collapse state.
+
+**Styles:**
+- `styles/tokens.css` holds every design colour, radius and type token;
+- `base.css` ports the HELMET rules (focus ring, `.sr`, transitions, reduced motion, `overflow-x`/`overscroll-behavior-x`);
+- each component has a CSS Module with the design's exact px values;
+- dynamic values go through CSS custom properties set via CSSOM (CSP-safe);
+- an ESLint rule bans `dangerouslySetInnerHTML`.
+
+**API layer:**
+- `schema.d.ts` is generated by `openapi-typescript` from `scripts/export_openapi.py`;
+- `client.ts` passes an `AbortSignal`, does not retry 4xx and retries 5xx once, and never shows server error text; 422 `problems` are shown as text;
+- one hook per endpoint.
+
+**Shell**, as `build_shell.py` defines it:
+- collapsible sidebar (232 ↔ 66 px) with the Serving card;
+- header with breadcrumb and an actions slot;
+- drawer at ≤ 860 px with focus trap, `Esc` and focus return.
+
+**UI kit:**
+- Button/Ghost, Chip, Segmented (`aria-pressed`), Tabs, Field/Select/Range, Card, StatTile, SimulatedBadge;
+- Popover (dialog semantics);
+- HTML tooltip that flips at the right edge and follows the pointer and keyboard focus;
+- Skeleton, EmptyState (reason + reset), ErrorState (retry);
+- Pagination, SortHeader (`aria-sort`).
+
+**Charts:** `ChartFrame` provides `role="img"`, an `aria-label` and a visually hidden data table.
+
+**`lib/`:**
+- `format.ts`: percent, money with U+2212, signed pp, clamp-aware probability (4 decimals above 0.999 and below 0.001), integers;
+- `csv.ts`: a client CSV builder with neutralisation, using the shared vectors;
+- `labels.ts`: the design's per-context labels.
+
+**Rule:** the client formats and positions. It never computes a probability, band, flag, SHAP value or threshold, and never aggregates over customers. Display arithmetic on API figures, such as deltas, is allowed.
+
+**Tests:** Vitest, Testing Library, and MSW handlers typed from `schema.d.ts`.
+
+## Phase 3 — pages, in this order, each with unit and e2e tests
+
+1. **Overview (`/`)**
+   - Header: search, provenance popover, export.
+   - Operating-point scale.
+   - 5 KPI tiles; two link to the queue.
+   - Histogram: customers or charges toggle, band shading, observed-churn line and diagonal, tooltip, click filters the queue.
+   - Band cards.
+   - Campaign card (SIMULATED, assumptions shown).
+   - Segment tabs, lifecycle bars with tooltip, importance toggle.
+   - Retention queue: band chips, partition filter, `id ∋` chip, reset, sortable columns, pages of 8, selection with bulk bar.
+   - Top-2 attributions per page, loaded lazily through one `/api/explain` call with skeleton chips.
+   - Outcome pills; Explain link to `/customer?id=`.
+2. **Explorer**
+   - Presets with live counts.
+   - Filter bar.
+   - Selection summary (`aria-live`) with a mini histogram.
+   - Sortable table with page size 15/25/50 and skeleton, error and empty states.
+   - Detail panel: prev/next/close, attributes, "Explain this customer".
+   - Export.
+3. **Single customer**
+   - Picker: examples plus "New customer".
+   - Grouped profile with the top-4 contributors highlighted.
+   - Live form: coherent add-on and phone rules; debounced `/api/predict` (250 ms) and `/api/explain` (500 ms idle, stale requests aborted); `=×`; reset to the README example.
+   - Prediction card with scale and threshold.
+   - Waterfall: Top 5, Top 8 or All 18.
+   - Plain sentences.
+   - Real API response panel.
+   - CSV download.
+4. **Batch**
+   - Steps.
+   - Drop zone with a client-side size pre-check (convenience only).
+   - Demo file: `tests/fixtures/demo_customers.csv`, imported raw at build time.
+   - Required-columns toggle; validation panel (422 problems and notes).
+   - Summary, including label P/R with the exclusion note.
+   - Rows: all or flagged, sort, pages of 12.
+   - Scored CSV; template download.
+5. **Simulator**
+   - 4 sliders; the threshold follows the recommendation or is set by hand.
+   - Net-benefit chart: band, peak, recommendation, hover, click-to-set.
+   - Precision/recall chart.
+   - Result tiles.
+   - Pins (≤ 4, kept in the URL).
+   - "Why not the peak" panel.
+   - Sensitivity pills.
+   - 150 ms debounce; the previous result stays visible while the next loads.
+6. **Performance**
+   - Recorded test tiles, or the "not recorded" state.
+   - 1-SE chart and candidate table.
+   - Confusion matrix: recorded test / validation explore with slider.
+   - PR curve with F1 contours, hover, and click to load the cut.
+   - Calibration by band and the uncalibrated-vs-shipped table.
+   - Test segment table (NOT SCANNED rows).
+7. **Explainability**
+   - Method tiles.
+   - Selectable swarm rows.
+   - Dependence plot, numeric or categorical, with hover.
+   - Slope chart with the rank chips.
+8. **Patterns**
+   - Rows × cols selects, swap, measure, suggested views.
+   - Focus line.
+   - Grid: hover, pin, suppressed hatch, marginals.
+   - Ranked combinations.
+   - Association list.
+
+### Deliberate deviations from the artboards (correctness over copy)
+
+- **Copy that claims in-browser scoring becomes truthful API wording:**
+  - the Batch intro, steps and notes;
+  - the Explorer SHAP note, which says "12 orderings in your browser";
+  - the Customer live notes;
+  - the host in the API panel.
+- **The Main queue is the real paginated flagged list** ("Showing 1–8 of 2,306 flagged"). The prototype loaded only the top 8 per band.
+- **"Add to campaign list" is omitted.** It is a dead button, and no such feature exists. "Export selection" works.
+- **Numbers typed into the copy become API values:** "17×", "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V 0.419 … fourth", "0.27", "34 churners", ECE 0.144 → 0.027, ε.
+- **The Single-customer picker uses a deterministic rule.** The design's four case types are kept, but no hard-coded IDs; the chosen customers may differ from the prototype's.
+
+## Phase 4 — hardening, CI, docs
+
+**Wording:** `scripts/check_wording.py` scans our own bundle chunks (not vendor) and the API strings for causal claims (`causes|caused by|drives|driven by|will prevent|prevents|guarantee(s|d)`). It runs in pytest when `dist` exists and always in CI.
+
+**Frontend quality:**
+- ESLint 9 with react-hooks, jsx-a11y and security, plus Prettier and `tsc --noEmit`, with zero warnings;
+- `scripts/` is added to the ruff targets.
+
+**Playwright e2e:**
+- all 8 pages at 375 and 1440 px: drawer, filters, sort, paging, tooltips, keyboard-only navigation;
+- batch with the demo file and with a deliberately broken file;
+- axe with 0 serious or critical violations;
+- `scrollWidth ≤ clientWidth` at 375, 768, 1024 and 1440;
+- base URL `127.0.0.1`.
+
+It runs against `scripts/e2e_server.py`: a synthetic dataset, model, reports and SHAP cache (`--sample 30`) built in a temp directory, run with `CHURNSENSE_CONFIG` and raised rate limits.
+
+**CI**, a new `frontend` job with SHA-pinned actions and Node 22 plus Python 3.12:
+- the Python side installs the hashed lock, so the schema is stable;
+- `npm ci`, lint, typecheck, Vitest, build, wording check;
+- OpenAPI type freshness (`git diff --exit-code`);
+- `npm audit --audit-level=high`;
+- Playwright with Chromium.
+
+Dependabot gets an `npm` entry (`/frontend`, 7-day cooldown, grouped). The `ci.yml` smoke tests use a loopback client.
+
+**Makefile:** `frontend-install`, `frontend`, `frontend-dev` (proxy to `API_PORT`), `serve` (API + SPA, no reload), `openapi`, `frontend-test`, `e2e`.
+
+**Docs:**
+- SECURITY.md: loopback-only, rate limits, CSP and the docs exception, same-origin, I-01 closed;
+- README: SPA section, with only measured numbers and none of the phrases `test_documentation` bans;
+- MODEL_CARD: evaluation history;
+- memory handoff.
+
+## Verification (after every phase; output shown, nothing claimed unrun)
+
+**Backend:**
+- `make test`, in the repo and in a data-free copy; `make lint`; `make audit`;
+- manually, with real data: `make api API_PORT=8001` (NexusBI holds 8000) and `curl` on every endpoint;
+- headers, 403/429 and the docs CSP checked by hand.
+
+**Frontend:** lint, typecheck, test, build and e2e. Bundle size measured and reported.
+
+**1:1 fidelity:**
+- serve the bundle's `design/preview` with `python3 -m http.server`, next to `make serve`;
+- take Playwright screenshots of each page at 1440 and 375;
+- compare side by side, with a pixel-diff helper in the scratchpad.
+
+Same data and same model, so the numbers must match. Every remaining difference is listed.
+
+**Behaviour checks:**
+- Overview recommends 0.36.
+- Simulator sensitivity: 0.88/0.50/0.36/0.23/0.22.
+- Customer API panel = `POST /api/predict`.
+- Playwright response capture shows no test outcome in any network response.
+
+**Reviews:** the `code-reviewer` agent after every phase, and the `security-review` skill before the PR.
+
+## Risks and notes
+
+- **The first explanation takes about 2.4 s** (numba JIT); later ones about 0.3 s per row. The queue uses one batched call per page, behind skeletons.
+- **The new CI job is not a required check** until the maintainer adds it to the ruleset.
+- **`make evaluate CONFIRM=yes` is one more test read.** It is recorded in MODEL_CARD, and the numbers must reproduce exactly (the artifact sha is unchanged).
+- **429 is now possible on the legacy `/predict/batch` path.** This is intentional and documented.
+
+## Decisions recorded during Phase 1 review (2026-10-22)
+
+An independent review of the Phase 1 backend raised three findings against the
+rules above. Each was fixed or decided explicitly; none is left implicit.
+
+- **Small groups, everywhere.** A group of fewer than 20 customers never gets
+  an outcome rate or churn count, wherever it appears: cross-tab cells and
+  margins, band and histogram observations, an explorer selection's summary,
+  and the recorded test segments. `insights._observed` is the single place
+  observed churn is counted. Two clarifications:
+  - **Reliability, not disclosure control.** This is a threshold on what a
+    page presents. Training and validation customers' own outcomes are listed
+    one by one, and a suppressed cell can be recovered from its margins.
+  - **The threshold sweep is exempt.** Its precision and recall are
+    operating-point metrics of the whole validation partition, always shown
+    beside their denominator (the flagged count).
+- **The recorded test evaluation is shown as recorded.** It is the one
+  documented exception to "no test figure", and it covers aggregates only:
+  - the published report `make evaluate CONFIRM=yes` writes, with the same
+    figures `reports/final_evaluation.md` prints, including counts and the
+    confusion matrix;
+  - served only for the artifact it describes, never recomputed;
+  - per-row test outcomes are never sent.
+  
+  The leak tests run with the record present and allowlist exactly these
+  blocks.
+- **Batch label checks never reach held-out customers.** An uploaded row is
+  held out when either test holds:
+  - its customer ID matches a test or unverified customer, ignoring case and
+    surrounding space;
+  - its scored inputs equal one such customer's.
+  
+  A held-out row is left out of precision and recall, and its label is not
+  echoed back. Without the dataset no row can be told apart, so no label is
+  compared or shown. A deliberately perturbed copy of a test customer cannot
+  be recognised; the page states that the figure is on the file's own labels
+  and is not a performance estimate.
+- **Explanations stay bounded.** At most 3 explanation requests are in
+  flight; the next gets 503 `explanations_busy` with `Retry-After`. Each
+  explanation is checked against the probability `Predictor` served, not
+  against the explainer's own model call.
+- **Broken files degrade.** A malformed final-evaluation record, a damaged
+  SHAP cache or a report with a blank number reads as "not recorded", is
+  logged, and never fails a page. A missing dataset is retried at most every
+  30 s, so polling does not reload or log it on every request.

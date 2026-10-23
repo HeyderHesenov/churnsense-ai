@@ -167,7 +167,7 @@ def test_explanations_are_deterministic(trained):
 
 @pytest.fixture
 def no_shap(monkeypatch) -> list:
-    """Every global_importance call compute_and_cache makes; returns a fixed ranking."""
+    """Every SHAP computation compute_and_cache makes; returns fixed contributions."""
     import pandas as pd
 
     from churnsense.evaluation import figures
@@ -175,13 +175,13 @@ def no_shap(monkeypatch) -> list:
 
     calls: list = []
 
-    def ranking(model, explained, **_):
+    def contributions(model, explained, background, **_):
         calls.append(explained)
-        return pd.DataFrame(
-            {"feature": ["tenure"], "label": ["Tenure (months)"], "mean_abs_shap": [0.1]}
-        )
+        values = pd.DataFrame(0.01, index=explained.index, columns=explained.columns)
+        values.attrs["base_value"] = 0.2
+        return values
 
-    monkeypatch.setattr(shap_explain, "global_importance", ranking)
+    monkeypatch.setattr(shap_explain, "_shap_values", contributions)
     monkeypatch.setattr(figures, "shap_importance", lambda *_, **__: None)
     return calls
 
@@ -251,3 +251,49 @@ def test_make_explain_reports_a_refusal_instead_of_a_traceback(
     assert shap_explain.main([]) == 1
     assert "dataset differs" in caplog.text
     assert not no_shap
+
+
+# --- the matrix the explainability page draws ---------------------------------------
+
+
+def test_the_cache_payload_reproduces_the_served_probabilities(trained, cfg: Config):
+    from churnsense.explainability.shap_explain import explanation_cache
+
+    outcome, splits = trained
+    explained = splits.X_val.head(8)
+    meta = {"model_key": "lr", "trained_at": "t", "model_sha256": "a" * 64}
+    payload = explanation_cache(
+        outcome.model,
+        meta,
+        explained,
+        background_sample(splits.X_train, cfg.random_seed),
+        seed=cfg.random_seed,
+        permutations=FAST,
+    )
+    assert payload["features"] == list(explained.columns)
+    assert len(payload["values"]) == len(payload["x"]) == 8
+    served = outcome.model.predict_proba(explained)[:, 1]
+    for row, p in zip(payload["values"], served, strict=True):
+        assert payload["base_value"] + sum(row) == pytest.approx(p, abs=1e-9)
+    assert payload["max_additivity_gap"] < 1e-9
+    assert {r["feature"] for r in payload["importance"]} == set(payload["features"])
+
+
+def test_a_cache_for_another_artifact_or_without_the_matrix_is_not_served(tmp_path):
+    import json
+
+    from churnsense.explainability.shap_explain import load_cached_explanations, read_cache
+
+    path = tmp_path / "shap_global.json"
+    assert read_cache(path, "a" * 64) is None
+    path.write_text(json.dumps({"model_sha256": "a" * 64, "importance": []}))
+    assert read_cache(path, "a" * 64) is not None
+    assert read_cache(path, "b" * 64) is None
+    assert load_cached_explanations(path, "a" * 64) is None  # an older cache: ranking only
+    path.write_text(
+        json.dumps({"model_sha256": "a" * 64, "features": ["x"], "values": [[0.1, 0.2]], "x": [{}]})
+    )
+    assert load_cached_explanations(path, "a" * 64) is None  # a matrix that does not fit
+    for damaged in ("not json", "[1, 2]"):
+        path.write_text(damaged)
+        assert read_cache(path, "a" * 64) is None

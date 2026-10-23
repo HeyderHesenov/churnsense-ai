@@ -21,6 +21,8 @@ from tests.conftest import DROP, edit_sidecar
 
 #: TestClient's default host, "testserver", is not an allowed host.
 LOCAL = "http://localhost"
+#: TestClient's default peer, "testclient", is not this machine; the service answers no one else.
+LOOPBACK = ("127.0.0.1", 50000)
 
 
 @pytest.fixture(scope="module")
@@ -36,9 +38,11 @@ def artifacts(clean_frame, cfg: Config, tmp_path_factory):
 @pytest.fixture(scope="module")
 def client(artifacts, monkeypatch_session):
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch_session.setattr(api_main, "ARTIFACTS_DIR", artifacts)
-    with TestClient(api_main.app, base_url=LOCAL) as test_client:
+    monkeypatch_session.setattr(api_state, "ARTIFACTS_DIR", artifacts)
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as test_client:
         yield test_client
 
 
@@ -198,20 +202,22 @@ def test_batch_rejects_an_oversized_upload(client, cfg: Config):
 def test_service_reports_unavailable_rather_than_guessing(tmp_path, monkeypatch):
     """With no artifact the API must fail loudly, never return a default score."""
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
-    api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", tmp_path / "empty")
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as unloaded:
         assert unloaded.get("/health").json()["model_loaded"] is False
         assert unloaded.post("/predict", json={}).status_code in (422, 503)
 
 
 def test_unavailable_model_is_a_503_in_the_documented_shape(tmp_path, monkeypatch, payload):
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
-    api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", tmp_path / "empty")
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as unloaded:
         response = unloaded.post("/predict", json=payload)
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
@@ -233,14 +239,15 @@ def test_a_sidecar_no_model_can_be_served_with_is_a_503(
     import shutil
 
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
     edited = tmp_path / "edited"
     shutil.copytree(artifacts, edited)
     edit_sidecar(edited, **changes)
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", edited)
-    api_main.get_predictor.cache_clear()
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", edited)
+    api_state.reset()
     try:
-        with TestClient(api_main.app, base_url=LOCAL) as served:
+        with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as served:
             health = served.get("/health").json()
             response = (
                 served.post(route, json=payload) if route == "/predict" else served.get(route)
@@ -248,9 +255,9 @@ def test_a_sidecar_no_model_can_be_served_with_is_a_503(
         # The edited sidecar is what was refused, not a missing model: in CI
         # there is none, and a 503 alone would pass without the edit.
         with pytest.raises(ModelNotAvailableError, match=next(iter(changes))):
-            api_main.get_predictor()
+            api_state.get_predictor()
     finally:
-        api_main.get_predictor.cache_clear()
+        api_state.reset()
     assert health["model_loaded"] is False
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
@@ -270,7 +277,7 @@ def test_body_limit_refuses_a_declared_oversized_body_unread():
     """The declared length alone decides; nothing behind the limit is entered."""
     import asyncio
 
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     entered, sent = [], []
 
@@ -335,7 +342,7 @@ def test_body_limit_counts_a_streamed_body_across_messages():
     """TestClient sends a body as one message, so the running count is tested here."""
     from starlette.exceptions import HTTPException
 
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     chunks = [{"type": "http.request", "body": b"a" * 1024, "more_body": True}] * 8
     chunks.append({"type": "http.request", "body": b"", "more_body": False})
@@ -353,7 +360,7 @@ def test_body_limit_counts_a_streamed_body_across_messages():
 
 def test_body_limit_refuses_an_absurdly_long_content_length():
     """Regression: past 4,300 digits int() raised and the request became a 500."""
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     headers = [(b"content-length", b"9" * 5000)]
     body = [{"type": "http.request", "body": b"", "more_body": False}]
@@ -364,22 +371,23 @@ def test_body_limit_refuses_an_absurdly_long_content_length():
 
 def test_a_request_without_a_body_does_not_need_the_config(monkeypatch):
     """GET /docs must not fail because a config file is missing."""
-    from churnsense.api import main as api_main
+    from churnsense.api import middleware
+    from churnsense.api.middleware import BodySizeLimit
 
     def missing_config():
         raise AssertionError("the body limit read the config for a request with no body")
 
-    monkeypatch.setattr(api_main, "load_config", missing_config)
+    monkeypatch.setattr(middleware, "load_config", missing_config)
     scope = {"type": "http", "method": "GET", "path": "/docs", "headers": []}
     body = [{"type": "http.request", "body": b"", "more_body": False}]
-    _, raised = _drive(api_main.BodySizeLimit, scope, body)
+    _, raised = _drive(BodySizeLimit, scope, body)
     assert raised is None
 
 
 @pytest.mark.parametrize("declared", ["²", "1e9", "-1", " 12", ""])
 def test_body_limit_ignores_a_content_length_it_cannot_read(declared: str):
     """Not a crash: the streamed count still applies. h11 rejects these first anyway."""
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     headers = [(b"content-length", declared.encode("latin-1"))]
     body = [{"type": "http.request", "body": b"{}", "more_body": False}]
@@ -389,7 +397,7 @@ def test_body_limit_ignores_a_content_length_it_cannot_read(declared: str):
 
 
 def test_body_limit_defaults_to_the_configured_upload_limit(cfg: Config):
-    from churnsense.api.main import MULTIPART_OVERHEAD_BYTES, BodySizeLimit
+    from churnsense.api.middleware import MULTIPART_OVERHEAD_BYTES, BodySizeLimit
 
     limit = BodySizeLimit(lambda *_: None).max_bytes
     assert limit == cfg.api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
@@ -545,11 +553,25 @@ def test_a_browser_request_from_another_site_is_refused(client, payload, origin:
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
-@pytest.mark.parametrize("origin", [None, "http://localhost:8000", "http://127.0.0.1:8501"])
-def test_requests_without_or_from_a_local_origin_are_served(client, payload, origin):
-    """curl and Python send no Origin; the Swagger UI on /docs sends its own."""
+@pytest.mark.parametrize("origin", [None, "http://localhost", "http://LOCALHOST:80"])
+def test_requests_without_or_from_this_origin_are_served(client, payload, origin):
+    """curl and Python send no Origin; the Swagger UI on /docs sends this site's own."""
     headers = {"origin": origin} if origin else {}
     assert client.post("/predict", json=payload, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://localhost:8000", "http://127.0.0.1", "https://localhost"]
+)
+def test_a_post_from_another_local_site_is_refused(client, payload, origin):
+    """Every local program is "localhost": an allowed host name, but not this site.
+
+    A page another local server hands out (the Streamlit dashboard, a dev
+    server, anything on another port) must not change state here.
+    """
+    response = client.post("/predict", json=payload, headers={"origin": origin})
+    assert response.status_code == 403
+    assert response.json()["error"] == "cross_origin"
 
 
 @pytest.mark.parametrize(
@@ -582,7 +604,7 @@ def test_numeric_bounds_match_the_training_contract():
 
 
 def test_a_request_without_a_host_is_refused():
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     reached = []
 
@@ -605,7 +627,7 @@ def test_a_request_without_a_host_is_refused():
 def test_a_websocket_for_a_foreign_host_is_closed_unaccepted():
     import asyncio
 
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     reached, sent = [], []
 
@@ -626,7 +648,7 @@ def test_a_websocket_for_a_foreign_host_is_closed_unaccepted():
 
 def test_one_host_given_as_a_string_is_a_type_error():
     """Not a tuple of its letters, which would refuse every request."""
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     with pytest.raises(TypeError):
         TrustedHosts(lambda *_: None, "localhost")
@@ -636,7 +658,7 @@ def test_refusals_are_logged_sparsely(caplog):
     """A rebound page can loop requests; the log gets the 1st, 10th, 100th."""
     import asyncio
 
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     async def app(scope, receive, send):
         pass
