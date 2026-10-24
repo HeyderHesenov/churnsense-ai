@@ -2,8 +2,10 @@
  * The light tooltip charts show on hover and keyboard focus. It is placed in
  * fractions of the chart's box, so it tracks the chart as the chart scales;
  * past ``flip`` it hangs to the left of the point so it never leaves the box.
- * The live region stays in place and is empty while hidden, so each new
- * point is announced.
+ *
+ * It is for the eye only: the control that moves it (a slider's value text,
+ * a bar's name) says the same to assistive technology, which would otherwise
+ * hear everything twice.
  */
 import type { ReactNode } from 'react';
 import { cssVars, cx } from '../../lib/style';
@@ -23,7 +25,7 @@ interface ChartTooltipProps {
 export function ChartTooltip({ visible, x, y, flip, title, children }: ChartTooltipProps) {
   return (
     <div
-      role="status"
+      aria-hidden="true"
       className={cx(styles.tooltip, flip && styles.flip)}
       data-visible={visible}
       style={cssVars({ '--x': x, '--y': y })}

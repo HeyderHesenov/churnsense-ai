@@ -509,3 +509,104 @@ test that failed first, and each fix was mutation-checked.
 - **`OverviewResponse.importance_basis`**: `{partition, customers}` of the
   cached SHAP sample, so "Mean |SHAP| on 300 validation customers" is a
   figure from the API. It is `null` exactly when `importance` is.
+
+## Phase 3.1 — Executive overview (2026-10-24)
+
+The page reproduces `Main.dc.html` with the API's figures. With the real
+data and model, the figures compared by eye came out as the artboard shows
+them: the KPIs, the band cards, the campaign card, and the first queue row's
+attributions (Tenure +31.7, Monthly −20.9).
+
+**Copy that depended on the data now depends on it explicitly** (`overview/copy.ts`, unit-tested):
+- Every number in a sentence comes from the API: the 17× spread, the price
+  peak, the median tenures, "300 validation customers", "first … fourth",
+  "$32 higher", the assumptions and the Low band's figures.
+- A claim is made only when the figures support it:
+  - "Not monotonic" only when the price peak lies inside the range.
+  - "Within one offer's cost of the peak" only when the gap is at most the
+    offer's cost.
+  - The importance note names whichever feature ranks first on its own,
+    and its rank in the model.
+- Parts that cannot be checked are dropped, for example "then falls where
+  long-tenure, multi-service customers dominate" and "it overlaps with
+  tenure".
+- The histogram's "tracks the diagonal" claim becomes an instruction for
+  reading the chart.
+
+**Deviations from the artboard:**
+- **The queue's default bands are every band that holds flagged customers**
+  (`flagged > 0`), read from the data rather than fixed to
+  Critical/High/Moderate. A new threshold then never hides flagged
+  customers from the default view. The address writes nothing until a band
+  is chosen, and an empty choice is kept as `bands=`.
+- **Highlight in "What moves the score".** The amber row is the
+  strongest association (`association[0]`), not a hard-coded "Contract
+  type".
+- **Bar scales come from the data.** Segment and lifecycle bars run to the
+  largest rate rounded up to the next tenth; rankings run to their largest
+  value; the histogram's axis is a d3 `nice()` maximum. They replace the
+  artboard's fixed 0.5, 0.6, 16 pp, 0.45, 2,000 and $100k.
+- **The export is a plain download link** to `/api/customers/export`. There
+  are no "Preparing…" or "Exported N rows" states, which belonged to an
+  in-browser build of the file.
+- **"Served on" is the address the browser used** (`location.host`). "Local
+  only" holds because the server answers loopback peers only.
+- **States the artboard does not draw:**
+  - withheld outcomes (KPI "Withheld", the lead sentence, the campaign and
+    segment cards);
+  - suppressed cells ("fewer than 20 customers");
+  - the Low-only empty state, with API figures;
+  - attributions unavailable (429/503), shown as one status line;
+  - provenance not verified, with its reason.
+- **Layout.**
+  - The threshold label sits under the x-axis ticks, so it never runs into
+    the 0.50 tick.
+  - The outcome column is 140 px, room for "Withheld · test".
+
+**Accessibility beyond the artboard:**
+- The histogram is a slider over its 20 bins: arrow keys, Home and End move;
+  Enter filters the queue to the bin's band. Its figures are also a hidden
+  table.
+- The lifecycle bars show their tooltip on focus.
+- The segment tabs move with the arrow keys.
+- The provenance panel takes focus and closes on Escape.
+- A chart's data table is hidden inside a `div.sr`: a `<table>` ignores a
+  1 px width, and at 375 px it pushed the page 93 px wide.
+
+### Overview review (code-reviewer, 2026-10-24)
+
+There were no critical or high findings. Every medium and low finding was
+fixed test-first, and the 13 mutations of the fixes were all caught.
+
+- **A key figure opens the queue it counts.** Its link clears the partition
+  and the search, and focus moves to the queue's heading. A polite status
+  says how many customers are in scope, and only once the new figures are in.
+- **No stale figure stands in for a new one.** A selection's total reads "…"
+  while the new total loads, and the queue is `aria-busy` while the last
+  view's rows stand in.
+- **Claims follow the data.**
+  - "Risk is front-loaded" only when the first months churn above the
+    average; otherwise the card is "Churn by tenure".
+  - "Tops out below the threshold" only when the band's top is below it.
+  - The High-or-Critical link promises the whole count only when the
+    threshold flags every customer in those bands.
+  - "Within one offer's cost of the peak" only for the threshold the
+    server's rule chose (`recommended_threshold`).
+  - The calibration hint is left out while outcomes are withheld.
+  - When nobody is flagged at all, the queue says so instead of asking for a
+    band.
+- **Accessible names carry what is visible.**
+  - A band card's name is its figures, and its action is its description.
+  - The search chip's name keeps its visible words (label in name).
+  - Chart tooltips are for the eye only: the slider's value text and the
+    bars' names say the same, so nothing is announced twice.
+- **The lifecycle bars are exact.** The rate label sits above each bar,
+  outside the flow, so a tall bar is no longer squeezed. Checked in
+  Chromium: every bar measured `rate / top × column height`.
+- **Smaller fixes.**
+  - At the selection limit, the page checkbox can still clear.
+  - A tap names its bin by pointer, not focus.
+  - The slider keeps a keyboard user's place when the mouse leaves.
+  - Explain links build their query with `URLSearchParams`.
+  - A band choice equal to the default is forgotten, so "Reset filters"
+    shows only off the default view.

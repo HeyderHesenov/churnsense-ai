@@ -128,12 +128,12 @@ export function customerParams(query: CustomerFilter & Partial<CustomerQuery>) {
 }
 
 /**
- * An empty band list chooses no band. The API reads a missing ``bands`` as
- * "any band", so that choice is never sent: the query stays idle and the page
- * says nothing is chosen.
+ * An empty band list chooses no band, and an empty id list no customer. The
+ * API reads a missing ``bands`` or ``ids`` as "any", so such a choice is never
+ * sent: the query stays idle and the page says nothing is chosen.
  */
 function choosesSomething(filter: CustomerFilter): boolean {
-  return filter.bands?.length !== 0;
+  return filter.bands?.length !== 0 && filter.ids?.length !== 0;
 }
 
 export function useCustomers(query: CustomerQuery): UseQueryResult<CustomerPage> {

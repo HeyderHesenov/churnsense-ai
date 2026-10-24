@@ -103,6 +103,10 @@
   --btn-bg: var(--raised);
   --btn-line: var(--line-strong);
 }
+/* Transparent with a border; the outline variant in the page's main ink. */
+.ghost {
+  --btn-line: var(--line-strong);
+}
 .outline {
   --btn-line: var(--line-strong);
   --btn-fg: var(--ink-2);

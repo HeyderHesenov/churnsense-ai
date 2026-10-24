@@ -6,8 +6,10 @@ import { server } from './server';
 import { installMatchMedia, resetViewport } from './viewport';
 
 installMatchMedia();
-// jsdom does not scroll; the shell scrolls to the top on every page change.
+// jsdom does not scroll: the shell scrolls to the top on every page change,
+// and the overview brings its queue into view.
 window.scrollTo = () => undefined;
+Element.prototype.scrollIntoView = () => undefined;
 
 /**
  * Requests no handler answered. MSW's own "error" strategy only logs (the

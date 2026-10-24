@@ -57,13 +57,9 @@ interface RemovableChipProps {
 
 export function RemovableChip({ label, onRemove, children }: RemovableChipProps) {
   return (
-    <button
-      type="button"
-      className={cx(styles.chip, styles.removable)}
-      aria-label={label}
-      onClick={onRemove}
-    >
-      {children}
+    <button type="button" className={cx(styles.chip, styles.removable)} onClick={onRemove}>
+      {/* The name keeps the chip's visible words after the action (label in name). */}
+      <span className="sr">{label}:</span> {children}
       <span aria-hidden="true">×</span>
     </button>
   );

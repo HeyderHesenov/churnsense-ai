@@ -21,14 +21,16 @@ function wrapper({ children }: { children: ReactNode }) {
 const QUERY: CustomerQuery = { sort: 'at_risk', dir: 'desc', page: 1, page_size: 8, flagged: true };
 
 describe('customer listings', () => {
-  it('asks for nothing when no band is chosen, rather than for every band', async () => {
+  it('asks for nothing when no band or no customer is chosen, rather than for all of them', async () => {
     const seen = recordRequests();
     const { result } = renderHook(() => useCustomers({ ...QUERY, bands: [] }), { wrapper });
     const count = renderHook(() => useCustomerCount({ bands: [] }), { wrapper });
+    const none = renderHook(() => useCustomers({ ...QUERY, ids: [], flagged: null }), { wrapper });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(seen).toEqual([]);
     expect(result.current.fetchStatus).toBe('idle');
     expect(count.result.current.fetchStatus).toBe('idle');
+    expect(none.result.current.fetchStatus).toBe('idle');
   });
 
   it('sends the chosen bands, the filters and the page', async () => {

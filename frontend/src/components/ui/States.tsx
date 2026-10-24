@@ -15,7 +15,7 @@ interface SkeletonProps {
   rows?: number;
   /** Each row's height in px. */
   rowHeight?: number;
-  className?: string;
+  className?: string | undefined;
 }
 
 export function Skeleton({ label, rows = 3, rowHeight = 36, className }: SkeletonProps) {

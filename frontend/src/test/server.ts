@@ -38,6 +38,17 @@ export function answer<P extends ApiPath, M extends Method>(
   return http[method](route(path), () => HttpResponse.json(body as JsonBodyType));
 }
 
+/** ``method path`` answered by ``resolve``, which reads the request (its query, its body). */
+export function respond<P extends ApiPath, M extends Method>(
+  method: M,
+  path: P,
+  resolve: (request: Request) => Success<P, M> | Promise<Success<P, M>>,
+) {
+  return http[method](route(path), async ({ request }) =>
+    HttpResponse.json((await resolve(request)) as JsonBodyType),
+  );
+}
+
 /** ``method path`` refused with ``status``, in the API's error shape. */
 export function refuse(method: Method, path: ApiPath, status: number, error: string) {
   const body: Schemas['ErrorResponse'] = { error, detail: 'Refused by a test.', problems: [] };

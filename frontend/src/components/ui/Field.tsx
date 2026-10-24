@@ -14,7 +14,7 @@ interface SearchFieldProps {
   onChange: (value: string) => void;
   placeholder: string;
   maxLength?: number;
-  className?: string;
+  className?: string | undefined;
 }
 
 /** The header's search box: icon, monospace text, label for assistive technology only. */

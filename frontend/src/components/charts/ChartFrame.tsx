@@ -22,7 +22,7 @@ interface ChartFrameProps {
   children: ReactNode;
   overlay?: ReactNode;
   legend?: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }
 
 export function ChartFrame({
@@ -41,27 +41,30 @@ export function ChartFrame({
         </div>
         {overlay}
       </div>
-      <table className="sr">
-        <caption>{table.caption}</caption>
-        <thead>
-          <tr>
-            {table.columns.map((column) => (
-              <th key={column} scope="col">
-                {column}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {table.rows.map((row, i) => (
-            <tr key={i}>
-              {row.map((cell, j) => (
-                <td key={j}>{cell}</td>
+      {/* A table ignores a 1px width, so the hiding box is a div around it. */}
+      <div className="sr">
+        <table>
+          <caption>{table.caption}</caption>
+          <thead>
+            <tr>
+              {table.columns.map((column) => (
+                <th key={column} scope="col">
+                  {column}
+                </th>
               ))}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {table.rows.map((row, i) => (
+              <tr key={i}>
+                {row.map((cell, j) => (
+                  <td key={j}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {legend && <figcaption className={styles.legend}>{legend}</figcaption>}
     </figure>
   );

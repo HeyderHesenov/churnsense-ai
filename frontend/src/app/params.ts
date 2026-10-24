@@ -9,7 +9,7 @@
  * a clean URL.
  */
 import { useCallback, useMemo } from 'react';
-import { useSearchParams, type ParamValue } from './router';
+import { useLocation, useSearchParams, withParams, type ParamValue } from './router';
 
 export interface Param<T> {
   readonly fallback: T;
@@ -120,14 +120,34 @@ export type Values<S extends Schema> = {
   readonly [K in keyof S]: S[K] extends Param<infer T> ? T : never;
 };
 
+/** The query values ``changes`` writes, keys the schema does not declare left out. */
+function written<S extends Schema>(
+  schema: S,
+  changes: Partial<Values<S>>,
+): Record<string, ParamValue> {
+  const query: Record<string, ParamValue> = {};
+  for (const [key, value] of Object.entries(changes)) {
+    const p = schema[key];
+    if (p) query[key] = p.write(value);
+  }
+  return query;
+}
+
+export type SetParams<S extends Schema> = (
+  changes: Partial<Values<S>>,
+  options?: { replace?: boolean },
+) => void;
+
 /**
- * The values ``schema`` declares, read from the address, and a setter. The
- * setter writes only the keys it is given and keeps every other key in the
- * query; it adds a history entry unless ``replace`` is set.
+ * The values ``schema`` declares, read from the address; a setter; and the
+ * address a change would lead to (for a real link). The setter writes only
+ * the keys it is given and keeps every other key in the query; it adds a
+ * history entry unless ``replace`` is set.
  */
 export function useParams<S extends Schema>(
   schema: S,
-): [Values<S>, (changes: Partial<Values<S>>, options?: { replace?: boolean }) => void] {
+): [Values<S>, SetParams<S>, (changes: Partial<Values<S>>) => string] {
+  const location = useLocation();
   const [search, update] = useSearchParams();
 
   const values = useMemo(() => {
@@ -136,17 +156,15 @@ export function useParams<S extends Schema>(
     return read as Values<S>;
   }, [schema, search]);
 
-  const set = useCallback(
-    (changes: Partial<Values<S>>, options?: { replace?: boolean }) => {
-      const query: Record<string, ParamValue> = {};
-      for (const [key, value] of Object.entries(changes)) {
-        const p = schema[key];
-        if (p) query[key] = p.write(value);
-      }
-      update(query, options);
-    },
+  const set = useCallback<SetParams<S>>(
+    (changes, options) => update(written(schema, changes), options),
     [schema, update],
   );
 
-  return [values, set];
+  const href = useCallback(
+    (changes: Partial<Values<S>>) => withParams(location, written(schema, changes)),
+    [schema, location],
+  );
+
+  return [values, set, href];
 }

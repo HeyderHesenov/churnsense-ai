@@ -3,13 +3,13 @@
  * artboards draw them. A ``Button`` is never a form submit unless asked; a
  * ``ButtonLink`` is a real link (in-app with ``to``, a file with ``href``).
  */
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactNode } from 'react';
+import type { AnchorHTMLAttributes, ComponentProps, ReactNode } from 'react';
 import { Link } from '../../app/router';
 import { cx } from '../../lib/style';
 import styles from './Button.module.css';
 
 export type ButtonVariant =
-  'primary' | 'sim' | 'secondary' | 'outline' | 'quiet' | 'simGhost' | 'status';
+  'primary' | 'sim' | 'secondary' | 'ghost' | 'outline' | 'quiet' | 'simGhost' | 'status';
 /** The box heights the design uses: 40, 36, 34 and 32 px. */
 export type ButtonSize = 'lg' | 'md' | 'sm' | 'xs';
 
@@ -22,7 +22,8 @@ function look({ variant = 'secondary', size = 'md' }: Look, className?: string):
   return cx(styles.button, styles[variant], styles[size], className);
 }
 
-type ButtonProps = Look & ButtonHTMLAttributes<HTMLButtonElement>;
+/** A native button's props, ``ref`` included (React 19 passes it as a prop). */
+type ButtonProps = Look & ComponentProps<'button'>;
 
 export function Button({ variant, size, className, type = 'button', ...props }: ButtonProps) {
   return <button type={type} className={look({ variant, size }, className)} {...props} />;

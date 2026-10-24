@@ -1,0 +1,451 @@
+/**
+ * The retention queue: flagged customers, most monthly revenue at risk first.
+ *
+ * Its filters and page live in the address. A selection lives in memory (up
+ * to 200 customers, the export's limit); its total is the server's, so the
+ * browser sums nothing. A page's attributions come from one explanation
+ * request for its eight customers.
+ */
+import { useEffect, useRef, useState } from 'react';
+import { exportUrl } from '../../api/client';
+import {
+  useCustomers,
+  useExplanations,
+  type CustomerRow,
+  type Explanation,
+  type Overview,
+} from '../../api/queries';
+import type { SetParams } from '../../app/params';
+import { Link } from '../../app/router';
+import { icons } from '../../components/icons';
+import {
+  AttributionChip,
+  BandLabel,
+  OutcomePill,
+  ProbabilityMeter,
+} from '../../components/ui/Badges';
+import { Button, ButtonLink } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Field';
+import { Pagination } from '../../components/ui/Pagination';
+import { nextSort, SortHeader } from '../../components/ui/SortHeader';
+import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
+import { CardHeader } from '../../components/ui/Surface';
+import { RemovableChip, ToggleChip } from '../../components/ui/Toggle';
+import { cents, cut, int } from '../../lib/format';
+import { CHIP, isFeature, profile } from '../../lib/labels';
+import { cx } from '../../lib/style';
+import {
+  chipBands,
+  defaultBands,
+  MAX_SELECTED,
+  PAGE_SIZE,
+  queueQuery,
+  select,
+  toggleBand,
+  type BandName,
+  type QUEUE_PARAMS,
+  type QueueState,
+} from './queue';
+import { unflaggedNote } from './copy';
+import styles from './RetentionQueue.module.css';
+
+type Column = QueueState['sort'];
+const DEFAULT_DIRECTION = {
+  probability: 'desc',
+  tenure: 'asc',
+  monthly: 'desc',
+  at_risk: 'desc',
+} as const;
+
+const PARTITIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'train', label: 'Train' },
+  { value: 'validation', label: 'Validation' },
+  { value: 'test', label: 'Test (outcome withheld)' },
+] as const;
+
+interface RetentionQueueProps {
+  book: Overview;
+  state: QueueState;
+  set: SetParams<typeof QUEUE_PARAMS>;
+}
+
+export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
+  const defaults = defaultBands(book);
+  const bands = state.bands ?? defaults;
+  const listing = useCustomers(queueQuery(state, defaults));
+  const page = listing.data;
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
+  const filtered = state.bands !== null || state.part !== null || state.q !== '';
+  const reset = () => set({ bands: null, part: null, q: '', page: 1 });
+
+  const toggle = (ids: readonly string[], on: boolean) => setSelected(select(selected, ids, on));
+  const nobodyFlagged = chipBands(book).length === 0 && state.bands === null;
+  // Said once the figures are the new ones, never while the last view's stand in.
+  const status =
+    bands.length === 0
+      ? 'No band selected.'
+      : page && !listing.isPlaceholderData
+        ? `${int(page.total)} flagged customers in scope.`
+        : '';
+
+  return (
+    <section
+      id="queue"
+      aria-labelledby="queue-title"
+      aria-busy={listing.isPlaceholderData}
+      className={styles.queue}
+    >
+      <p role="status" className="sr">
+        {status}
+      </p>
+      <div className={styles.inset}>
+        <CardHeader
+          id="queue-title"
+          focusable
+          title={
+            <>
+              Retention queue{' '}
+              <span className={styles.count}>
+                {bands.length === 0 ? '0' : page ? int(page.total) : '…'} flagged in scope
+              </span>
+            </>
+          }
+          subtitle="Which flagged customers carry the most monthly revenue at risk?"
+          aside={
+            <Link to="/explorer?flagged=true" className={styles.arrowLink}>
+              See all {int(book.flagged.customers)} in the explorer
+              <icons.arrowRight size={14} />
+            </Link>
+          }
+        />
+      </div>
+
+      <div className={cx(styles.inset, styles.filters)}>
+        <span className={styles.filterLabel}>Band</span>
+        <div role="group" aria-label="Band" className={styles.chips}>
+          {chipBands(book).map((band) => (
+            <ToggleChip
+              key={band.name}
+              band={band.name}
+              pressed={bands.includes(band.name)}
+              count={int(band.flagged)}
+              onToggle={() => set({ bands: toggleBand(bands, band.name, book), page: 1 })}
+            >
+              {band.name}
+            </ToggleChip>
+          ))}
+        </div>
+        <span className={styles.divider} aria-hidden="true" />
+        <Select
+          label="Partition"
+          value={state.part ?? 'all'}
+          options={PARTITIONS}
+          onChange={(part) => set({ part: part === 'all' ? null : part, page: 1 })}
+        />
+        {state.q && (
+          <RemovableChip label="Clear search" onRemove={() => set({ q: '', page: 1 })}>
+            id ∋ “{state.q}”
+          </RemovableChip>
+        )}
+        {filtered && (
+          <Button variant="quiet" size="sm" onClick={reset}>
+            Reset filters
+          </Button>
+        )}
+      </div>
+
+      {selected.size > 0 && <BulkBar selected={selected} onClear={() => setSelected(new Set())} />}
+
+      {nobodyFlagged ? (
+        <EmptyState title="Nobody is flagged">
+          No customer reaches the {cut(book.threshold)} threshold.
+        </EmptyState>
+      ) : bands.length === 0 ? (
+        <EmptyState title="No band selected" action={{ label: 'Reset filters', onClick: reset }}>
+          Choose at least one band to see flagged customers.
+        </EmptyState>
+      ) : listing.isPending ? (
+        <div className={styles.inset}>
+          <Skeleton label="Loading the queue" rows={PAGE_SIZE} rowHeight={44} />
+        </div>
+      ) : listing.isError || !page ? (
+        <div className={styles.inset}>
+          <ErrorState inline onRetry={() => void listing.refetch()}>
+            The queue could not be loaded.
+          </ErrorState>
+        </div>
+      ) : page.rows.length === 0 ? (
+        <EmptyState
+          title={emptyTitle(bands, book)}
+          action={{ label: 'Reset filters', onClick: reset }}
+        >
+          {emptyBody(bands, book)}
+        </EmptyState>
+      ) : (
+        <>
+          <Table
+            rows={page.rows}
+            state={state}
+            set={set}
+            selected={selected}
+            full={selected.size >= MAX_SELECTED}
+            onSelect={toggle}
+          />
+          <Pagination
+            page={page.page}
+            pages={page.pages}
+            onPage={(next) => set({ page: next })}
+            note={`Showing ${int((page.page - 1) * page.page_size + 1)}–${int((page.page - 1) * page.page_size + page.rows.length)} of ${int(page.total)} flagged`}
+          />
+        </>
+      )}
+    </section>
+  );
+}
+
+/** The one band chosen, if it is a band nobody in is flagged. */
+function unflaggedBand(bands: readonly BandName[], book: Overview) {
+  const only = bands.length === 1 ? book.bands.find((b) => b.name === bands[0]) : undefined;
+  return only && only.flagged === 0 ? only : undefined;
+}
+
+function emptyTitle(bands: readonly BandName[], book: Overview): string {
+  const band = unflaggedBand(bands, book);
+  return band ? `Nobody in the ${band.name} band is flagged` : 'No flagged customer matches';
+}
+
+function emptyBody(bands: readonly BandName[], book: Overview): string {
+  const band = unflaggedBand(bands, book);
+  if (!band) return 'Try another band, partition or ID; the explorer searches the whole book.';
+  return unflaggedNote(band, book.threshold);
+}
+
+function BulkBar({ selected, onClear }: { selected: ReadonlySet<string>; onClear: () => void }) {
+  const ids = [...selected].sort();
+  const summary = useCustomers({ ids, sort: 'id', dir: 'asc', page: 1, page_size: 1 });
+  // A total that belongs to the last selection is never shown for this one.
+  const atRisk = summary.isPlaceholderData ? undefined : summary.data?.summary.at_risk;
+  return (
+    <div role="region" aria-label="Bulk actions" className={styles.bulk}>
+      <span className={styles.bulkCount}>{int(ids.length)} selected</span>
+      <span className={styles.bulkValue}>
+        {atRisk === undefined ? '…' : `${cents(atRisk)} / mo at risk`}
+      </span>
+      {ids.length >= MAX_SELECTED && (
+        <span className={styles.bulkNote}>The most a selection can hold.</span>
+      )}
+      <span className={styles.spacer} />
+      <ButtonLink href={exportUrl({ ids })} download size="sm">
+        Export selection
+      </ButtonLink>
+      <Button variant="quiet" size="sm" onClick={onClear}>
+        Clear
+      </Button>
+    </div>
+  );
+}
+
+interface TableProps {
+  rows: readonly CustomerRow[];
+  state: QueueState;
+  set: SetParams<typeof QUEUE_PARAMS>;
+  selected: ReadonlySet<string>;
+  /** The selection is at its limit: unselected rows cannot join. */
+  full: boolean;
+  onSelect: (ids: readonly string[], on: boolean) => void;
+}
+
+function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
+  const ids = rows.map((row) => row.id);
+  const explained = useExplanations(ids);
+  const byId = new Map(explained.data?.explanations.map((e) => [e.customer_id, e]));
+  const sort = { column: state.sort, dir: state.dir };
+  const onSort = (column: Column) => {
+    const next = nextSort(sort, column, DEFAULT_DIRECTION);
+    set({ sort: next.column, dir: next.dir, page: 1 });
+  };
+  const all = ids.every((id) => selected.has(id));
+  const some = !all && ids.some((id) => selected.has(id));
+
+  return (
+    <>
+      {explained.isError && (
+        <p role="status" className={cx(styles.inset, styles.notice)}>
+          Attributions are unavailable right now.
+        </p>
+      )}
+      <div className={styles.scroll}>
+        <div role="table" aria-label="Flagged customers" className={styles.table}>
+          <div role="rowgroup">
+            <div role="row" className={cx(styles.row, styles.head)}>
+              <div role="columnheader" className={cx(styles.headCell, styles.first)}>
+                <PageCheckbox
+                  checked={all}
+                  mixed={some}
+                  // At the limit it can still clear the page; it cannot add to it.
+                  disabled={full && !all && !some}
+                  onChange={(on) => onSelect(ids, on)}
+                />
+              </div>
+              <div role="columnheader" className={styles.headCell}>
+                Customer
+              </div>
+              <SortHeader column="probability" label="Probability" sort={sort} onSort={onSort} />
+              <div role="columnheader" className={styles.headCell}>
+                Band
+              </div>
+              <SortHeader column="tenure" label="Tenure" sort={sort} onSort={onSort} align="end" />
+              <SortHeader
+                column="monthly"
+                label="Monthly"
+                sort={sort}
+                onSort={onSort}
+                align="end"
+              />
+              <SortHeader
+                column="at_risk"
+                label="At risk / mo"
+                sort={sort}
+                onSort={onSort}
+                align="end"
+              />
+              <div role="columnheader" className={styles.headCell}>
+                Strongest attributions
+              </div>
+              <div role="columnheader" className={styles.headCell}>
+                Outcome
+              </div>
+              <div role="columnheader" className={cx(styles.headCell, styles.last)}>
+                <span className="sr">Action</span>
+              </div>
+            </div>
+          </div>
+          <div role="rowgroup">
+            {rows.map((row) => (
+              <Row
+                key={row.id}
+                row={row}
+                selected={selected.has(row.id)}
+                disabled={full && !selected.has(row.id)}
+                onSelect={(on) => onSelect([row.id], on)}
+                explanation={byId.get(row.id)}
+                attributions={
+                  explained.isError ? 'failed' : explained.isPending ? 'loading' : 'ready'
+                }
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** "Select all rows on this page", mixed when only some are. */
+function PageCheckbox({
+  checked,
+  mixed,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  mixed: boolean;
+  disabled: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = mixed;
+  }, [mixed]);
+  return (
+    <input
+      ref={box}
+      type="checkbox"
+      className={styles.checkbox}
+      aria-label="Select all rows on this page"
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+  );
+}
+
+interface RowProps {
+  row: CustomerRow;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: (on: boolean) => void;
+  explanation: Explanation | undefined;
+  attributions: 'loading' | 'ready' | 'failed';
+}
+
+function Row({ row, selected, disabled, onSelect, explanation, attributions }: RowProps) {
+  const strongest = explanation?.contributions.slice(0, 2) ?? [];
+  return (
+    <div role="row" className={styles.row} data-selected={selected}>
+      <div role="cell" className={cx(styles.cell, styles.first)}>
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          aria-label={`Select ${row.id}`}
+          checked={selected}
+          disabled={disabled}
+          onChange={(event) => onSelect(event.target.checked)}
+        />
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.customer)}>
+        <span className={styles.id}>{row.id}</span>
+        <span className={styles.profile}>
+          {profile(row.contract, row.internet_service, row.payment_method)}
+        </span>
+      </div>
+      <div role="cell" className={styles.cell}>
+        <ProbabilityMeter value={row.churn_probability} band={row.risk_band} />
+      </div>
+      <div role="cell" className={styles.cell}>
+        <BandLabel band={row.risk_band} />
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.number)}>
+        {row.tenure} mo
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.number)}>
+        {cents(row.monthly_charges)}
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.number, styles.strong)}>
+        {cents(row.at_risk)}
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.attributions)}>
+        {attributions === 'loading' ? (
+          <>
+            <span className={styles.chipSkeleton} aria-hidden="true" />
+            <span className={styles.chipSkeleton} aria-hidden="true" />
+            <span className="sr">Loading attributions</span>
+          </>
+        ) : strongest.length === 0 ? (
+          <span className={styles.none}>—</span>
+        ) : (
+          strongest.map((c) => (
+            <AttributionChip
+              key={c.feature}
+              label={isFeature(c.feature) ? CHIP[c.feature] : c.label}
+              value={c.shap_value}
+            />
+          ))
+        )}
+      </div>
+      <div role="cell" className={styles.cell}>
+        <OutcomePill outcome={row.outcome} partition={row.partition} />
+      </div>
+      <div role="cell" className={cx(styles.cell, styles.number, styles.last)}>
+        <Link
+          to={`/customer?${new URLSearchParams({ id: row.id }).toString()}`}
+          aria-label={`Explain ${row.id}`}
+          className={styles.explain}
+        >
+          Explain
+        </Link>
+      </div>
+    </div>
+  );
+}

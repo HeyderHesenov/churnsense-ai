@@ -59,7 +59,8 @@ describe('ToggleChip and RemovableChip', () => {
         id ∋ “DEMO”
       </RemovableChip>,
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Clear search' }));
+    // The name keeps the visible words (WCAG 2.5.3, label in name).
+    await userEvent.click(screen.getByRole('button', { name: 'Clear search: id ∋ “DEMO”' }));
     expect(onRemove).toHaveBeenCalledTimes(1);
   });
 });

@@ -18,6 +18,17 @@ describe('Card', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Campaign at 0.36' })).toBeInTheDocument();
   });
 
+  it('can sit one level down, under a section heading', () => {
+    render(
+      <Card titleId="lifecycle">
+        <CardHeader id="lifecycle" title="Risk is front-loaded" level={3} />
+      </Card>,
+    );
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Risk is front-loaded' }),
+    ).toBeInTheDocument();
+  });
+
   it('says plainly that money figures are simulated', () => {
     render(<SimulatedBadge />);
     expect(screen.getByText('SIMULATED')).toBeInTheDocument();

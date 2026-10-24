@@ -72,6 +72,12 @@ export function moneyShort(value: number): string {
   return value < 0 && dollars !== 0 ? MINUS + text : text;
 }
 
+/** Thousands of dollars to one decimal, for a card: 226179 -> "$226.2k". */
+export function moneyK(value: number): string {
+  const shown = Number((value / 1000).toFixed(1));
+  return `${minus(shown)}$${Math.abs(shown).toFixed(1)}k`;
+}
+
 /** A signed contribution in percentage points: 0.317 -> "+31.7", -0.209 -> "−20.9". */
 export function signedPoints(fraction: number, digits = 1): string {
   const shown = Number((fraction * 100).toFixed(digits));

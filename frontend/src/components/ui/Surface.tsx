@@ -14,7 +14,7 @@ interface CardProps {
   children: ReactNode;
   /** dense: the explorer's tighter padding; sim: simulated money; flush: a table edge to edge. */
   variant?: 'standard' | 'dense' | 'sim' | 'flush';
-  className?: string;
+  className?: string | undefined;
 }
 
 export function Card({ titleId, children, variant = 'standard', className }: CardProps) {
@@ -31,15 +31,31 @@ interface CardHeaderProps {
   subtitle?: ReactNode;
   /** Right-aligned: a tag, a toggle or a legend. */
   aside?: ReactNode;
+  /** 3 for a card under a section's own heading. */
+  level?: 2 | 3;
+  /** The heading can take focus, for a page that sends the reader here. */
+  focusable?: boolean;
 }
 
-export function CardHeader({ id, title, subtitle, aside }: CardHeaderProps) {
+export function CardHeader({
+  id,
+  title,
+  subtitle,
+  aside,
+  level = 2,
+  focusable = false,
+}: CardHeaderProps) {
+  const Heading = level === 2 ? 'h2' : 'h3';
   return (
     <div className={styles.header}>
       <div className={styles.heading}>
-        <h2 id={id} className={styles.title}>
+        <Heading
+          id={id}
+          tabIndex={focusable ? -1 : undefined}
+          className={cx(styles.title, level === 3 && styles.minor)}
+        >
           {title}
-        </h2>
+        </Heading>
         {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
       </div>
       {aside}

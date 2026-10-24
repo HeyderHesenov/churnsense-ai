@@ -12,7 +12,7 @@ interface PageHeaderProps {
   tone?: 'accent' | 'sim';
   /** 32 px on the overview-style pages, 30 on the dense ones. */
   size?: 'lg' | 'md';
-  className?: string;
+  className?: string | undefined;
 }
 
 export function PageHeader({

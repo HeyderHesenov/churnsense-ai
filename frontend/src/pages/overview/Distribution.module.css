@@ -1,0 +1,83 @@
+.card {
+  flex: 2 1 560px;
+}
+.bands {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.band {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 11px 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-11);
+  background: var(--well);
+  box-shadow: inset 0 3px 0 var(--band);
+  color: var(--ink);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+.band:hover {
+  background: var(--hover);
+}
+.band[aria-pressed='true'] {
+  border-color: var(--band-line);
+  background: var(--band-soft);
+}
+.bandHead,
+.bandFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+}
+.bandName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--band-ink);
+}
+.range {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.bandValue {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.value {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.share {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.bandFoot {
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.figure {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--ink);
+}
+.none {
+  color: var(--muted);
+}
+.note {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--muted);
+}

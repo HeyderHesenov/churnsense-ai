@@ -3,6 +3,7 @@ import {
   cut,
   int,
   money,
+  moneyK,
   moneyShort,
   months,
   pct,
@@ -76,5 +77,11 @@ describe('format', () => {
     expect(moneyShort(999.6)).toBe('$1k');
     expect(moneyShort(999.4)).toBe('$999');
     expect(moneyShort(-999.6)).toBe('−$1k');
+  });
+
+  it('writes thousands of dollars with one decimal for a card', () => {
+    expect(moneyK(226_179)).toBe('$226.2k');
+    expect(moneyK(220_000)).toBe('$220.0k');
+    expect(moneyK(-1_500)).toBe('−$1.5k');
   });
 });

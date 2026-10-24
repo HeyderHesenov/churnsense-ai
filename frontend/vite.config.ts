@@ -33,7 +33,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
-    css: { modules: { classNameStrategy: 'non-scoped' } },
+    // Scoped, as in the build: two modules' `.hideSm` must not meet in a test either.
+    css: { modules: { classNameStrategy: 'scoped' } },
     include: ['src/**/*.test.{ts,tsx}'],
   },
 });

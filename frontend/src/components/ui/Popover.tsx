@@ -22,7 +22,7 @@ interface PopoverProps {
   /** Renders the button; spread the props onto it. */
   trigger: (props: TriggerProps) => ReactNode;
   children: ReactNode;
-  className?: string;
+  className?: string | undefined;
 }
 
 export function Popover({ label, trigger, children, className }: PopoverProps) {

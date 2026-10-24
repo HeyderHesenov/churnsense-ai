@@ -140,6 +140,14 @@ describe('useParams writing the address', () => {
     expect(window.location.search).toBe('?id=DEMO-0002&page=2');
   });
 
+  it('gives the address a change would lead to, without going there', () => {
+    const { result } = at('?sort=tenure&page=4');
+    expect(result.current[2]({ bands: ['High', 'Critical'], page: 1 })).toBe(
+      '/explorer?sort=tenure&bands=High&bands=Critical',
+    );
+    expect(window.location.search).toBe('?sort=tenure&page=4');
+  });
+
   it('adds a history entry by default and edits in place when asked', () => {
     const { result } = at('');
     const before = window.history.length;

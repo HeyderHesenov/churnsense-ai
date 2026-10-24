@@ -1,11 +1,16 @@
 import { act, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Shell } from '../components/shell/Shell';
+import { overviewApi } from '../test/overviewApi';
 import { renderAt } from '../test/render';
+import { server } from '../test/server';
 import { App, PageBoundary } from './App';
 import { navigate } from './router';
 
 describe('App', () => {
+  // Every test may land on the overview, which reads its own API.
+  beforeEach(() => server.use(...overviewApi()));
+
   it('shows the page the address names, inside the shell', async () => {
     renderAt(<App />, '/explorer');
     const crumbs = await screen.findByRole('navigation', { name: 'Breadcrumb' });
