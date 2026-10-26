@@ -15,7 +15,7 @@ license = { text = "MIT" }
 # resolves those into requirements.txt (runtime) and requirements-dev.txt
 # (runtime + dev tools), pinned and hashed, and `make setup` installs the dev
 # lock with --require-hashes, so documented results reproduce exactly.
-# The floor is 3.12 because the lock pins shap 0.52, scipy 1.18 and
+# The floor is 3.12 because the lock pins shap 0.54, scipy 1.18 and
 # contourpy 1.4, none of which supports 3.11.
 dependencies = [
     "pandas>=2.1,<4",
@@ -54,7 +54,8 @@ notebook = ["jupyter>=1.0", "ipykernel>=6.29", "nbconvert>=7.16"]
 
 # The lock is resolved for the platforms the project runs and is tested on:
 # macOS on Apple silicon (development) and Linux (CI). Intel macOS is out
-# because shap requires numba<0.63 there; Windows because the Makefile is POSIX.
+# because numba, a direct dependency above, ships no Intel macOS wheels from
+# 0.63 on; Windows because the Makefile is POSIX.
 [tool.uv]
 environments = [
     "sys_platform == 'darwin' and platform_machine == 'arm64'",
