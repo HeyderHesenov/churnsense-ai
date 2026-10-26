@@ -3,7 +3,7 @@
 
 # Interpreter used to CREATE the venv. Override when the default python3 is
 # too old: `make setup PYTHON=python3.12`. The project needs >= 3.12 because
-# the locked environment pins shap 0.52, scipy 1.18 and contourpy 1.4, which
+# the locked environment pins shap 0.54, scipy 1.18 and contourpy 1.4, which
 # all dropped 3.11 — see docs/PROJECT_WALKTHROUGH.md.
 PYTHON ?= python3
 MIN_PYTHON := 3.12

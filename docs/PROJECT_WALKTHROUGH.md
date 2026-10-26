@@ -39,9 +39,9 @@ than any assertion I could have written.
 
 **Lesson recorded:** the floor went to `>=3.11`, because a floor of 3.10 would
 be a claim about an interpreter I know is broken for this stack. The audit in
-§10 later raised it to `>=3.12`: the lock pins shap 0.52, scipy 1.18 and
-contourpy 1.4, none of which installs on 3.11, so the old floor promised an
-environment `make setup` could not build.
+§10 later raised it to `>=3.12`: the lock then pinned shap 0.52, scipy 1.18
+and contourpy 1.4, none of which installs on 3.11, so the old floor promised
+an environment `make setup` could not build.
 
 ---
 
