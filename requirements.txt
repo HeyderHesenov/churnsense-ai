@@ -293,9 +293,9 @@ cycler==0.12.1 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or s
     --hash=sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30 \
     --hash=sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c
     # via matplotlib
-fastapi==0.146.0 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sys_platform == 'linux' \
-    --hash=sha256:0eb9985a7d5bb11ce9a962d4b65e0cf1a2e13d6aca2e14da57bc526370e26748 \
-    --hash=sha256:e96047fc353ff43f7fda069c3578a7d94902a762d9aca2e065f7f801abd91a49
+fastapi==0.149.0 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sys_platform == 'linux' \
+    --hash=sha256:aba5779358d0c5233759ddcddd84fe7269d71f775fd754b653b608f770558a41 \
+    --hash=sha256:fc4a5cf7e14f607a48eb1ab98147e9140943e88ccd0c8791d72c0a89b1159a35
     # via -r requirements.in
 fonttools==4.66.1 ; (platform_machine == 'arm64' and sys_platform == 'darwin') or sys_platform == 'linux' \
     --hash=sha256:058cd823b80bac59e64dfad9e3b6fcd677852f9a3804971bbf6b48cc611e785c \
