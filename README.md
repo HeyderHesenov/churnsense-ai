@@ -124,7 +124,7 @@ and batch scoring **cannot** disagree.
 
 Requires **Python 3.12+** (developed on 3.12.13; the fast test suite also passes
 on 3.13.5) on **Linux or macOS on Apple silicon**, the platforms the lock is
-resolved for. The floor comes from the lock: shap 0.52, scipy 1.18 and
+resolved for. The floor comes from the lock: shap 0.54, scipy 1.18 and
 contourpy 1.4 no longer support 3.11. If your default `python3` is older, pass
 a newer one — `make setup` checks before it creates anything and tells you
 which interpreters it can find:
