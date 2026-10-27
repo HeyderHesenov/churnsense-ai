@@ -358,6 +358,92 @@ describe('Overview: retention queue', () => {
   });
 });
 
+describe('Overview: the queue keeps the keyboard’s place', () => {
+  function queue() {
+    return screen.getByRole('region', { name: /Retention queue/ });
+  }
+  function heading() {
+    return screen.getByRole('heading', { name: /^Retention queue/ });
+  }
+  /** Press a control from the keyboard, as a reader without a pointer would. */
+  async function press(control: HTMLElement) {
+    act(() => control.focus());
+    await userEvent.keyboard('{Enter}');
+  }
+  /** The empty state titled ``title``: its own "Reset filters", not the bar's. */
+  function emptyState(title: string) {
+    const state = within(queue()).getByText(title).closest<HTMLElement>('[role="status"]');
+    if (!state) throw new Error(`no empty state titled ${title}`);
+    return state;
+  }
+
+  it('moves the focus to the queue when the bar’s reset goes away with the filters', async () => {
+    showOverview('/?part=train');
+    await screen.findByRole('table', { name: 'Flagged customers' });
+    await press(within(queue()).getByRole('button', { name: 'Reset filters' }));
+    expect(new URLSearchParams(window.location.search).has('part')).toBe(false);
+    expect(
+      within(queue()).queryByRole('button', { name: 'Reset filters' }),
+    ).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(heading()).toHaveFocus();
+  });
+
+  it('moves the focus to the queue when no band was left and the reset brings them back', async () => {
+    showOverview('/?bands=');
+    await screen.findByText('No band selected');
+    await press(
+      within(emptyState('No band selected')).getByRole('button', { name: 'Reset filters' }),
+    );
+    expect(new URLSearchParams(window.location.search).has('bands')).toBe(false);
+    expect(await screen.findByRole('table', { name: 'Flagged customers' })).toBeInTheDocument();
+    expect(heading()).toHaveFocus();
+  });
+
+  it('moves the focus to the queue when nobody matched and the reset clears the search', async () => {
+    server.use(...overviewApi());
+    server.use(
+      respond('get', '/api/customers', (request) =>
+        new URL(request.url).searchParams.has('q')
+          ? customerPage([])
+          : customerPage(QUEUE_ROWS, { total: 2300, pages: 288 }),
+      ),
+    );
+    renderAt(<App />, '/?q=NOBODY');
+    await screen.findByText('No flagged customer matches');
+    await press(
+      within(emptyState('No flagged customer matches')).getByRole('button', {
+        name: 'Reset filters',
+      }),
+    );
+    expect(new URLSearchParams(window.location.search).has('q')).toBe(false);
+    expect(await screen.findByRole('table', { name: 'Flagged customers' })).toBeInTheDocument();
+    expect(heading()).toHaveFocus();
+  });
+
+  it('moves the focus to the queue when the search chip clears the search', async () => {
+    showOverview('/?q=DEMO');
+    await screen.findByRole('table', { name: 'Flagged customers' });
+    await press(within(queue()).getByRole('button', { name: /^Clear search/ }));
+    expect(new URLSearchParams(window.location.search).has('q')).toBe(false);
+    expect(heading()).toHaveFocus();
+  });
+
+  it('keeps the focus on the pager’s last button at the last page', async () => {
+    server.use(...overviewApi());
+    server.use(
+      answer('get', '/api/customers', customerPage(QUEUE_ROWS, { page: 3, pages: 3, total: 20 })),
+    );
+    renderAt(<App />, '/?page=3');
+    await screen.findByRole('table', { name: 'Flagged customers' });
+    const next = within(queue()).getByRole('button', { name: 'Next page' });
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    await press(next);
+    expect(new URLSearchParams(window.location.search).get('page')).toBe('3');
+    expect(next).toHaveFocus();
+  });
+});
+
 describe('Overview: where the book sits', () => {
   function card() {
     return screen.getByRole('region', { name: 'Where the book sits on the probability scale' });

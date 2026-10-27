@@ -610,6 +610,12 @@ fixed test-first, and the 13 mutations of the fixes were all caught.
   - Explain links build their query with `URLSearchParams`.
   - A band choice equal to the default is forgotten, so "Reset filters"
     shows only off the default view.
+- **Resetting keeps the focus (2026-10-28).** Each "Reset filters" (the
+  bar's and both empty states') and the search chip go away with what they
+  clear, which left the focus on the page itself. The focus now moves to the
+  queue's heading, where a key figure's link also sends it. Tested from the
+  keyboard; the pager's last button, shared with the explorer, keeps its
+  focus at the last page.
 
 ## Phase 3.2 — Customer explorer (2026-10-27)
 

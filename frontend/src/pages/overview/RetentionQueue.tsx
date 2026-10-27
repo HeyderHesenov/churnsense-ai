@@ -70,7 +70,12 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
   const page = listing.data;
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const filtered = state.bands !== null || state.part !== null || state.q !== '';
-  const reset = () => set({ bands: null, part: null, q: '', page: 1 });
+  // A reset or a cleared search takes its button away: the reader continues at the queue's heading.
+  const clear = (changes: Parameters<typeof set>[0]) => {
+    set(changes);
+    document.getElementById('queue-title')?.focus();
+  };
+  const reset = () => clear({ bands: null, part: null, q: '', page: 1 });
 
   const toggle = (ids: readonly string[], on: boolean) => setSelected(select(selected, ids, on));
   const nobodyFlagged = chipBands(book).length === 0 && state.bands === null;
@@ -137,7 +142,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
           onChange={(part) => set({ part: part === 'all' ? null : part, page: 1 })}
         />
         {state.q && (
-          <RemovableChip label="Clear search" onRemove={() => set({ q: '', page: 1 })}>
+          <RemovableChip label="Clear search" onRemove={() => clear({ q: '', page: 1 })}>
             id ∋ “{state.q}”
           </RemovableChip>
         )}
