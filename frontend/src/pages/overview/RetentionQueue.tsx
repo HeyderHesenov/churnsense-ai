@@ -31,8 +31,9 @@ import { nextSort, SortHeader } from '../../components/ui/SortHeader';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import { CardHeader } from '../../components/ui/Surface';
 import { RemovableChip, ToggleChip } from '../../components/ui/Toggle';
+import type { BandName } from '../../lib/bands';
 import { cents, cut, int } from '../../lib/format';
-import { CHIP, isFeature, profile } from '../../lib/labels';
+import { CHIP, isFeature, PARTITION_OPTIONS, profile } from '../../lib/labels';
 import { cx } from '../../lib/style';
 import {
   chipBands,
@@ -42,7 +43,6 @@ import {
   queueQuery,
   select,
   toggleBand,
-  type BandName,
   type QUEUE_PARAMS,
   type QueueState,
 } from './queue';
@@ -56,13 +56,6 @@ const DEFAULT_DIRECTION = {
   monthly: 'desc',
   at_risk: 'desc',
 } as const;
-
-const PARTITIONS = [
-  { value: 'all', label: 'All' },
-  { value: 'train', label: 'Train' },
-  { value: 'validation', label: 'Validation' },
-  { value: 'test', label: 'Test (outcome withheld)' },
-] as const;
 
 interface RetentionQueueProps {
   book: Overview;
@@ -140,7 +133,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
         <Select
           label="Partition"
           value={state.part ?? 'all'}
-          options={PARTITIONS}
+          options={PARTITION_OPTIONS}
           onChange={(part) => set({ part: part === 'all' ? null : part, page: 1 })}
         />
         {state.q && (

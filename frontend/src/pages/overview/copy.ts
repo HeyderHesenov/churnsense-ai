@@ -6,13 +6,11 @@
  */
 import type { Overview } from '../../api/queries';
 import type { Schemas } from '../../api/client';
+import { bandTop as top } from '../../lib/bands';
 import { cut, int, money, pct } from '../../lib/format';
 import { FEATURE, isFeature, overviewLevel } from '../../lib/labels';
 
 type Range = { min: number; max: number };
-
-/** Probabilities never exceed 1; the top band's stored bound (1.01) is a closed-interval device. */
-const top = (band: Range) => Math.min(band.max, 1);
 
 /** A band card's range: "0–0.25", "0.75–1.00". */
 export function bandRange(band: Range): string {

@@ -4,7 +4,7 @@
  * server adds or renames fails the type check here first. Identifiers and
  * digests are synthetic. A test overrides only the fields it is about.
  */
-import type { Health, ModelInfo } from '../api/queries';
+import type { CustomerDetail, CustomerFeatures, Health, ModelInfo } from '../api/queries';
 
 export function health(overrides: Partial<Health> = {}): Health {
   return { status: 'ok', model_loaded: true, detail: null, ...overrides };
@@ -70,6 +70,48 @@ export function modelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
       withheld_reason: null,
     },
     test_evaluation: null,
+    ...overrides,
+  };
+}
+
+/** One customer's 18 model inputs: a new month-to-month fiber customer. */
+export function customerFeatures(overrides: Partial<CustomerFeatures> = {}): CustomerFeatures {
+  return {
+    SeniorCitizen: '0',
+    Partner: 'No',
+    Dependents: 'No',
+    tenure: 2,
+    PhoneService: 'Yes',
+    MultipleLines: 'No',
+    InternetService: 'Fiber optic',
+    OnlineSecurity: 'No',
+    OnlineBackup: 'No',
+    DeviceProtection: 'No',
+    TechSupport: 'No',
+    StreamingTV: 'No',
+    StreamingMovies: 'No',
+    Contract: 'Month-to-month',
+    PaperlessBilling: 'Yes',
+    PaymentMethod: 'Electronic check',
+    MonthlyCharges: 90,
+    TotalCharges: 180,
+    ...overrides,
+  };
+}
+
+export function customerDetail(
+  id: string,
+  overrides: Partial<CustomerDetail> = {},
+): CustomerDetail {
+  return {
+    id,
+    features: customerFeatures(),
+    churn_probability: 0.8,
+    risk_band: 'Critical',
+    flagged: true,
+    threshold: 0.36,
+    partition: 'train',
+    outcome: 'churned',
     ...overrides,
   };
 }

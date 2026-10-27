@@ -610,3 +610,155 @@ fixed test-first, and the 13 mutations of the fixes were all caught.
   - Explain links build their query with `URLSearchParams`.
   - A band choice equal to the default is forgotten, so "Reset filters"
     shows only off the default view.
+
+## Phase 3.2 — Customer explorer (2026-10-27)
+
+The page reproduces `Explorer.dc.html` with the API's figures. With the real
+data and model, the five saved views count 7,043 / 2,276 / 1,481 / 1,595 /
+1,695 customers, the same as `GET /api/customers` asked directly.
+
+**State lives in the address** (`explorer/explorer.ts`, unit-tested):
+- The keys are `q`, `bands`, `contract`, `internet`, `payment`, `tenure_min`
+  and `tenure_max`, `flagged`, `part`, `sort` and `dir`, `page`, `size` and
+  `id` (the open customer). A value that does not parse reads as the default.
+- The Overview's "flagged" link (`/explorer?flagged=true`) opens the same
+  view.
+- A choice (chip, select, flag, sort, page, preset, row) adds a history
+  entry. Typed text (the ID, a tenure bound) settles for 250 ms and edits the
+  entry in place. Every filter change goes back to the first page.
+- Tenure bounds use the API's range, 0–120 months (`param.optionalInt`; 0 is
+  a bound like any other). A box shows the bound it means: "06" is 6, and 999
+  is 120.
+- No band chosen (`bands=`), or a minimum tenure above the maximum, asks for
+  nothing. The API would read the first as every band and refuses the
+  second. `idleReason` and the query layer's `choosesSomething` are pinned
+  equal by a test, and `customersQuery` uses `skipToken`, so fetching ahead
+  refuses such a query too.
+
+**Every figure is the API's.**
+- The selection's tiles, its status line and the export's count come from
+  one request per filter (`useSelection`: one row and the summary of every
+  match). The saved views' counts and the lede share that cache, so a new
+  page, order or page size keeps the figures and announces nothing new.
+- The mini histogram is split at the served bands' edges, and its threshold
+  line is the served one. The client assigns no customer to a band.
+- Whether outcomes are withheld is the book's own answer, falling back to
+  the model's provenance. Until either answers, the lede says nothing about
+  outcomes.
+- Previous and next walk the whole filtered, sorted list and wrap at both
+  ends. Another page is fetched first, and the address then changes once
+  (page and customer together, one history entry).
+
+**Deviations from the artboard:**
+- **The presets drop "(not scanned)".** That is a Performance notion. A view
+  is pressed only while every filter is exactly what it sets.
+- **The attributions are the server's** (`/api/explain`, ordered by size,
+  strongest seven drawn). The note gives the server's own figures
+  (background customers and feature orderings), not "12 orderings in your
+  browser".
+- **The export is a download link** with the filters and the order shown. No
+  "Exported N rows" state.
+- **A new page size keeps the reader's place:** the open customer if it is
+  shown, otherwise the first row of the page asked for.
+- **States the artboard does not draw:**
+  - nothing chosen;
+  - a range that holds nobody;
+  - the band that tops out below the threshold, or starts at it, with the
+    served figures;
+  - a partition filter while provenance is not verified;
+  - a customer not in the book;
+  - a customer off the page shown;
+  - a step that could not load;
+  - attributions unavailable;
+  - figures that could not be loaded ("—", never an endless "…").
+
+### Explorer review (code-reviewer and qa-expert, 2026-10-27)
+
+There were no critical or high findings. One medium, nine low findings and the
+nits were fixed test-first. qa-expert's 38 surviving mutants and 10 missing
+tests were covered.
+
+A second code-reviewer pass over the fixes found one medium (a step landing
+on a search typed while it loaded) and four low findings. All were fixed
+test-first.
+
+The mutation check was applied while transforming, so no source was edited.
+It covered the 35 earlier survivors and the new code, 66 mutants in all,
+and every one was caught. Three equivalent mutants pointed at redundant code,
+which was removed: a draft reset, a step failure's customer key and a guard
+in the panel.
+
+Checks run:
+- 369 front-end tests;
+- lint, type check, format and build;
+- `npm audit`;
+- the backend's 829 tests, which include the wording scan of the bundle.
+
+Checked in Chromium against the real API:
+- focus stays on Next across pages and on "Next page" at the last page;
+- `?page=2` survives;
+- typing then a preset;
+- two tenure boxes typed in turn;
+- typing during a slow step;
+- 0 console messages;
+- no horizontal scroll at 375, 768, 1024 or 1440 px.
+
+- **Focus never drops.** Previous and next, and the pager's ends, are
+  `aria-disabled` and do nothing instead of becoming `disabled`. A focused
+  button that became disabled sent focus to the body. While a step loads,
+  the panel is `aria-busy`. (The pager is shared with the Overview.)
+- **Typed text is written before any other change**
+  (`app/useSettledDraft.ts` and the router's `holdDraft`). It lands in the
+  entry it was typed in, and the change applies on top of it. Typing and
+  then applying a preset within 250 ms leaves the preset pressed, and Back
+  returns to the search. Two boxes typed in turn both land. Back or Forward
+  drop unsettled text. The reviewer had proposed dropping the draft on any
+  outside change, which would have lost a tenure bound typed just before the
+  other box settled.
+  - A draft settling on its timer writes only itself. Another box still
+    being typed in is left to settle in its own time, so "1" on the way to
+    "12" never reaches the address.
+- **A step the reader has moved on from never lands.** Every change of
+  address moves a counter on (`onNavigate`), including leaving the page and
+  coming back to the same address. The panel then stops being busy.
+  - A step writes any typed text first, when it is pressed and again before
+    it lands. If that text changed the list, the step belonged to the old
+    list and is dropped.
+  - The stale request is not cancelled: cancelling a query another observer
+    may mount on would revert it to idle. Its page just fills the cache.
+- **A failed step stays put.** The panel says "The next customer could not
+  be loaded." (a polite status), and the buttons stay usable to try again.
+  The list is no longer paged away from the open customer.
+- **While the last view's rows stand in,** the pager and the page-size
+  anchor use the page in the address, not the placeholder's.
+- **Figures that could not be loaded** read "—", and the summary says so
+  with a way to ask again. The lede drops the count it could not get.
+- **Resetting keeps the focus.** The bar's Reset is `aria-disabled` with
+  nothing to reset, and does nothing then (not even move to page 1). The
+  empty state's "Reset filters" goes away with the filters, so the focus
+  moves to the list.
+- **Smaller fixes.**
+  - An invalid tenure range is flagged even while no band is chosen.
+  - The two bounds are a group named by their caption.
+  - Bands compare as sets.
+  - The band hints word the equal case ("stops short of 0.36, the
+    threshold"). They never claim it of the top band, which holds its top.
+  - The copy test's causal pattern mirrors `tests/test_wording.py`.
+  - The idle summary stays quiet, since the list already says why.
+- **Kept on purpose:**
+  - presets use `aria-pressed` (as the artboard does);
+  - `?page=99` stays in the address (the API clamps it, and the pager shows
+    3 / 3);
+  - a failed explanation is asked for again when its customer is revisited
+    (the hook is shared with the Overview queue);
+  - the panel is not modal, so it has no Escape;
+  - while the last view's rows stand in, the note describes those rows and
+    the pager the page asked for, until the new rows arrive;
+  - within 250 ms of typing, a click on the old list (a row, the pager, the
+    page size) applies on top of the typed search, as it would a moment
+    later; the export link is not a change of address and leaves typed
+    text out;
+  - the export is a link or, with nothing to export, a disabled button.
+    The total goes unknown only while a new filter's figures load. A reader
+    on the link reaches that only by Back or Forward, which usually find the
+    figures cached.

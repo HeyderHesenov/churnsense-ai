@@ -6,6 +6,7 @@
 import { useOverview, useModelInfo } from '../../api/queries';
 import { useParams } from '../../app/params';
 import { Page } from '../../components/ui/Page';
+import { isBandName } from '../../lib/bands';
 import { int } from '../../lib/format';
 import { ErrorState, Skeleton } from '../../components/ui/States';
 import { OverviewHeader } from './OverviewHeader';
@@ -13,7 +14,7 @@ import { Associations } from './Associations';
 import { riskiestLink } from './copy';
 import { CampaignCard } from './Campaign';
 import { Distribution } from './Distribution';
-import { isBandName, QUEUE_PARAMS } from './queue';
+import { QUEUE_PARAMS } from './queue';
 import { RetentionQueue } from './RetentionQueue';
 import { Summary } from './Summary';
 import styles from './OverviewPage.module.css';

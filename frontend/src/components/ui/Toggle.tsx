@@ -43,7 +43,13 @@ export function ToggleChip({
     >
       {band !== undefined && <span className={styles.swatch} aria-hidden="true" />}
       {children}
-      {count !== undefined && <span className={styles.count}>{count}</span>}
+      {/* The space keeps the name "Critical 405", not "Critical405"; the flex gap draws it. */}
+      {count !== undefined && (
+        <>
+          {' '}
+          <span className={styles.count}>{count}</span>
+        </>
+      )}
     </button>
   );
 }

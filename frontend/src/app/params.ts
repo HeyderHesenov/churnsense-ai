@@ -39,6 +39,13 @@ function optional<const T extends string>(values: readonly T[]): Param<T | null>
   };
 }
 
+/** ``raw`` as a whole number in ``[min, max]``, or ``null``. */
+function whole(raw: string | undefined, min: number, max: number): number | null {
+  if (raw === undefined || !/^-?\d{1,15}$/.test(raw)) return null;
+  const value = Number(raw);
+  return value >= min && value <= max ? value : null;
+}
+
 /** A whole number in ``[min, max]``. */
 function int({
   min,
@@ -51,12 +58,18 @@ function int({
 }): Param<number> {
   return {
     fallback,
-    parse: ([raw]) => {
-      if (raw === undefined || !/^-?\d{1,15}$/.test(raw)) return fallback;
-      const value = Number(raw);
-      return value >= min && value <= max ? value : fallback;
-    },
+    parse: ([raw]) => whole(raw, min, max) ?? fallback,
     write: (value) => (value === fallback ? undefined : value),
+  };
+}
+
+/** A whole number in ``[min, max]``, or nothing given (a bound left open). */
+function optionalInt({ min, max }: { min: number; max: number }): Param<number | null> {
+  return {
+    fallback: null,
+    parse: ([raw]) => whole(raw, min, max),
+    // ``??``, not ``||``: zero is a bound like any other.
+    write: (value) => value ?? undefined,
   };
 }
 
@@ -113,7 +126,7 @@ function list<const T extends string, const D extends readonly T[] | null>(
   };
 }
 
-export const param = { choice, optional, int, text, list };
+export const param = { choice, optional, int, optionalInt, text, list };
 
 type Schema = Record<string, Param<unknown>>;
 export type Values<S extends Schema> = {

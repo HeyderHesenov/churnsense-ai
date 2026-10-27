@@ -158,3 +158,40 @@ describe('useParams writing the address', () => {
     expect(window.location.search).toBe('?page=2&q=DEMO');
   });
 });
+
+describe('a whole number that may be left empty', () => {
+  const bounded = { tenure: param.optionalInt({ min: 0, max: 120 }) };
+
+  function hook(search: string) {
+    window.history.replaceState(null, '', `/explorer${search}`);
+    return renderHook(() => useParams(bounded));
+  }
+
+  it('reads as null until a number is given', () => {
+    expect(hook('').result.current[0].tenure).toBeNull();
+  });
+
+  it('reads the ends of its range, zero included', () => {
+    expect(hook('?tenure=0').result.current[0].tenure).toBe(0);
+    expect(hook('?tenure=120').result.current[0].tenure).toBe(120);
+  });
+
+  it.each([
+    ['below the range', '?tenure=-1'],
+    ['above the range', '?tenure=121'],
+    ['fractional', '?tenure=2.5'],
+    ['with trailing text', '?tenure=6x'],
+    ['empty', '?tenure='],
+  ])('reads a value %s as null', (_name, search) => {
+    expect(hook(search).result.current[0].tenure).toBeNull();
+  });
+
+  it('writes zero, and removes the key for null', () => {
+    const { result } = hook('');
+    act(() => result.current[1]({ tenure: 0 }));
+    expect(window.location.search).toBe('?tenure=0');
+    expect(result.current[0].tenure).toBe(0);
+    act(() => result.current[1]({ tenure: null }));
+    expect(window.location.search).toBe('');
+  });
+});

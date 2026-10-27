@@ -114,6 +114,14 @@ export function profile(contract: string, internet: string, payment: string): st
   return `${contract} · ${INTERNET_SHORT[internet] ?? internet} · ${PAYMENT_SHORT[payment] ?? payment}`;
 }
 
+/** A listing's partition filter: every partition, or one (the test one says its outcomes are withheld). */
+export const PARTITION_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'train', label: 'Train' },
+  { value: 'validation', label: 'Validation' },
+  { value: 'test', label: 'Test (outcome withheld)' },
+] as const;
+
 /** A category value as the profile tables write it: "(automatic)" becomes "(auto)". */
 export function categoryValue(value: string): string {
   return value.replace(' (automatic)', ' (auto)');

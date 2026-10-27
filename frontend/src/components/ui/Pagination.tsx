@@ -1,7 +1,8 @@
 /**
  * The row under a table: what is shown, and previous / next. Pages are
  * 1-based, as the API counts them; an empty result is one page with nowhere
- * to go.
+ * to go. A button with nowhere to go is marked so and does nothing, but stays
+ * focusable: the button that reached the end keeps the focus.
  */
 import { icons } from '../icons';
 import styles from './Table.module.css';
@@ -17,6 +18,8 @@ interface PaginationProps {
 
 export function Pagination({ page, pages, onPage, note, pageSize }: PaginationProps) {
   const last = Math.max(pages, 1);
+  const first = page <= 1;
+  const end = page >= last;
   return (
     <div className={styles.pagination}>
       <span className={styles.note}>{note}</span>
@@ -44,8 +47,10 @@ export function Pagination({ page, pages, onPage, note, pageSize }: PaginationPr
           type="button"
           className={styles.pageButton}
           aria-label="Previous page"
-          disabled={page <= 1}
-          onClick={() => onPage(Math.min(page, last) - 1)}
+          aria-disabled={first}
+          onClick={() => {
+            if (!first) onPage(Math.min(page, last) - 1);
+          }}
         >
           <icons.chevronLeft size={15} />
         </button>
@@ -56,8 +61,10 @@ export function Pagination({ page, pages, onPage, note, pageSize }: PaginationPr
           type="button"
           className={styles.pageButton}
           aria-label="Next page"
-          disabled={page >= last}
-          onClick={() => onPage(page + 1)}
+          aria-disabled={end}
+          onClick={() => {
+            if (!end) onPage(page + 1);
+          }}
         >
           <icons.chevronRight size={15} />
         </button>

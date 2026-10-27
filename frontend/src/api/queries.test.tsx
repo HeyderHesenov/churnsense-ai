@@ -6,11 +6,13 @@ import { testQueryClient } from '../test/render';
 import { answer, recordRequests, server } from '../test/server';
 import { ApiError } from './client';
 import {
+  customersQuery,
   retryDelay,
   shouldRetry,
   useCustomer,
   useCustomerCount,
   useCustomers,
+  useSelection,
   type CustomerQuery,
 } from './queries';
 
@@ -48,6 +50,65 @@ describe('customer listings', () => {
     expect(url?.searchParams.get('page_size')).toBe('8');
   });
 
+  it('asks for nothing for a tenure range whose minimum is above its maximum', async () => {
+    const seen = recordRequests();
+    const listing = renderHook(() => useCustomers({ ...QUERY, tenure_min: 10, tenure_max: 9 }), {
+      wrapper,
+    });
+    const count = renderHook(() => useCustomerCount({ tenure_min: 10, tenure_max: 9 }), {
+      wrapper,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(listing.result.current.fetchStatus).toBe('idle');
+    expect(count.result.current.fetchStatus).toBe('idle');
+  });
+
+  it('sends a range of one tenure, and an open bound', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const one = renderHook(() => useCustomers({ ...QUERY, tenure_min: 6, tenure_max: 6 }), {
+      wrapper,
+    });
+    const open = renderHook(() => useCustomers({ ...QUERY, tenure_min: 0, tenure_max: null }), {
+      wrapper,
+    });
+    await waitFor(() => expect(one.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(open.result.current.isSuccess).toBe(true));
+    expect(
+      seen.map((url) => [url.searchParams.get('tenure_min'), url.searchParams.get('tenure_max')]),
+    ).toEqual([
+      ['6', '6'],
+      ['0', null],
+    ]);
+  });
+
+  it('shares its cache with a listing fetched ahead of time', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const client = testQueryClient();
+    const query: CustomerQuery = { ...QUERY, page: 2 };
+    await client.query(customersQuery(query));
+    const { result } = renderHook(() => useCustomers(query), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    expect(result.current.data?.rows[0]?.id).toBe('DEMO-0001');
+    expect(seen).toHaveLength(1);
+  });
+
+  it.each([
+    ['no band', { bands: [] }],
+    ['no customer', { ids: [] }],
+    ['a range that holds nobody', { tenure_min: 10, tenure_max: 9 }],
+  ])('refuses a listing fetched ahead of time for %s, and sends nothing', async (_, filter) => {
+    const seen = recordRequests();
+    const client = testQueryClient();
+    await expect(client.query(customersQuery({ ...QUERY, ...filter }))).rejects.toThrow();
+    expect(seen).toEqual([]);
+  });
+
   it('lists exactly the chosen customers by id', async () => {
     server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0002')])));
     const seen = recordRequests();
@@ -57,6 +118,43 @@ describe('customer listings', () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(seen[0]?.searchParams.getAll('ids')).toEqual(['DEMO-0002', 'DEMO-0001']);
+  });
+});
+
+describe('a selection', () => {
+  it('asks for one row, and keeps the summary of every match', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const { result } = renderHook(() => useSelection({ contract: 'Two year' }), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.searchParams.get('page_size')).toBe('1');
+    expect(seen[0]?.searchParams.get('contract')).toBe('Two year');
+    expect(result.current.data?.summary.customers).toBe(1);
+  });
+
+  it('shares one request with the count of the same filter', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const client = testQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const selection = renderHook(() => useSelection({ flagged: true }), { wrapper: shared });
+    const count = renderHook(() => useCustomerCount({ flagged: true }), { wrapper: shared });
+    await waitFor(() => expect(count.result.current.data).toBe(1));
+    expect(selection.result.current.data?.total).toBe(1);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('asks for nothing when nothing is chosen', async () => {
+    const seen = recordRequests();
+    const none = renderHook(() => useSelection({ bands: [] }), { wrapper });
+    const empty = renderHook(() => useSelection({ tenure_min: 3, tenure_max: 2 }), { wrapper });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(none.result.current.fetchStatus).toBe('idle');
+    expect(empty.result.current.fetchStatus).toBe('idle');
   });
 });
 

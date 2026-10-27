@@ -48,6 +48,7 @@ describe('ToggleChip and RemovableChip', () => {
     const chip = screen.getByRole('button', { name: /Critical/ });
     expect(chip).toHaveAttribute('aria-pressed', 'false');
     expect(chip).toHaveTextContent('405');
+    expect(chip).toHaveAccessibleName('Critical 405');
     await userEvent.click(chip);
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
@@ -175,14 +176,35 @@ describe('Pagination', () => {
     );
     expect(screen.getByText('1 / 3')).toBeInTheDocument();
     expect(screen.getByText('Showing 1–8 of 20')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+    const previous = screen.getByRole('button', { name: 'Previous page' });
+    expect(previous).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(previous);
+    expect(onPage).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
     expect(onPage).toHaveBeenLastCalledWith(2);
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute(
+      'aria-disabled',
+      'false',
+    );
 
     rerender(<Pagination page={3} pages={3} onPage={onPage} note="" />);
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    const next = screen.getByRole('button', { name: 'Next page' });
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    await userEvent.click(next);
+    expect(onPage).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
     expect(onPage).toHaveBeenLastCalledWith(2);
+  });
+
+  it('keeps focus on the button that reached the end', async () => {
+    const onPage = vi.fn();
+    const { rerender } = render(<Pagination page={2} pages={3} onPage={onPage} note="" />);
+    const next = screen.getByRole('button', { name: 'Next page' });
+    await userEvent.click(next);
+    rerender(<Pagination page={3} pages={3} onPage={onPage} note="" />);
+    expect(next).toHaveFocus();
+    expect(next).toHaveAttribute('aria-disabled', 'true');
+    expect(next).toBeEnabled();
   });
 
   it('steps back from a page past the end to the one before the last', async () => {
@@ -196,7 +218,10 @@ describe('Pagination', () => {
   it('treats an empty result as one page with nowhere to go', () => {
     render(<Pagination page={1} pages={0} onPage={vi.fn()} note="Nothing to show" />);
     expect(screen.getByText('1 / 1')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Next page' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next page' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('offers page sizes when given them', async () => {

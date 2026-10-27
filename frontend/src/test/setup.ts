@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterAll, afterEach, beforeAll, expect } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
 import { settleQueries } from './render';
 import { server } from './server';
 import { installMatchMedia, resetViewport } from './viewport';
@@ -37,6 +37,7 @@ beforeAll(() => {
 afterEach(async () => {
   await settleQueries();
   cleanup();
+  vi.restoreAllMocks();
   server.resetHandlers();
   server.events.removeAllListeners();
   resetViewport();

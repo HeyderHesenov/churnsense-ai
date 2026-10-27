@@ -2,7 +2,6 @@
  * The overview's header: the customer search (it filters the retention
  * queue), the provenance of the data and model, and the scored export.
  */
-import { useEffect, useEffectEvent, useState } from 'react';
 import { exportUrl } from '../../api/client';
 import type { ModelInfo } from '../../api/queries';
 import { icons } from '../../components/icons';
@@ -10,12 +9,9 @@ import { Header } from '../../components/shell/Header';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { SearchField } from '../../components/ui/Field';
 import { Popover } from '../../components/ui/Popover';
-import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import { cleanCustomerId, MAX_CUSTOMER_ID } from '../../lib/customerId';
+import { useSettledDraft } from '../../app/useSettledDraft';
 import styles from './Overview.module.css';
-
-/** What a customer ID can hold, as the API's search accepts it. */
-const NOT_IN_AN_ID = /[^A-Za-z0-9-]/g;
-const MAX_ID = 32;
 
 interface OverviewHeaderProps {
   info: ModelInfo | undefined;
@@ -47,28 +43,14 @@ export function OverviewHeader({ info, query, onSearch }: OverviewHeaderProps) {
  * box too.
  */
 function Search({ query, onSearch }: { query: string; onSearch: (query: string) => void }) {
-  const [draft, setDraft] = useState(query);
-  const [shown, setShown] = useState(query);
-  if (query !== shown) {
-    setShown(query);
-    setDraft(query);
-  }
-  const settled = useDebouncedValue(draft, 250);
-  // A search runs when the draft settles, never because the address changed:
-  // a search cleared elsewhere must not be put back by a stale draft.
-  const search = useEffectEvent((value: string) => {
-    if (value !== query) onSearch(value);
-  });
-  useEffect(() => {
-    search(settled);
-  }, [settled]);
+  const [draft, setDraft] = useSettledDraft(query, onSearch);
   return (
     <SearchField
       label="Find a customer by ID"
       placeholder="Find a customer ID…"
       value={draft}
-      maxLength={MAX_ID}
-      onChange={(value) => setDraft(value.replace(NOT_IN_AN_ID, '').slice(0, MAX_ID))}
+      maxLength={MAX_CUSTOMER_ID}
+      onChange={(value) => setDraft(cleanCustomerId(value))}
     />
   );
 }

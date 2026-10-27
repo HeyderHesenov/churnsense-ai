@@ -1,0 +1,125 @@
+/* The explorer's page parts: saved views, the filter bar, the summary and the workspace. */
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- filter bar ---------------------------------------------------------------- */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-14);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.field:first-child {
+  flex: 1 1 200px;
+}
+.caption {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.input {
+  height: 36px;
+  padding: 0 10px;
+  background: var(--well);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-9);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.input[aria-invalid='true'] {
+  border-color: var(--critical-line);
+}
+.id {
+  width: 100%;
+}
+.range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.tenure {
+  width: 62px;
+}
+.invalid {
+  font-size: 11.5px;
+  color: var(--critical-ink);
+}
+.reset {
+  margin-left: auto;
+}
+
+/* --- selection summary --------------------------------------------------------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+/* After the tiles, across the whole row. */
+.summaryError {
+  grid-column: 1 / -1;
+  order: 1;
+}
+.spreadTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+}
+.spreadLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.spreadEmpty {
+  font-size: 22px;
+  font-weight: 600;
+}
+.spread {
+  gap: 0;
+}
+.spreadSvg {
+  width: 100%;
+  max-height: 44px;
+}
+.spreadBar {
+  fill: var(--band, var(--muted));
+}
+.spreadThreshold {
+  stroke: var(--sim);
+  stroke-width: 1;
+}
+.spreadAxis {
+  stroke: var(--line-axis);
+  stroke-width: 1;
+}
+
+/* --- list and detail ----------------------------------------------------------- */
+.workspace {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 14px;
+}

@@ -15,13 +15,56 @@ import {
 
 const NAVIGATE = 'churnsense:navigate';
 
-function subscribe(onChange: () => void): () => void {
+/** Calls ``onChange`` on every change of address: a link, a setter, Back or Forward. */
+export function onNavigate(onChange: () => void): () => void {
   window.addEventListener('popstate', onChange);
   window.addEventListener(NAVIGATE, onChange);
   return () => {
     window.removeEventListener('popstate', onChange);
     window.removeEventListener(NAVIGATE, onChange);
   };
+}
+
+/**
+ * Typed text not yet in the address (``useSettledDraft``). A draft is written
+ * once it has been still for a moment, on its own; and before any other
+ * change is made, so it lands in the entry it was typed in and the change
+ * applies on top of it.
+ */
+const drafts = new Set<() => void>();
+/** A draft is being written: its own change writes no other draft. */
+let writing = false;
+
+/**
+ * Hold ``write`` until it has been still for ``delay`` ms or the address is
+ * about to change, whichever comes first; the returned function lets it go
+ * unwritten.
+ */
+export function holdDraft(write: () => void, delay: number): () => void {
+  const settle = () => {
+    release();
+    const outer = writing;
+    writing = true;
+    try {
+      write();
+    } finally {
+      writing = outer;
+    }
+  };
+  const timer = window.setTimeout(settle, delay);
+  drafts.add(settle);
+  function release() {
+    window.clearTimeout(timer);
+    drafts.delete(settle);
+  }
+  return release;
+}
+
+/** Write every held draft now (none while one is being written). */
+export function writeDrafts(): void {
+  if (writing) return;
+  // Each lets itself go first; none writes another (``writing``).
+  for (const settle of [...drafts]) settle();
 }
 
 function snapshot(): string {
@@ -50,6 +93,7 @@ function canonical(url: URL): string {
 /** Go to ``to`` (a path in this app, with an optional query and fragment). */
 export function navigate(to: string, options: { replace?: boolean } = {}): void {
   const url = appUrl(to);
+  writeDrafts();
   if (canonical(url) === canonical(new URL(window.location.href))) return;
   const address = url.pathname + url.search + url.hash;
   if (options.replace) window.history.replaceState(null, '', address);
@@ -63,7 +107,7 @@ export interface Location {
 }
 
 export function useLocation(): Location {
-  const current = useSyncExternalStore(subscribe, snapshot);
+  const current = useSyncExternalStore(onNavigate, snapshot);
   return useMemo(() => {
     const url = new URL(current, window.location.origin);
     return { pathname: url.pathname, search: url.searchParams };
@@ -88,7 +132,7 @@ export function withParams(location: Location, changes: Record<string, ParamValu
 /**
  * Read the query, and change it: a new history entry by default, in place
  * with ``replace``. Each change applies to the address as it is when it is
- * made, so two changes in one handler both land.
+ * made (typed text held back included), so two changes in one handler both land.
  */
 export function useSearchParams(): [
   URLSearchParams,
@@ -97,6 +141,7 @@ export function useSearchParams(): [
   const location = useLocation();
   const update = useCallback(
     (changes: Record<string, ParamValue>, options: { replace?: boolean } = {}) => {
+      writeDrafts();
       const now = {
         pathname: window.location.pathname,
         search: new URLSearchParams(window.location.search),

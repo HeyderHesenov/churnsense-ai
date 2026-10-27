@@ -81,11 +81,12 @@
     background-color 0.15s ease,
     opacity 0.15s ease;
 }
-.pageButton:hover:not(:disabled) {
+.pageButton:hover:not([aria-disabled='true']) {
   background: var(--ghost-hover);
 }
-.pageButton:disabled {
+.pageButton[aria-disabled='true'] {
   opacity: 0.4;
+  cursor: default;
 }
 .position {
   min-width: 48px;

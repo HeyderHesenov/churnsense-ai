@@ -7,6 +7,8 @@
 import {
   keepPreviousData,
   QueryClient,
+  queryOptions,
+  skipToken,
   useMutation,
   useQuery,
   type UseQueryResult,
@@ -130,35 +132,60 @@ export function customerParams(query: CustomerFilter & Partial<CustomerQuery>) {
 /**
  * An empty band list chooses no band, and an empty id list no customer. The
  * API reads a missing ``bands`` or ``ids`` as "any", so such a choice is never
- * sent: the query stays idle and the page says nothing is chosen.
+ * sent: the query stays idle and the page says nothing is chosen. A tenure
+ * range whose minimum is above its maximum holds nobody (the API refuses it),
+ * so it is never sent either.
  */
-function choosesSomething(filter: CustomerFilter): boolean {
-  return filter.bands?.length !== 0 && filter.ids?.length !== 0;
+export function choosesSomething(filter: CustomerFilter): boolean {
+  const { tenure_min: min, tenure_max: max } = filter;
+  const emptyRange =
+    min !== null && min !== undefined && max !== null && max !== undefined && min > max;
+  return filter.bands?.length !== 0 && filter.ids?.length !== 0 && !emptyRange;
+}
+
+/**
+ * A listing's key and request, shared by the hook and a page that fetches one
+ * ahead. A query that chooses nothing has no request at all, so fetching it
+ * ahead fails rather than asks for every customer.
+ */
+export function customersQuery(query: CustomerQuery) {
+  return queryOptions({
+    queryKey: ['customers', query],
+    queryFn: choosesSomething(query)
+      ? ({ signal }) =>
+          request<CustomerPage>('/customers', { query: customerParams(query), signal })
+      : skipToken,
+  });
 }
 
 export function useCustomers(query: CustomerQuery): UseQueryResult<CustomerPage> {
-  return useQuery({
-    queryKey: ['customers', query],
-    queryFn: ({ signal }) =>
-      request<CustomerPage>('/customers', { query: customerParams(query), signal }),
-    placeholderData: keepPreviousData,
-    enabled: choosesSomething(query),
+  return useQuery({ ...customersQuery(query), placeholderData: keepPreviousData });
+}
+
+/**
+ * What a filter keeps, whatever the page, sort or page size: its count, its
+ * summary of every match and whether outcomes are withheld (one row asked for).
+ */
+function selectionQuery(filter: CustomerFilter) {
+  return queryOptions({
+    queryKey: ['customers', 'selection', filter],
+    queryFn: choosesSomething(filter)
+      ? ({ signal }) =>
+          request<CustomerPage>('/customers', {
+            query: customerParams({ ...filter, page_size: 1 }),
+            signal,
+          })
+      : skipToken,
   });
 }
 
-/** How many customers a filter keeps, for a preset's count. */
+export function useSelection(filter: CustomerFilter): UseQueryResult<CustomerPage> {
+  return useQuery(selectionQuery(filter));
+}
+
+/** How many customers a filter keeps, for a preset's count (the selection's own request). */
 export function useCustomerCount(filter: CustomerFilter): UseQueryResult<number> {
-  return useQuery({
-    queryKey: ['customers', 'count', filter],
-    queryFn: async ({ signal }) =>
-      (
-        await request<CustomerPage>('/customers', {
-          query: customerParams({ ...filter, page_size: 1 }),
-          signal,
-        })
-      ).total,
-    enabled: choosesSomething(filter),
-  });
+  return useQuery({ ...selectionQuery(filter), select: (page) => page.total });
 }
 
 /** A customer ID as the API accepts it; anything else (".." included) is never put in a path. */

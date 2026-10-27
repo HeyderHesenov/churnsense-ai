@@ -1,6 +1,14 @@
 import { act, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Link, navigate, useLocation, useSearchParams, withParams } from './router';
+import {
+  holdDraft,
+  Link,
+  navigate,
+  onNavigate,
+  useLocation,
+  useSearchParams,
+  withParams,
+} from './router';
 
 describe('router', () => {
   beforeEach(() => window.history.replaceState(null, '', '/'));
@@ -15,6 +23,50 @@ describe('router', () => {
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
     expect(result.current.pathname).toBe('/patterns');
+  });
+
+  it('writes a held draft first, once, and not after it is let go', () => {
+    const seen: string[] = [];
+    holdDraft(() => {
+      seen.push(window.location.search);
+      navigate('/?q=typed', { replace: true });
+    }, 10_000);
+    const release = holdDraft(() => seen.push('released'), 10_000);
+    release();
+    navigate('/?q=typed&view=saved');
+    expect(seen).toEqual(['']);
+    expect(window.location.search).toBe('?q=typed&view=saved');
+    navigate('/');
+    expect(seen).toEqual(['']);
+  });
+
+  it('writes a draft once it is still, alone, and on its own entry', () => {
+    vi.useFakeTimers();
+    try {
+      const seen: string[] = [];
+      holdDraft(() => {
+        seen.push('first');
+        navigate('/?a=1', { replace: true });
+      }, 100);
+      holdDraft(() => seen.push('second'), 10_000);
+      vi.advanceTimersByTime(100);
+      expect(seen).toEqual(['first']);
+      expect(window.location.search).toBe('?a=1');
+      navigate('/?b=2');
+      expect(seen).toEqual(['first', 'second']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tells a listener about every change of address until it stops listening', () => {
+    const heard = vi.fn();
+    const stop = onNavigate(heard);
+    navigate('/explorer');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    stop();
+    navigate('/batch');
+    expect(heard).toHaveBeenCalledTimes(2);
   });
 
   it('applies query changes, dropping empty values and repeating lists', () => {

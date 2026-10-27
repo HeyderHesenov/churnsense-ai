@@ -155,6 +155,15 @@ describe('Overview: retention queue', () => {
       .at(-1);
   }
 
+  it('links to every flagged customer in the explorer, which reads the same address', async () => {
+    showOverview();
+    await loaded();
+    const link = await within(queue()).findByRole('link', {
+      name: /^See all 2,300 in the explorer/,
+    });
+    expect(link).toHaveAttribute('href', '/explorer?flagged=true');
+  });
+
   it('lists flagged customers in every band that holds them, by revenue at risk', async () => {
     const seen = recordRequests();
     showOverview();
@@ -274,6 +283,15 @@ describe('Overview: retention queue', () => {
     await userEvent.click(within(queue()).getByRole('button', { name: 'Next page' }));
     expect(new URLSearchParams(window.location.search).get('page')).toBe('2');
     await waitFor(() => expect(lastListing(seen)?.searchParams.get('page')).toBe('2'));
+  });
+
+  it('keeps the page a link opens on: the search box writes nothing until something is typed', async () => {
+    const seen = recordRequests();
+    showOverview('/?page=2');
+    await screen.findByRole('table', { name: 'Flagged customers' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(window.location.search).toBe('?page=2');
+    expect(lastListing(seen)?.searchParams.get('page')).toBe('2');
   });
 
   it('filters by partition', async () => {

@@ -6,9 +6,7 @@
  */
 import { param, type Values } from '../../app/params';
 import type { BandSummary, CustomerQuery, Overview } from '../../api/queries';
-
-export const BAND_NAMES = ['Low', 'Moderate', 'High', 'Critical'] as const;
-export type BandName = (typeof BAND_NAMES)[number];
+import { BAND_NAMES, isBandName, type BandName } from '../../lib/bands';
 
 /** The design's page: eight rows, so one explanation request covers a page. */
 export const PAGE_SIZE = 8;
@@ -23,10 +21,6 @@ export const QUEUE_PARAMS = {
 };
 
 export type QueueState = Values<typeof QUEUE_PARAMS>;
-
-export function isBandName(name: string): name is BandName {
-  return (BAND_NAMES as readonly string[]).includes(name);
-}
 
 /** A band summary whose name is one the queue's address can hold. */
 export type QueueBand = BandSummary & { name: BandName };
