@@ -56,6 +56,7 @@ from churnsense.api.schemas import (
     HealthResponse,
     HoldoutSummary,
     ModelInfoResponse,
+    NumericBounds,
     PredictionResponse,
     Provenance,
     RiskBand,
@@ -228,6 +229,7 @@ def model_info(
             max_upload_bytes=cfg.api.max_upload_bytes,
             max_upload_columns=cfg.api.max_upload_columns,
         ),
+        numeric_bounds=NumericBounds.of_contract(),
         provenance=None
         if dashboard is None
         else Provenance(

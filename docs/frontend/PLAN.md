@@ -768,3 +768,13 @@ Checked in Chromium against the real API:
     The total goes unknown only while a new filter's figures load. A reader
     on the link reaches that only by Back or Forward, which usually find the
     figures cached.
+
+### API addition for the single customer page (2026-10-28)
+
+- **`ModelInfoResponse.numeric_bounds`**: `{tenure, MonthlyCharges,
+  TotalCharges}`, each `{min, max}`, read from `schema.NUMERIC_BOUNDS`, the
+  bounds the request model enforces. The page's form refuses an amount
+  outside them before asking, from the served values rather than a copy in
+  the browser, which could drift and either refuse a customer the API takes
+  or send one it refuses. It is optional, like `limits`, so older callers see
+  no change.

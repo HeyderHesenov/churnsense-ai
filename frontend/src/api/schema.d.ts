@@ -1169,6 +1169,7 @@ export interface components {
       n_train: number;
       /** N Validation */
       n_validation: number;
+      numeric_bounds?: components['schemas']['NumericBounds'] | null;
       /** Probability Epsilon */
       probability_epsilon?: number | null;
       provenance?: components['schemas']['Provenance'] | null;
@@ -1191,6 +1192,22 @@ export interface components {
       validation_metrics: {
         [key: string]: unknown;
       };
+    };
+    /**
+     * NumericBounds
+     * @description The data contract's hard bounds (``schema.NUMERIC_BOUNDS``): a record outside them is refused.
+     */
+    NumericBounds: {
+      MonthlyCharges: components['schemas']['NumericRange'];
+      TotalCharges: components['schemas']['NumericRange'];
+      tenure: components['schemas']['NumericRange'];
+    };
+    /** NumericRange */
+    NumericRange: {
+      /** Max */
+      max: number;
+      /** Min */
+      min: number;
     };
     /**
      * Observed

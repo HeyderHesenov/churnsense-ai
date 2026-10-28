@@ -164,6 +164,7 @@ class ModelInfoResponse(BaseModel):
     risk_bands: list[RiskBand] | None = None
     business_defaults: BusinessAssumptions | None = None
     limits: UploadLimits | None = None
+    numeric_bounds: NumericBounds | None = None
     provenance: Provenance | None = None
     test_evaluation: HoldoutSummary | None = None
 
@@ -206,6 +207,28 @@ class UploadLimits(BaseModel):
     max_batch_rows: int
     max_upload_bytes: int
     max_upload_columns: int
+
+
+class NumericRange(BaseModel):
+    min: float
+    max: float
+
+
+class NumericBounds(BaseModel):
+    """The data contract's hard bounds (``schema.NUMERIC_BOUNDS``): a record outside them is refused."""
+
+    tenure: NumericRange
+    MonthlyCharges: NumericRange
+    TotalCharges: NumericRange
+
+    @classmethod
+    def of_contract(cls) -> NumericBounds:
+        return cls.model_validate(
+            {
+                column: {"min": low, "max": high}
+                for column, (low, high) in columns.NUMERIC_BOUNDS.items()
+            }
+        )
 
 
 class HoldoutSummary(BaseModel):

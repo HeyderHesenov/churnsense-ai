@@ -603,6 +603,15 @@ def test_numeric_bounds_match_the_training_contract():
         assert next(m.le for m in metadata if isinstance(m, Le)) == high, column
 
 
+def test_model_info_serves_the_numeric_bounds(client):
+    """A form refuses what /predict would from these, not from a copy that could drift."""
+    from churnsense.data import schema
+
+    assert client.get("/model-info").json()["numeric_bounds"] == {
+        column: {"min": low, "max": high} for column, (low, high) in schema.NUMERIC_BOUNDS.items()
+    }
+
+
 def test_a_request_without_a_host_is_refused():
     from churnsense.api.middleware import TrustedHosts
 
