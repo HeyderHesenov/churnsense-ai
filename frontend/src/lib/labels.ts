@@ -80,17 +80,24 @@ export const CHIP: Record<Feature, string> = {
   SeniorCitizen: 'Senior',
 };
 
+const SHORTER: Record<string, string> = {
+  'Tenure (months)': 'Tenure',
+  'Total charges to date': 'Total charges',
+  'Contract type': 'Contract',
+};
+
 /**
- * The single-customer page words a contribution with the library's label,
- * shortened where the artboard shortens it ("Tenure (months)" -> "Tenure").
+ * The single-customer page's sentences name a contribution with the
+ * library's label, shortened where the artboard shortens it ("Tenure
+ * (months)" -> "Tenure"); "Tech support add-on" stays whole.
  */
+export function sentenceLabel(label: string): string {
+  return SHORTER[label] ?? label;
+}
+
+/** Its waterfall shortens the add-ons too ("Tech support add-on" -> "Tech support"). */
 export function contributionLabel(label: string): string {
-  const short: Record<string, string> = {
-    'Tenure (months)': 'Tenure',
-    'Total charges to date': 'Total charges',
-    'Contract type': 'Contract',
-  };
-  return short[label] ?? label.replace(' add-on', '');
+  return sentenceLabel(label).replace(' add-on', '');
 }
 
 export function isFeature(value: string): value is Feature {

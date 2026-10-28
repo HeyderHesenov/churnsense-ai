@@ -24,6 +24,7 @@ export type CustomerFeatures = Schemas['CustomerFeatures'];
 export type Examples = Schemas['ExamplesResponse'];
 export type ExplainResponse = Schemas['ExplainResponse'];
 export type Explanation = Schemas['Explanation'];
+export type Contribution = Schemas['Contribution'];
 export type Segments = Schemas['SegmentsResponse'];
 export type Cell = Schemas['ReportedCell'] | Schemas['SuppressedCell'];
 export type GlobalExplanation = Schemas['GlobalExplanation'];
@@ -221,6 +222,16 @@ export function useExplanations(ids: readonly string[]): UseQueryResult<ExplainR
   });
 }
 
+/**
+ * A typed record's explanation is asked for as the reader edits, so the rate
+ * limit can refuse one: it is asked for once more, after the wait the server
+ * names. One the server can never give (no verified background) is not.
+ */
+export function retryExplanation(failures: number, error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.code === 'explanations_unavailable') return false;
+  return failures < 1 && (error.transient || error.status === 429);
+}
+
 /** The explanation of one record that is not in the book. */
 export function useRecordExplanation(
   record: CustomerFeatures | null,
@@ -231,6 +242,7 @@ export function useRecordExplanation(
       request<ExplainResponse>('/explain', { method: 'POST', json: { record }, signal }),
     enabled: record !== null,
     placeholderData: keepPreviousData,
+    retry: (failures, error: Error) => retryExplanation(failures, error),
   });
 }
 

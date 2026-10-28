@@ -1,4 +1,11 @@
-import { contributionLabel, level, modelName, overviewLevel, profile } from './labels';
+import {
+  contributionLabel,
+  level,
+  modelName,
+  overviewLevel,
+  profile,
+  sentenceLabel,
+} from './labels';
 
 describe('labels', () => {
   it('writes a profile line the way the design does', () => {
@@ -29,6 +36,10 @@ describe('labels', () => {
     expect(contributionLabel('Tenure (months)')).toBe('Tenure');
     expect(contributionLabel('Tech support add-on')).toBe('Tech support');
     expect(contributionLabel('Monthly charges')).toBe('Monthly charges');
+    expect(contributionLabel('Contract type')).toBe('Contract');
+    expect(sentenceLabel('Tech support add-on')).toBe('Tech support add-on');
+    expect(sentenceLabel('Total charges to date')).toBe('Total charges');
+    expect(sentenceLabel('Monthly charges')).toBe('Monthly charges');
     expect(modelName('Hist Gradient Boosting')).toBe('Hist. gradient boosting');
   });
 });

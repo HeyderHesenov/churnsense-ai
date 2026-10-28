@@ -8,6 +8,7 @@ import { ApiError } from './client';
 import {
   customersQuery,
   retryDelay,
+  retryExplanation,
   shouldRetry,
   useCustomer,
   useCustomerCount,
@@ -179,6 +180,15 @@ describe('retries', () => {
     expect(shouldRetry(0, new ApiError(422, 'validation_error'))).toBe(false);
     expect(shouldRetry(0, new ApiError(429, 'rate_limited'))).toBe(false);
     expect(shouldRetry(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for a typed record’s explanation again once after a rate limit, never when it cannot be had', () => {
+    expect(retryExplanation(0, new ApiError(429, 'rate_limited', [], 2))).toBe(true);
+    expect(retryExplanation(1, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
+    expect(retryExplanation(0, new ApiError(503, 'explanations_busy', [], 2))).toBe(true);
+    expect(retryExplanation(0, new ApiError(503, 'explanations_unavailable'))).toBe(false);
+    expect(retryExplanation(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryExplanation(0, new Error('not from the API'))).toBe(false);
   });
 
   it('waits as long as the server asks, up to ten seconds', () => {

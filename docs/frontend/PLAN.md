@@ -778,3 +778,161 @@ Checked in Chromium against the real API:
   the browser, which could drift and either refuse a customer the API takes
   or send one it refuses. It is optional, like `limits`, so older callers see
   no change.
+
+## Phase 3.3 — Single customer (2026-10-28)
+
+The page reproduces `Customer.dc.html` with the API's figures. With the real
+data and model, the README example reads 0.8029793735676088 (Critical,
+flagged at 0.36), the number `POST /api/predict` returns when asked directly,
+and its waterfall matches the artboard's (Tenure +30.8, Monthly charges
+−16.1, ten other inputs +15.5). An example customer's detail and
+`POST /api/predict` on its inputs agree to the last digit.
+
+**Who is shown lives in the address** (`customer/customer.ts`, unit-tested):
+- `id` is a customer in the book, as the Overview's "Explain" link writes it;
+  `live=true` is the new customer; with neither, the README example. An ID
+  outside the API's pattern reads as none and is never put in a path.
+- What is typed for a new customer stays in memory (data minimisation): it
+  survives looking at another customer and coming back, never a reload.
+- The waterfall's Top 5 / Top 8 / All choice is a view setting, in memory, as
+  the Overview's toggles are.
+
+**Every figure is the API's.**
+- A customer in the book is drawn from its detail (an example's comes with
+  the examples, so it is not asked for again); the README example and the new
+  customer from `POST /api/predict`. Each kind has its own requests, so one
+  customer's figures never stand in for another's while the next loads.
+- The attributions are the server's, by ID for a customer in the book and by
+  record otherwise. A typed record is scored once typing settles (250 ms) and
+  explained only once the API has scored that very record (another 250 ms), so
+  a record the API refuses never spends a request of the explain budget.
+- The waterfall's running sum, the "N other inputs combined" row and the bars'
+  places are arithmetic on one customer's own attributions; its last row is
+  the explanation's own probability. "All 18" counts the attributions.
+- The scale's bands and dashed line are the served bands and threshold.
+- The API panel is the response of `POST /api/predict` for the inputs shown,
+  field by field; for a customer in the book it shows that the public endpoint
+  gives the number the page draws.
+- The CSV is built in the browser from those figures (`lib/csv.ts`, defused),
+  with the customer's ID first for one in the book, and only once the figures
+  are for the inputs shown.
+
+**Deviations from the artboard:**
+- **No model in the browser.** The artboard scored and explained the new
+  customer with an exported copy of the model and 16 orderings; the page asks
+  the API. Its note says so ("Scored by the API as you edit…").
+- **The picker is links, not tabs.** Each card is an address, so a choice is a
+  history entry, Back returns, a card opens in a new tab, and the focus stays
+  on the card followed. The selected card is `aria-current="page"`. A customer
+  a link opened is the first card, and stays while the page is open.
+- **The form refuses what the API would.** Besides the artboard's rules (no
+  internet means no add-on, no phone means no multiple lines, no tenure means
+  nothing billed), nothing billed with a tenure and an amount outside the
+  API's bounds (`numeric_bounds`) are flagged beside their box and not sent.
+  An amount is text checked as a number (digits; one decimal point), so a box
+  is never silently reset. Before the bounds are in, the API is left to
+  refuse, and its own 422 problems are shown as text.
+- **Narrow screens.** Picker cards are at least 150 px (two a row at 375 px);
+  the profile's facts and the waterfall lay out by their card's width
+  (container queries): one fact a line, and the bar under its label.
+- **States the artboard does not draw:** loading; a customer not in the book;
+  a customer or the examples that could not be loaded; inputs that cannot be
+  scored ("—"); attributions refused for the rate limit (asked again once,
+  after the server's wait), unavailable, or never computable without a
+  verified background (no retry); figures still for the inputs typed a moment
+  ago (dimmed, `aria-busy`); a server that can explain no one (said once,
+  then nothing more is asked for).
+
+### Single customer review (code-reviewer and qa-expert, 2026-10-28)
+
+The first code-reviewer pass found one high, three medium and seven low
+findings, and qa-expert two defects and a list of untested paths. A second
+code-reviewer pass over the fixes found no critical, high or medium findings,
+two low and four nits, and a third, over those fixes, two low and three nits.
+Everything was fixed test-first, except what is kept on purpose below.
+
+- **Only the record typed is explained** (high). The attributions are asked
+  for once the reader has paused on a record that is still the one typed, and
+  the API has scored that very record (a subscribed query, not a cache read).
+  Before, a record replaced while typing could be explained and drawn under
+  the new one.
+- **A retry keeps the reader's place** (medium). A failed query that is asked
+  again goes back to loading at once, so its error state and button unmount.
+  The focus moves to the prediction card, the waterfall's heading or `#main`.
+- **One status line speaks** (medium): once per settled figure, empty while
+  the figures are stale or the inputs cannot be scored; "not in the book"
+  goes there too.
+- **Nothing loads forever** (medium, and qa-expert's D2). Every request ends
+  in figures, a failure, "not in the book" or "—". The README example's card
+  says "not loaded" when its prediction fails or the examples do, as a book
+  customer's does.
+- **A linked customer joins the picker once its detail is in** (qa-expert's
+  D1): not while the examples load, and never one the book does not hold.
+- **The amounts are checked against the served bounds** (low): an amount
+  outside them is `aria-invalid`, its message gives the bounds, and nothing is
+  sent (see the API addition above). The record is read from the form alone
+  and the bounds are checked apart, so bounds that arrive after the figures
+  leave them as they are, rather than dimming them and announcing them again.
+- **Smaller fixes.**
+  - Once the server says it can explain no one, the page asks no more and
+    says so on every view, instead of a request and an announcement per edit.
+  - "All" is always a waterfall choice, so it stays chosen while the next
+    customer's attributions load.
+  - "The browser did not save the file" is about the figures whose file was
+    refused: it goes once another customer is shown or the form is edited,
+    and does not come back. A second refusal in a row is announced again (the
+    status is emptied, then speaks 100 ms later; one timer at a time).
+  - The explanation hook for a typed record retries a rate limit once, after
+    the server's `Retry-After`, and a transient 5xx once; never "unavailable".
+
+The mutation check was applied while transforming, so no source was edited.
+The last run covered the page, its hook and every fix: 84 mutants, all
+caught, and an identity control that survives as it should. Two equivalent
+mutants pointed at redundant code, which was removed: a check for a second
+decimal point (`Number` already refuses one) and a flag for inputs changed
+since the request (a changed record already leaves the query on its
+placeholder). One survivor was a missing test (the
+API panel's "No response for these inputs." for a new customer), now added.
+
+Checks run:
+- 462 front-end tests;
+- lint, type check, format and build (the page's chunk is 9.6 kB gzipped);
+- `npm audit`;
+- the backend's 830 tests, which include the wording scan of the bundle.
+
+Checked in Chromium against the real API:
+- the API panel and `curl POST /api/predict` agree on the README example to
+  the last digit (0.8029793735676088), and so do an example's and a linked
+  customer's detail with `/predict` on their inputs;
+- a typed tenure of 40 gives 0.28808586047145707, the same as curl, and "4"
+  is never sent; 500 is never sent and reads "Tenure is 0 to 120 months.";
+- bounds that arrive 1.5 s late leave the figures as they are (nothing is
+  said again, nothing turns busy);
+- a retry keeps the focus on the prediction card, the waterfall's heading or
+  `#main`;
+- a real rate limit (`Retry-After: 2`) is waited out and asked again once;
+- a test-partition customer shows "withheld", and an ID outside the pattern
+  sends nothing;
+- no horizontal scroll at 375, 768, 1024 or 1440 px on the README example,
+  a book customer or the live form;
+- 0 console errors or warnings in use (a customer not in the book logs the
+  browser's own 404 line).
+
+**Kept on purpose:**
+- `useExplanations` (shared with the Overview queue and the Explorer) keeps
+  its own retry policy here; it is a follow-up for all three pages;
+- the API panel shows the response's `caveat` too, field by field;
+- the CSV puts the ID first for a customer in the book;
+- Download is `aria-disabled`, never `disabled`, so Back or Forward never
+  drop the focus from it;
+- the Overview's `queue-title` id stays a literal.
+
+### Follow-ups found in this phase
+
+- The Overview's and the Explorer's retry buttons drop the focus the way the
+  customer page's did; `useExplanations` retries an "unavailable" answer and
+  never a rate limit.
+- `probabilityPct`/`probability` would print 100.00% / 1.0000 for p ≥ 0.99995
+  if an artifact were ever served with ε < 5e-5 (today's ε is 0.000118).
+- A jsdom "navigation to another Document" line on stderr comes from an
+  existing, non-customer test.

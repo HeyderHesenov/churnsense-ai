@@ -63,6 +63,11 @@ export function modelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
       gross_margin: 0.65,
     },
     limits: { max_batch_rows: 10000, max_upload_bytes: 5242880, max_upload_columns: 1000 },
+    numeric_bounds: {
+      tenure: { min: 0, max: 120 },
+      MonthlyCharges: { min: 0, max: 1000 },
+      TotalCharges: { min: 0, max: 100000 },
+    },
     provenance: {
       verified: true,
       data_sha256: 'b'.repeat(64),

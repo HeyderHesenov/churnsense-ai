@@ -55,6 +55,8 @@ interface SelectProps<T extends string> {
   onChange: (value: T) => void;
   /** Label beside the control (a filter bar) or above it (a form). */
   layout?: 'inline' | 'stacked';
+  /** A choice the rest of a form has made for it (shown, not changeable). */
+  disabled?: boolean;
 }
 
 export function Select<T extends string>({
@@ -63,6 +65,7 @@ export function Select<T extends string>({
   options,
   onChange,
   layout = 'inline',
+  disabled = false,
 }: SelectProps<T>) {
   const id = useId();
   const choose = (raw: string) => {
@@ -78,6 +81,7 @@ export function Select<T extends string>({
         id={id}
         className={styles.select}
         value={value}
+        disabled={disabled}
         onChange={(event) => choose(event.target.value)}
       >
         {options.map((option) => (
