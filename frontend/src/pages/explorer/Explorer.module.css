@@ -68,6 +68,9 @@
 }
 
 /* --- selection summary --------------------------------------------------------- */
+.summary:focus {
+  outline: none;
+}
 .summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

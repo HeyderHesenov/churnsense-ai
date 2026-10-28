@@ -20,6 +20,8 @@ import { exportLabel, lede } from './copy';
 import { CustomerTable } from './CustomerTable';
 import { Detail } from './Detail';
 import {
+  CUSTOMERS_ID,
+  DETAIL_TITLE_ID,
   EXPLORER_PARAMS,
   explorerFilter,
   exportQuery,
@@ -82,12 +84,12 @@ export default function ExplorerPage() {
 
   const open = (id: string) => {
     flushSync(() => set({ id }));
-    document.getElementById('detail-title')?.focus();
+    document.getElementById(DETAIL_TITLE_ID)?.focus();
   };
   const close = () => {
     const id = state.id;
     flushSync(() => set({ id: '' }));
-    (document.getElementById(`open-${id}`) ?? document.getElementById('customers'))?.focus();
+    (document.getElementById(`open-${id}`) ?? document.getElementById(CUSTOMERS_ID))?.focus();
   };
 
   /**

@@ -31,6 +31,10 @@
 .heading {
   min-width: 0;
 }
+/* A focusable title is a place the page moves the reader to, not a control. */
+.title:focus {
+  outline: none;
+}
 .title {
   display: flex;
   flex-wrap: wrap;

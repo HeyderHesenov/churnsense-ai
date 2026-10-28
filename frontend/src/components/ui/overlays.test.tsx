@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { ChartFrame } from '../charts/ChartFrame';
 import { AttributionChip, BandLabel, OutcomePill, ProbabilityMeter } from './Badges';
 import { Popover } from './Popover';
+import { press } from '../../test/keyboard';
 import { EmptyState, ErrorState, Skeleton } from './States';
 
 describe('Popover', () => {
@@ -89,12 +90,24 @@ describe('States', () => {
     expect(onReset).toHaveBeenCalledTimes(1);
   });
 
-  it('reports a failure with a retry, in its own words', async () => {
+  it('reports a failure with a retry, in its own words, and keeps the reader’s place', async () => {
     const onRetry = vi.fn();
-    render(<ErrorState onRetry={onRetry}>The customers could not be loaded.</ErrorState>);
+    render(
+      <>
+        <h2 id="customers-title" tabIndex={-1}>
+          Customers
+        </h2>
+        <ErrorState onRetry={onRetry} focusTo="customers-title">
+          The customers could not be loaded.
+        </ErrorState>
+      </>,
+    );
     expect(screen.getByRole('alert')).toHaveTextContent('The customers could not be loaded.');
-    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    // Asking again takes the button away (the query goes back to loading), so the
+    // reader continues where the page says.
+    await press(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: 'Customers' })).toHaveFocus();
   });
 });
 

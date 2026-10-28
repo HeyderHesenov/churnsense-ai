@@ -6,6 +6,7 @@ import type { Schemas } from '../../api/client';
 import { App } from '../../app/App';
 import { explorerApi, listing } from '../../test/explorerApi';
 import { entriesAdded } from '../../test/history';
+import { press } from '../../test/keyboard';
 import { modelInfo } from '../../test/fixtures';
 import { renderAt } from '../../test/render';
 import { answer, recordRequests, refuse, server } from '../../test/server';
@@ -286,7 +287,9 @@ describe('Explorer: loading the book', () => {
     );
     expect(alert).not.toHaveTextContent('Refused by a test.');
     server.use(...explorerApi());
-    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+    // The button goes as the list loads again: the reader continues at the list.
+    await press(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(customers()).toHaveFocus();
     expect(rowButtons(await table())).toHaveLength(15);
   });
 
@@ -308,7 +311,8 @@ describe('Explorer: loading the book', () => {
     const alert = within(summary).getByRole('alert');
     expect(alert).toHaveTextContent('The selection’s figures could not be loaded.');
     server.use(...explorerApi());
-    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await press(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(summary).toHaveFocus();
     await waitFor(() =>
       expect(within(summaryTile('Customers')).getByText('37')).toBeInTheDocument(),
     );
@@ -755,7 +759,8 @@ describe('Explorer: one customer', () => {
     expect(alert).toHaveTextContent('This customer could not be loaded.');
     expect(within(detail()).queryByText(/There is no customer/)).not.toBeInTheDocument();
     server.use(...explorerApi());
-    await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
+    await press(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(within(detail()).getByRole('heading', { level: 2, name: 'DEMO-0002' })).toHaveFocus();
     expect(await within(detail()).findByText('Total charges')).toBeVisible();
   });
 
@@ -958,17 +963,27 @@ describe('Explorer: one customer', () => {
     server.use(refuse('post', '/api/explain', 503, 'explanations_busy'));
     await table();
     const panel = detail();
-    await userEvent.click(within(panel).getByRole('button', { name: 'Explain this customer' }));
+    const moved = () => within(panel).getByRole('heading', { name: 'What moved this score' });
+    // The button goes while they are computed: the reader continues at their heading.
+    await press(within(panel).getByRole('button', { name: 'Explain this customer' }));
+    expect(moved()).toHaveFocus();
     expect(
-      await within(panel).findByText('Attributions are unavailable right now.'),
+      await within(panel).findByText(
+        'Attributions are unavailable right now.',
+        {},
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument();
+    // A busy server is asked once more by itself before the page says so.
+    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(2);
     const again = within(panel).getByRole('button', { name: 'Explain this customer' });
     expect(again).toBeEnabled();
 
     server.use(...explorerApi());
-    await userEvent.click(again);
+    await press(again);
+    expect(moved()).toHaveFocus();
     expect(await within(panel).findByRole('list', { name: 'Attributions' })).toBeVisible();
-    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(2);
+    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(3);
   });
 
   it('explains only the customer it was asked for', async () => {

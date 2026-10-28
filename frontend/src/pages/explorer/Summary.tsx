@@ -27,13 +27,21 @@ interface SummaryProps {
   info: ModelInfo | undefined;
 }
 
+/** Where the reader continues when the figures are asked for again. */
+const SUMMARY_ID = 'selection-summary';
+
 export function Summary({ selection, failed, onRetry, idle, info }: SummaryProps) {
   const threshold = info?.threshold;
   // While idle the list says why; the summary does not say it again.
   const status = !idle && selection ? selectionStatus(selection.summary) : '';
   const blank = idle || failed ? '—' : '…';
   return (
-    <section aria-label="Selection summary" className={styles.summary}>
+    <section
+      id={SUMMARY_ID}
+      tabIndex={-1}
+      aria-label="Selection summary"
+      className={styles.summary}
+    >
       <p role="status" className="sr">
         {status}
       </p>
@@ -54,7 +62,7 @@ export function Summary({ selection, failed, onRetry, idle, info }: SummaryProps
       )}
       {failed && (
         <div className={styles.summaryError}>
-          <ErrorState inline onRetry={onRetry}>
+          <ErrorState inline onRetry={onRetry} focusTo={SUMMARY_ID}>
             The selection’s figures could not be loaded.
           </ErrorState>
         </div>

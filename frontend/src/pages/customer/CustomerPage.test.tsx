@@ -16,6 +16,7 @@ import {
 } from '../../test/customerApi';
 import { modelInfo } from '../../test/fixtures';
 import { entriesAdded } from '../../test/history';
+import { press } from '../../test/keyboard';
 import { renderAt } from '../../test/render';
 import { answer, recordRequests, refuse, server } from '../../test/server';
 
@@ -76,11 +77,6 @@ function hold(path: '/api/predict' | '/api/explain' | '/api/customers/:customer_
     return answered?.response ?? HttpResponse.json(FAILED, { status: 500 });
   });
   return { handler, held, release: () => release() };
-}
-/** Press a control from the keyboard. */
-async function press(control: HTMLElement) {
-  act(() => control.focus());
-  await userEvent.keyboard('{Enter}');
 }
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -623,7 +619,10 @@ describe('Single customer: the attributions', () => {
   it('says when they are unavailable, and asks again on request', async () => {
     showCustomer('/customer?id=DEMO-0042', [refuse('post', '/api/explain', 429, 'rate_limited')]);
     await loaded();
-    expect(await screen.findByText('Attributions are unavailable right now.')).toBeInTheDocument();
+    // Asked once more by itself first, after the server's wait.
+    expect(
+      await screen.findByText('Attributions are unavailable right now.', {}, { timeout: 3000 }),
+    ).toBeInTheDocument();
     server.use(...customerApi());
     await press(screen.getByRole('button', { name: 'Ask for the attributions again' }));
     expect(screen.getByRole('heading', { name: 'Contribution waterfall' })).toHaveFocus();

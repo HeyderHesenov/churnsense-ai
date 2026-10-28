@@ -5,6 +5,7 @@ import { App } from '../../app/App';
 import { modelInfo } from '../../test/fixtures';
 import { overviewApi, QUEUE_ROWS } from '../../test/overviewApi';
 import { customerPage, overview } from '../../test/overviewFixtures';
+import { press } from '../../test/keyboard';
 import { renderAt } from '../../test/render';
 import { answer, recordRequests, refuse, respond, server } from '../../test/server';
 
@@ -83,6 +84,17 @@ describe('Overview: the book at a glance', () => {
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('The overview could not be loaded.');
     expect(alert).not.toHaveTextContent('exploded');
+  });
+
+  it('keeps the reader’s place when the overview is asked for again', async () => {
+    server.use(refuse('get', '/api/overview', 500, 'internal_error'));
+    renderAt(<App />, '/');
+    const alert = await screen.findByRole('alert');
+    server.use(...overviewApi());
+    // The button goes as the overview loads again: the reader continues at the page.
+    await press(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(document.getElementById('main')).toHaveFocus();
+    await loaded();
   });
 });
 
@@ -200,12 +212,19 @@ describe('Overview: retention queue', () => {
   });
 
   it('marks attributions as unavailable when the explainer refuses', async () => {
+    const seen = recordRequests();
     showOverview();
     server.use(refuse('post', '/api/explain', 503, 'explanations_busy'));
     const table = await screen.findByRole('table', { name: 'Flagged customers' });
     expect(
-      await within(queue()).findByText('Attributions are unavailable right now.'),
+      await within(queue()).findByText(
+        'Attributions are unavailable right now.',
+        {},
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument();
+    // A busy explainer is asked once more by itself before the queue says so.
+    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(2);
     expect(table).toBeInTheDocument();
   });
 
@@ -365,11 +384,6 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
   function heading() {
     return screen.getByRole('heading', { name: /^Retention queue/ });
   }
-  /** Press a control from the keyboard, as a reader without a pointer would. */
-  async function press(control: HTMLElement) {
-    act(() => control.focus());
-    await userEvent.keyboard('{Enter}');
-  }
   /** The empty state titled ``title``: its own "Reset filters", not the bar's. */
   function emptyState(title: string) {
     const state = within(queue()).getByText(title).closest<HTMLElement>('[role="status"]');
@@ -427,6 +441,19 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
     await press(within(queue()).getByRole('button', { name: /^Clear search/ }));
     expect(new URLSearchParams(window.location.search).has('q')).toBe(false);
     expect(heading()).toHaveFocus();
+  });
+
+  it('keeps the focus in the queue when a failed page is asked for again', async () => {
+    server.use(...overviewApi());
+    server.use(refuse('get', '/api/customers', 500, 'internal_error'));
+    renderAt(<App />, '/');
+    await loaded();
+    const alert = await within(queue()).findByRole('alert');
+    expect(alert).toHaveTextContent('The queue could not be loaded.');
+    server.use(...overviewApi());
+    await press(within(alert).getByRole('button', { name: 'Try again' }));
+    expect(heading()).toHaveFocus();
+    expect(await screen.findByRole('table', { name: 'Flagged customers' })).toBeInTheDocument();
   });
 
   it('keeps the focus on the pager’s last button at the last page', async () => {

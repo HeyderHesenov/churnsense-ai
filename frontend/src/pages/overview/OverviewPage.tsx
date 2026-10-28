@@ -5,6 +5,7 @@
  */
 import { useOverview, useModelInfo } from '../../api/queries';
 import { useParams } from '../../app/params';
+import { MAIN_ID } from '../../components/shell/Shell';
 import { Page } from '../../components/ui/Page';
 import { isBandName } from '../../lib/bands';
 import { int } from '../../lib/format';
@@ -15,7 +16,7 @@ import { riskiestLink } from './copy';
 import { CampaignCard } from './Campaign';
 import { Distribution } from './Distribution';
 import { QUEUE_PARAMS } from './queue';
-import { RetentionQueue } from './RetentionQueue';
+import { QUEUE_TITLE_ID, RetentionQueue } from './RetentionQueue';
 import { Summary } from './Summary';
 import styles from './OverviewPage.module.css';
 
@@ -25,7 +26,7 @@ import styles from './OverviewPage.module.css';
  */
 function showQueue(): void {
   document.getElementById('queue')?.scrollIntoView({ block: 'start' });
-  document.getElementById('queue-title')?.focus({ preventScroll: true });
+  document.getElementById(QUEUE_TITLE_ID)?.focus({ preventScroll: true });
 }
 
 export default function OverviewPage() {
@@ -45,7 +46,7 @@ export default function OverviewPage() {
         {book.isPending ? (
           <Skeleton label="Loading the overview" rows={4} rowHeight={120} />
         ) : book.isError ? (
-          <ErrorState onRetry={() => void book.refetch()}>
+          <ErrorState onRetry={() => void book.refetch()} focusTo={MAIN_ID}>
             The overview could not be loaded.
           </ErrorState>
         ) : (

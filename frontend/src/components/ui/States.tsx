@@ -61,17 +61,36 @@ type ErrorStateProps = {
   /** One line inside a card, rather than a block in place of a table. */
   inline?: boolean;
 } & (
-  | { onRetry: () => void; action?: never }
+  | {
+      onRetry: () => void;
+      /**
+       * The id of a focusable element that stays while the retry loads: a query
+       * asked again goes back to loading at once, which takes this state and its
+       * button away, so the focus moves there instead of to the page's body.
+       */
+      focusTo: string;
+      action?: never;
+    }
   /** A way forward other than "Try again", such as a link that reloads. */
-  | { action: ReactNode; onRetry?: never }
+  | { action: ReactNode; onRetry?: never; focusTo?: never }
 );
 
-export function ErrorState({ children, onRetry, action, inline = false }: ErrorStateProps) {
+export function ErrorState({
+  children,
+  onRetry,
+  focusTo,
+  action,
+  inline = false,
+}: ErrorStateProps) {
+  const retry = () => {
+    onRetry?.();
+    if (focusTo) document.getElementById(focusTo)?.focus();
+  };
   return (
     <div role="alert" className={inline ? styles.errorInline : styles.error}>
       <p className={styles.body}>{children}</p>
       {action ?? (
-        <Button size={inline ? 'xs' : 'md'} onClick={onRetry}>
+        <Button size={inline ? 'xs' : 'md'} onClick={retry}>
           Try again
         </Button>
       )}

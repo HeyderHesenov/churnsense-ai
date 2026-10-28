@@ -65,6 +65,10 @@ export type ExplorerState = Values<typeof EXPLORER_PARAMS>;
 
 /** The detail panel's id, which an open row's button controls. */
 export const DETAIL_ID = 'customer-detail';
+/** The panel's heading: where the reader lands on a customer, and after a retry. */
+export const DETAIL_TITLE_ID = 'detail-title';
+/** The list of customers: where the reader continues when its controls go away. */
+export const CUSTOMERS_ID = 'customers';
 export type ExplorerChanges = Partial<ExplorerState>;
 
 type FilterKey =

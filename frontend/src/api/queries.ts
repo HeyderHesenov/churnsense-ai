@@ -219,13 +219,15 @@ export function useExplanations(ids: readonly string[]): UseQueryResult<ExplainR
         signal,
       }),
     enabled: ids.length > 0,
+    retry: (failures, error: Error) => retryExplanation(failures, error),
   });
 }
 
 /**
- * A typed record's explanation is asked for as the reader edits, so the rate
- * limit can refuse one: it is asked for once more, after the wait the server
- * names. One the server can never give (no verified background) is not.
+ * Explanations are asked for as the reader moves (a page of the queue, a
+ * customer, a typed record), so the rate limit can refuse one: it is asked for
+ * once more, after the wait the server names. One the server can never give
+ * (no verified background) is not.
  */
 export function retryExplanation(failures: number, error: unknown): boolean {
   if (!(error instanceof ApiError) || error.code === 'explanations_unavailable') return false;

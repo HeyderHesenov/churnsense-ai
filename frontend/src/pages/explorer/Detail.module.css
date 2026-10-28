@@ -100,6 +100,9 @@
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+.movedTitle:focus {
+  outline: none;
+}
 .movedTitle {
   margin: 0;
   font-size: 13px;

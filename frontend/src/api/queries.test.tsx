@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { customerPage, customerRow } from '../test/overviewFixtures';
 import { testQueryClient } from '../test/render';
-import { answer, recordRequests, server } from '../test/server';
+import { answer, recordRequests, refuse, server } from '../test/server';
 import { ApiError } from './client';
 import {
   customersQuery,
@@ -13,6 +13,7 @@ import {
   useCustomer,
   useCustomerCount,
   useCustomers,
+  useExplanations,
   useSelection,
   type CustomerQuery,
 } from './queries';
@@ -172,6 +173,20 @@ describe('one customer', () => {
   );
 });
 
+describe('explanations of customers in the book', () => {
+  it.each([
+    [429, 'rate_limited', 2],
+    [503, 'explanations_busy', 2],
+    [503, 'explanations_unavailable', 1],
+  ] as const)('after a %i %s, asks %i time(s) in all', async (status, error, times) => {
+    const seen = recordRequests();
+    server.use(refuse('post', '/api/explain', status, error));
+    const { result } = renderHook(() => useExplanations(['DEMO-0001']), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(times);
+  });
+});
+
 describe('retries', () => {
   it('retries a failure of the server or the network once, and never a refusal', () => {
     expect(shouldRetry(0, new ApiError(503, 'model_unavailable'))).toBe(true);
@@ -182,7 +197,7 @@ describe('retries', () => {
     expect(shouldRetry(0, new Error('not from the API'))).toBe(false);
   });
 
-  it('asks for a typed record’s explanation again once after a rate limit, never when it cannot be had', () => {
+  it('asks for an explanation again once after a rate limit, never when it cannot be had', () => {
     expect(retryExplanation(0, new ApiError(429, 'rate_limited', [], 2))).toBe(true);
     expect(retryExplanation(1, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
     expect(retryExplanation(0, new ApiError(503, 'explanations_busy', [], 2))).toBe(true);

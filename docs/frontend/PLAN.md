@@ -936,3 +936,38 @@ Checked in Chromium against the real API:
   if an artifact were ever served with ε < 5e-5 (today's ε is 0.000118).
 - A jsdom "navigation to another Document" line on stderr comes from an
   existing, non-customer test.
+
+### Retries keep the reader's place on every page (2026-10-28)
+
+The first follow-up above, fixed test-first:
+- **A retry names where the reader continues.** `ErrorState` takes `focusTo`
+  with `onRetry`, and the type requires it, so a page cannot forget it. A
+  query asked again goes back to loading at once, which takes the error and
+  its button away. The focus moves to the page (`#main`) when the Overview
+  failed, to the queue's heading, to the Explorer's list, to its selection
+  summary, and to the open customer's heading. The customer page's own
+  handlers now use the same mechanism.
+- **The Explorer's "Explain this customer"** turns into a skeleton when
+  pressed, the first time too. The focus moves to "What moved this score".
+- **These places show no focus ring**, as `main`, the list and the detail
+  heading already did: a place the page moves the reader to is not a control.
+- **The ids are constants** (`MAIN_ID`, `QUEUE_TITLE_ID`, `CUSTOMERS_ID`,
+  `DETAIL_TITLE_ID` and the pages' own), so a rename cannot silently drop the
+  focus to the body. The Overview's `queue-title` is no longer a literal.
+- **`useExplanations` retries as the record's hook does.** It asks again once
+  after a rate limit (after the server's `Retry-After`) or a busy or failed
+  server, and never after "unavailable". Before, it retried "unavailable"
+  once and a rate limit never. Paging on cancels a pending retry, so the
+  queue's chips spend at most one more request of the explain budget.
+
+Checks: 467 front-end tests; lint, type check, format and build; 17 mutants
+of the fix, all caught (and the identity control). code-reviewer found no
+critical or high finding, one medium (two tests now waited out a real retry
+close to their timeout: they have room now, and the Overview's counts its
+requests) and three low; all were fixed. In Chromium against the real API,
+each retry left the focus where described above.
+
+**Kept on purpose:** "Explain this customer" moves the focus even in the
+unreachable case where a cached response lacks the customer. Landing on
+`main` reads the page's text to a screen reader, but while the Overview has
+failed there is no heading left to land on.

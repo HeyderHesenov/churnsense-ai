@@ -27,6 +27,7 @@ import {
 import { useParams } from '../../app/params';
 import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
+import { MAIN_ID } from '../../components/shell/Shell';
 import { Button } from '../../components/ui/Button';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
@@ -311,12 +312,6 @@ export default function CustomerPage() {
     }
   };
 
-  /** Ask again for what a whole-page failure left out, keeping the reader's place on the page. */
-  const again = (retry: () => void) => () => {
-    retry();
-    document.getElementById('main')?.focus();
-  };
-
   // The form mounts with the change of address: commit it, then type in it.
   const scoreNew = () => {
     if (!live) flushSync(() => set(showChanges({ kind: 'live' })));
@@ -354,7 +349,7 @@ export default function CustomerPage() {
           live={live && scoreState === 'ready' ? score : undefined}
         />
         {examples.isError && (
-          <ErrorState inline onRetry={again(() => void examples.refetch())}>
+          <ErrorState inline onRetry={() => void examples.refetch()} focusTo={MAIN_ID}>
             The example customers could not be loaded.
           </ErrorState>
         )}
@@ -374,7 +369,9 @@ export default function CustomerPage() {
         {examplesFailed ? null : scoreState === 'missing' ? (
           <p className={styles.missing}>{notFound(name)}</p>
         ) : shown.kind === 'book' && scoreState === 'failed' ? (
-          <ErrorState onRetry={again(retryScore)}>This customer could not be loaded.</ErrorState>
+          <ErrorState onRetry={retryScore} focusTo={MAIN_ID}>
+            This customer could not be loaded.
+          </ErrorState>
         ) : (
           <div className={styles.columns}>
             {live && form ? (

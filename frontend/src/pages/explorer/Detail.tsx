@@ -19,7 +19,7 @@ import { cents, cut, probabilityPct, signedPoints } from '../../lib/format';
 import { categoryValue, COMPACT, isFeature } from '../../lib/labels';
 import { cssVars } from '../../lib/style';
 import { explanationMeta, explanationNote } from './copy';
-import { DETAIL_ID } from './explorer';
+import { DETAIL_ID, DETAIL_TITLE_ID } from './explorer';
 import styles from './Detail.module.css';
 
 /** The inputs the panel lists, in the artboard's order. */
@@ -45,6 +45,9 @@ function attribute(key: (typeof ATTRIBUTES)[number], features: CustomerFeatures)
 
 /** How many attributions the panel draws: the strongest, as the API orders them. */
 const SHOWN = 7;
+
+/** The attributions' heading: where the reader continues while they are computed. */
+const MOVED_ID = 'detail-moved';
 
 interface DetailProps {
   id: string;
@@ -89,7 +92,7 @@ export function Detail({
       className={styles.detail}
     >
       <div className={styles.head}>
-        <h2 id="detail-title" tabIndex={-1} className={styles.title}>
+        <h2 id={DETAIL_TITLE_ID} tabIndex={-1} className={styles.title}>
           {id}
         </h2>
         <div className={styles.actions}>
@@ -129,7 +132,7 @@ export function Detail({
           There is no customer {id} in the book.
         </p>
       ) : customer.isError ? (
-        <ErrorState inline onRetry={() => void customer.refetch()}>
+        <ErrorState inline onRetry={() => void customer.refetch()} focusTo={DETAIL_TITLE_ID}>
           This customer could not be loaded.
         </ErrorState>
       ) : (
@@ -175,7 +178,9 @@ function Profile({
       </dl>
 
       <div className={styles.moved}>
-        <h3 className={styles.movedTitle}>What moved this score</h3>
+        <h3 id={MOVED_ID} tabIndex={-1} className={styles.movedTitle}>
+          What moved this score
+        </h3>
         <span className={styles.meta}>
           {explanation ? (
             explanationMeta(explanation)
@@ -199,7 +204,12 @@ function Profile({
           <Button
             variant="primary"
             size="md"
-            onClick={() => (explained ? void response.refetch() : onExplain())}
+            onClick={() => {
+              if (explained) void response.refetch();
+              else onExplain();
+              // The button goes while they are computed: the reader continues at their heading.
+              document.getElementById(MOVED_ID)?.focus();
+            }}
           >
             Explain this customer
           </Button>

@@ -21,6 +21,9 @@ import { SMALL_SCREEN, useMediaQuery } from '../../lib/useMediaQuery';
 import { Sidebar } from './Sidebar';
 import styles from './Shell.module.css';
 
+/** The page's content: the skip link's target, and where a page-wide retry leaves the reader. */
+export const MAIN_ID = 'main';
+
 interface ShellState {
   expanded: boolean;
   toggleSidebar: () => void;
@@ -85,7 +88,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className={styles.root}>
         {/* The first stop for a keyboard: past the navigation, straight to the page. */}
         <a
-          href="#main"
+          href={`#${MAIN_ID}`}
           className={styles.skip}
           onClick={(event) => {
             event.preventDefault();
@@ -114,7 +117,7 @@ export function Shell({ children }: { children: ReactNode }) {
           ref={main}
           className={styles.main}
           tabIndex={-1}
-          id="main"
+          id={MAIN_ID}
           inert={small && drawerOpen}
         >
           {children}

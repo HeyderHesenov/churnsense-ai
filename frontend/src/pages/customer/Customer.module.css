@@ -335,6 +335,10 @@
 }
 
 /* --- prediction ---------------------------------------------------------------------- */
+.prediction:focus,
+.cardTitle:focus {
+  outline: none;
+}
 .prediction {
   outline-offset: 4px;
   padding: 18px 20px;

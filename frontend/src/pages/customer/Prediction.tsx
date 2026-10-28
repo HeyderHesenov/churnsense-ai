@@ -3,7 +3,6 @@
  * with the threshold. Every figure is the API's; the scale's bands are the
  * served ones and its dashed line the served threshold.
  */
-import { useRef } from 'react';
 import type { ModelInfo } from '../../api/queries';
 import { icons } from '../../components/icons';
 import { ErrorState, Skeleton } from '../../components/ui/States';
@@ -35,16 +34,13 @@ interface PredictionProps {
   onRetry: () => void;
 }
 
+/** The card itself: a retry takes its error away, and the reader stays on the card. */
+const PREDICTION_ID = 'prediction';
+
 export function Prediction({ state, score, problems, bands, onRetry }: PredictionProps) {
-  const card = useRef<HTMLElement>(null);
-  // The retry goes away while it asks: the reader stays on the card.
-  const retry = () => {
-    onRetry();
-    card.current?.focus();
-  };
   return (
     <section
-      ref={card}
+      id={PREDICTION_ID}
       tabIndex={-1}
       aria-label="Prediction"
       aria-busy={state === 'stale'}
@@ -61,7 +57,7 @@ export function Prediction({ state, score, problems, bands, onRetry }: Predictio
             </ul>
           </div>
         ) : (
-          <ErrorState inline onRetry={retry}>
+          <ErrorState inline onRetry={onRetry} focusTo={PREDICTION_ID}>
             The prediction could not be loaded.
           </ErrorState>
         )

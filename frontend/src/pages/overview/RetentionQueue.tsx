@@ -49,6 +49,9 @@ import {
 import { unflaggedNote } from './copy';
 import styles from './RetentionQueue.module.css';
 
+/** The queue's heading: where the reader continues when its controls go away. */
+export const QUEUE_TITLE_ID = 'queue-title';
+
 type Column = QueueState['sort'];
 const DEFAULT_DIRECTION = {
   probability: 'desc',
@@ -73,7 +76,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
   // A reset or a cleared search takes its button away: the reader continues at the queue's heading.
   const clear = (changes: Parameters<typeof set>[0]) => {
     set(changes);
-    document.getElementById('queue-title')?.focus();
+    document.getElementById(QUEUE_TITLE_ID)?.focus();
   };
   const reset = () => clear({ bands: null, part: null, q: '', page: 1 });
 
@@ -90,7 +93,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
   return (
     <section
       id="queue"
-      aria-labelledby="queue-title"
+      aria-labelledby={QUEUE_TITLE_ID}
       aria-busy={listing.isPlaceholderData}
       className={styles.queue}
     >
@@ -99,7 +102,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
       </p>
       <div className={styles.inset}>
         <CardHeader
-          id="queue-title"
+          id={QUEUE_TITLE_ID}
           focusable
           title={
             <>
@@ -169,7 +172,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
         </div>
       ) : listing.isError || !page ? (
         <div className={styles.inset}>
-          <ErrorState inline onRetry={() => void listing.refetch()}>
+          <ErrorState inline onRetry={() => void listing.refetch()} focusTo={QUEUE_TITLE_ID}>
             The queue could not be loaded.
           </ErrorState>
         </div>

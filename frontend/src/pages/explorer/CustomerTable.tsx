@@ -17,6 +17,7 @@ import { profile } from '../../lib/labels';
 import { cx } from '../../lib/style';
 import { emptyHint, pageNote } from './copy';
 import {
+  CUSTOMERS_ID,
   DEFAULT_DIRECTION,
   DETAIL_ID,
   PAGE_SIZES,
@@ -58,7 +59,7 @@ export function CustomerTable({
   // The empty state, and its button, go with the filters: the focus goes to the list.
   const reset = () => {
     flushSync(() => set(RESET));
-    document.getElementById('customers')?.focus();
+    document.getElementById(CUSTOMERS_ID)?.focus();
   };
   // While the last view's rows stand in, the page asked for is the address's,
   // not the one those rows came from.
@@ -72,7 +73,7 @@ export function CustomerTable({
   });
   return (
     <section
-      id="customers"
+      id={CUSTOMERS_ID}
       tabIndex={-1}
       aria-label="Customers"
       aria-busy={idle === null && listing.isPlaceholderData}
@@ -90,7 +91,7 @@ export function CustomerTable({
           <Skeleton label="Loading scored customers…" rows={6} />
         </div>
       ) : listing.isError || !page ? (
-        <ErrorState onRetry={() => void listing.refetch()}>
+        <ErrorState onRetry={() => void listing.refetch()} focusTo={CUSTOMERS_ID}>
           The customer book could not be loaded. Every figure on this page comes from the API, so
           none is shown until it answers.
         </ErrorState>
