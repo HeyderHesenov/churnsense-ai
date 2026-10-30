@@ -60,6 +60,7 @@ from churnsense.api.schemas import (
     PredictionResponse,
     Provenance,
     RiskBand,
+    UploadContract,
     UploadLimits,
 )
 from churnsense.api.state import Dashboard, get_predictor, optional_dashboard, require_predictor
@@ -67,6 +68,7 @@ from churnsense.api.uploads import read_upload
 from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
 from churnsense.logging_setup import configure_logging
+from churnsense.models.predict import upload_rules
 
 logger = logging.getLogger(__name__)
 
@@ -149,7 +151,9 @@ async def _validation_handler(request: Request, exc: RequestValidationError) -> 
 
 @app.exception_handler(SchemaValidationError)
 async def _schema_handler(request: Request, exc: SchemaValidationError) -> JSONResponse:
-    return error_response(422, str(exc), error="invalid_input", problems=exc.problems)
+    """A refusal of the whole file (empty, too wide, too long) has no per-column
+    problems; its one reason is listed, so a page that shows problems shows it."""
+    return error_response(422, str(exc), error="invalid_input", problems=exc.problems or [str(exc)])
 
 
 @app.exception_handler(Exception)
@@ -230,6 +234,9 @@ def model_info(
             max_upload_columns=cfg.api.max_upload_columns,
         ),
         numeric_bounds=NumericBounds.of_contract(),
+        upload_contract=UploadContract.of_served(
+            meta["feature_columns"], upload_rules(meta["feature_columns"])
+        ),
         provenance=None
         if dashboard is None
         else Provenance(
@@ -281,7 +288,7 @@ def predict_batch(
     loop.
     """
     predictor = require_predictor()
-    _, frame = read_upload(file, load_config())
+    _, frame = read_upload(file, load_config(), predictor.feature_columns)
     scored = predictor.predict_frame(frame)
 
     return BatchResponse(

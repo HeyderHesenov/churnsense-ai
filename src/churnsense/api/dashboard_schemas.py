@@ -511,12 +511,15 @@ class BandCount(_Model):
 
 
 class LabelCheck(_Model):
-    """Precision and recall against the file's own labels, outside the held-out test rows."""
+    """Precision and recall against the file's own labels, outside the held-out test rows;
+    neither for fewer than 20 labelled rows."""
 
     labelled: int
     excluded_test: int
     precision: float | None
     recall: float | None
+    #: Why a rate is missing, whenever one is.
+    reason: str | None
 
 
 class BatchSummary(_Model):
@@ -538,3 +541,6 @@ class BatchScoreResponse(_Model):
     rows: list[BatchRow]
     summary: BatchSummary
     notes: list[str]
+    #: ``rows`` as a spreadsheet-safe CSV: row, customerID if the file has one,
+    #: the prediction, then the inputs as scored. Never a label.
+    csv: str

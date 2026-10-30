@@ -77,10 +77,20 @@ def test_no_message_or_caption_the_api_sends_makes_a_causal_claim(path: Path):
 def test_the_fixed_caveats_make_no_causal_claim():
     from churnsense.api.main import LIMITATIONS
     from churnsense.book import WITHHELD_REASONS
+    from churnsense.data.schema import model_input_columns
     from churnsense.evaluation.threshold import DISCLAIMER
     from churnsense.explainability.shap_explain import CAVEAT
+    from churnsense.models.predict import upload_rules
 
-    for text in [*LIMITATIONS, *WITHHELD_REASONS.values(), DISCLAIMER, CAVEAT]:
+    fixed = [
+        *LIMITATIONS,
+        *WITHHELD_REASONS.values(),
+        DISCLAIMER,
+        CAVEAT,
+        *upload_rules(model_input_columns()),
+        *upload_rules(model_input_columns(include_total_charges=False)),
+    ]
+    for text in fixed:
         assert not _offending(text), text
 
 

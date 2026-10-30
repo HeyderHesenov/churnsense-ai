@@ -17,6 +17,8 @@ export class ApiError extends Error {
     readonly code: string,
     readonly problems: readonly string[] = [],
     readonly retryAfter: number | null = null,
+    /** How many problems the refusal listed beyond those kept. */
+    readonly problemsOmitted = 0,
   ) {
     super(`API error ${status} (${code})`);
     this.name = 'ApiError';
@@ -41,27 +43,32 @@ function url(path: string, query?: Query): string {
   return `/api${path}${text ? `?${text}` : ''}`;
 }
 
+/** The most problems a refusal keeps; a page says how many more there were. */
+const MAX_PROBLEMS = 50;
+
 /** The body of a refusal, if it has the documented shape. */
 async function refusal(response: Response): Promise<ApiError> {
   let code = 'http_error';
-  let problems: string[] = [];
+  let listed: string[] = [];
   try {
     const body: unknown = await response.json();
     if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
       code = body.error;
       if (response.status === 422 && 'problems' in body && Array.isArray(body.problems)) {
-        problems = body.problems.filter((p): p is string => typeof p === 'string').slice(0, 50);
+        listed = body.problems.filter((p): p is string => typeof p === 'string');
       }
     }
   } catch {
     // Not the documented shape: the status alone tells the page what to do.
   }
   const retry = Number(response.headers.get('retry-after'));
+  const problems = listed.slice(0, MAX_PROBLEMS);
   return new ApiError(
     response.status,
     code,
     problems,
     Number.isFinite(retry) && retry > 0 ? retry : null,
+    listed.length - problems.length,
   );
 }
 

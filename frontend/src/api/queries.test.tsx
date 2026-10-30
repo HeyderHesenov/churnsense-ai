@@ -1,14 +1,17 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw/http';
 import type { ReactNode } from 'react';
+import { batchScore } from '../test/batchApi';
 import { customerPage, customerRow } from '../test/overviewFixtures';
 import { testQueryClient } from '../test/render';
-import { answer, recordRequests, refuse, server } from '../test/server';
+import { answer, recordRequests, refuse, respond, server } from '../test/server';
 import { ApiError } from './client';
 import {
   customersQuery,
   retryDelay,
   retryExplanation,
+  scoreBatch,
   shouldRetry,
   useCustomer,
   useCustomerCount,
@@ -210,5 +213,38 @@ describe('retries', () => {
     expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3))).toBe(3000);
     expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3600))).toBe(10_000);
     expect(retryDelay(0, new ApiError(503, 'model_unavailable'))).toBe(500);
+  });
+});
+
+describe('scoring a file', () => {
+  const file = new File(['customerID\nDEMO-00001\n'], 'crm.csv', { type: 'text/csv' });
+
+  it('sends the file as the form field "file" and returns the answer', async () => {
+    let sent: unknown = null;
+    server.use(
+      respond('post', '/api/batch/score', async (request) => {
+        const part = (await request.formData()).get('file');
+        // MSW's File is another realm's, so it is read, not checked with instanceof.
+        sent = typeof part === 'string' || part === null ? part : await part.text();
+        return batchScore();
+      }),
+    );
+    await expect(scoreBatch(file, new AbortController().signal)).resolves.toEqual(batchScore());
+    expect(sent).toBe('customerID\nDEMO-00001\n');
+  });
+
+  it('keeps the first 50 problems of a refusal and counts the ones left out', async () => {
+    const problems = Array.from({ length: 53 }, (_, i) => `problem ${String(i)}`);
+    server.use(
+      http.post('/api/batch/score', () =>
+        HttpResponse.json({ error: 'invalid_input', detail: 'x', problems }, { status: 422 }),
+      ),
+    );
+    const refusal: unknown = await scoreBatch(file, new AbortController().signal).catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(ApiError);
+    expect((refusal as ApiError).problems).toEqual(problems.slice(0, 50));
+    expect((refusal as ApiError).problemsOmitted).toBe(3);
   });
 });

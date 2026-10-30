@@ -1,15 +1,14 @@
 /**
- * One hook per endpoint. The book does not change while it is served, so
- * what is fetched once stays fresh for the session; a filter or an assumption
- * is part of the key, and a superseded request is aborted (React Query passes
- * the AbortSignal through to fetch).
+ * One hook per endpoint, the batch upload aside (``scoreBatch``). The book
+ * does not change while it is served, so what is fetched once stays fresh for
+ * the session; a filter or an assumption is part of the key, and a superseded
+ * request is aborted (React Query passes the AbortSignal through to fetch).
  */
 import {
   keepPreviousData,
   QueryClient,
   queryOptions,
   skipToken,
-  useMutation,
   useQuery,
   type UseQueryResult,
 } from '@tanstack/react-query';
@@ -297,14 +296,12 @@ export function usePerformance(): UseQueryResult<Performance> {
   });
 }
 
-/** Score an uploaded file; never cached, never retried. */
-export function useBatchScore() {
-  return useMutation({
-    mutationFn: (file: File) => {
-      const form = new FormData();
-      form.append('file', file, file.name);
-      return request<BatchScore>('/batch/score', { method: 'POST', form });
-    },
-    retry: false,
-  });
+/**
+ * Score an uploaded file. A plain request, not a hook: the file and its rows
+ * are never cached, and a submission is retried only when the reader asks.
+ */
+export function scoreBatch(file: File, signal: AbortSignal): Promise<BatchScore> {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  return request<BatchScore>('/batch/score', { method: 'POST', form, signal });
 }

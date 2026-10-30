@@ -1,5 +1,6 @@
 /**
- * CSV files built in the browser: the template, one prediction, a scored batch.
+ * CSV files built in the browser: the template and one prediction. A scored
+ * batch is built by the server (``BatchScoreResponse.csv``).
  *
  * Every cell is defused exactly as the server's exporter defuses it
  * (churnsense.exports): a leading =, +, -, @, tab or carriage return gets an

@@ -748,17 +748,48 @@ def _held_out(frame: pd.DataFrame, inputs: pd.DataFrame, d: Dashboard) -> pd.Ser
     return by_id | by_input
 
 
+#: Why a rate over enough labelled rows has no value: nothing in its denominator.
+_UNDEFINED_RATES = {
+    (True, False): "No labelled customer was flagged, so precision is not defined.",
+    (False, True): "No labelled customer churned, so recall is not defined.",
+    (True, True): "No labelled customer was flagged or churned, so neither rate is defined.",
+}
+
+
 def _label_check(frame: pd.DataFrame, flagged: pd.Series, held_out: pd.Series) -> out.LabelCheck:
-    """Precision and recall on the file's own labels, held-out test customers left out."""
+    """Precision and recall on the file's own labels, held-out test customers left out.
+
+    Like every rate a page shows, neither is given for fewer than
+    ``insights.MIN_CELL`` labelled rows; ``reason`` says why a rate is missing.
+    """
     kept = ~held_out
     y, f = frame.loc[kept, schema.TARGET].astype(int), flagged[kept]
     tp, fp, fn = int((f & y.eq(1)).sum()), int((f & y.eq(0)).sum()), int((~f & y.eq(1)).sum())
+    labelled = int(kept.sum())
+    if labelled < insights.MIN_CELL:
+        precision = recall = None
+        reason = f"A rate needs at least {insights.MIN_CELL} labelled rows."
+    else:
+        precision = tp / (tp + fp) if tp + fp else None
+        recall = tp / (tp + fn) if tp + fn else None
+        reason = _UNDEFINED_RATES.get((precision is None, recall is None))
     return out.LabelCheck(
-        labelled=int(kept.sum()),
+        labelled=labelled,
         excluded_test=int(held_out.sum()),
-        precision=tp / (tp + fp) if tp + fp else None,
-        recall=tp / (tp + fn) if tp + fn else None,
+        precision=precision,
+        recall=recall,
+        reason=reason,
     )
+
+
+def _scored_csv(frame: pd.DataFrame, inputs: pd.DataFrame, scored: pd.DataFrame) -> str:
+    """The scored file: each row's position, its ID if the file has one, the
+    prediction, then the inputs as scored. Never a label: the file's own labels
+    are compared on the page, where a held-out customer's is withheld."""
+    identity = [schema.ID_COLUMN] if schema.ID_COLUMN in frame.columns else []
+    table = pd.concat([frame[identity], scored, inputs], axis=1)
+    table.insert(0, "row", table.index)
+    return csv_bytes(table).decode()
 
 
 @router.post(
@@ -778,7 +809,7 @@ def batch_score(
     """
     cfg = load_config()
     predictor = require_predictor()
-    payload, frame = read_upload(file, cfg)
+    payload, frame = read_upload(file, cfg, predictor.feature_columns)
     scored = predictor.predict_frame(frame)
     inputs = predictor.model_inputs(frame)
     has_id, has_label = schema.ID_COLUMN in frame.columns, schema.TARGET in frame.columns
@@ -795,6 +826,7 @@ def batch_score(
         held_out = _held_out(frame, inputs, d)
         labels = _label_check(frame, scored["flagged"], held_out)
     n = len(scored)
+    ignored = ignored_columns(payload)
     counts = scored["risk_band"].value_counts()
     rows = [
         out.BatchRow(
@@ -811,7 +843,7 @@ def batch_score(
         for index, s in zip(scored.index, scored.itertuples(index=False), strict=True)
     ]
     return out.BatchScoreResponse(
-        columns=len(frame.columns) + len(ignored_columns(payload)),
+        columns=len(frame.columns) + len(ignored),
         threshold=predictor.threshold,
         rows=rows,
         summary=out.BatchSummary(
@@ -828,5 +860,6 @@ def batch_score(
             labels=labels,
             labels_reason=labels_reason,
         ),
-        notes=_notes(frame, ignored_columns(payload)),
+        notes=_notes(frame, ignored),
+        csv=_scored_csv(frame, inputs, scored),
     )

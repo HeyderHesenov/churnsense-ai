@@ -8,6 +8,9 @@ dashboard and batch path return.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -190,6 +193,60 @@ def test_batch_rejects_a_non_csv_upload(client):
     )
     assert response.status_code == 422
     assert "Traceback" not in response.text
+
+
+@pytest.mark.parametrize("path", ["/predict/batch", "/api/batch/score"])
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        (lambda _: b"", "file is empty"),
+        (lambda _: b"tenure;Contract\n1;One year\n", "semicolon-separated"),
+        (
+            lambda cfg: ",".join(f"c{i}" for i in range(cfg.api.max_upload_columns + 1)).encode(),
+            "columns; the limit is",
+        ),
+        (lambda _: b"tenure\n1,2\n", "data row 1 has 2 fields"),
+        (lambda cfg: b"tenure\n" + b"1\n" * (cfg.api.max_batch_rows + 1), "data rows"),
+    ],
+    ids=["empty", "semicolons", "too wide", "row wider than header", "too many rows"],
+)
+def test_a_refused_file_names_its_reason_in_the_problems(
+    client, cfg: Config, path, payload, reason: str
+):
+    """A file-level refusal has no per-column problems; the page shows only
+    `problems`, so without its one reason there it said "refused" and nothing else."""
+    response = client.post(path, files={"file": ("c.csv", payload(cfg), "text/csv")})
+    body = response.json()
+    assert response.status_code == 422
+    assert body["problems"] == [body["detail"]]
+    assert reason in body["detail"]
+
+
+@pytest.mark.parametrize(
+    ("path", "module"), [("/predict/batch", "main"), ("/api/batch/score", "dashboard")]
+)
+def test_a_file_of_the_served_columns_is_scored_when_the_config_asks_for_more(
+    client, cfg: Config, demo_csv, monkeypatch, path, module
+):
+    """The batch page's template holds the served model's columns. A config that
+    drifted after training (here gender is no longer dropped) must not refuse
+    it: the model scores the file, so the model decides what it must hold."""
+    import dataclasses
+    from importlib import import_module
+
+    import pandas as pd
+
+    from churnsense.data import schema
+
+    features = dataclasses.replace(cfg.features, drop_columns=(schema.ID_COLUMN,))
+    drifted = dataclasses.replace(cfg, features=features)
+    monkeypatch.setattr(import_module(f"churnsense.api.{module}"), "load_config", lambda: drifted)
+    served = client.get("/model-info").json()["feature_columns"]
+    assert "gender" not in served
+    demo = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    template = demo[[schema.ID_COLUMN, *served]].to_csv(index=False).encode()
+    response = client.post(path, files={"file": ("template.csv", template, "text/csv")})
+    assert response.status_code == 200, response.text
 
 
 def test_batch_rejects_an_oversized_upload(client, cfg: Config):
@@ -610,6 +667,47 @@ def test_model_info_serves_the_numeric_bounds(client):
     assert client.get("/model-info").json()["numeric_bounds"] == {
         column: {"min": low, "max": high} for column, (low, high) in schema.NUMERIC_BOUNDS.items()
     }
+
+
+def test_model_info_serves_the_upload_contract(client):
+    """The batch page says what a file must hold from this, not from a copy that could drift."""
+    from churnsense.data import schema
+    from churnsense.models.predict import upload_rules
+
+    info = client.get("/model-info").json()
+    served = info["feature_columns"]
+    categorical = [c for c in served if c in schema.ALLOWED_CATEGORIES]
+    contract = info["upload_contract"]
+    assert contract == {
+        "categories": {c: list(schema.ALLOWED_CATEGORIES[c]) for c in categorical},
+        "integer_columns": [c for c in schema.INTEGER_COLUMNS if c in served],
+        "id_column": schema.ID_COLUMN,
+        "rules": upload_rules(served),
+    }
+    assert list(contract["categories"]) == categorical
+
+
+def test_the_upload_contract_describes_only_the_columns_served():
+    from churnsense.api.schemas import UploadContract
+    from churnsense.data import schema
+
+    contract = UploadContract.of_served(["Contract", "MonthlyCharges"], ["a rule"])
+    assert contract.categories == {"Contract": list(schema.ALLOWED_CATEGORIES["Contract"])}
+    assert contract.integer_columns == []
+    assert contract.rules == ["a rule"]
+
+
+def test_the_api_schemas_load_without_the_model_stack():
+    """The middleware imports the schemas, so describing a response must not
+    load scikit-learn and the training code with it."""
+    code = (
+        "import sys, churnsense.api.schemas; "
+        "print(sorted(m for m in sys.modules if m.startswith(('churnsense.models', 'sklearn'))))"
+    )
+    loaded = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert loaded.stdout.strip() == "[]"
 
 
 def test_a_request_without_a_host_is_refused():

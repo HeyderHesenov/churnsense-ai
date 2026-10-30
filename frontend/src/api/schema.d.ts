@@ -539,6 +539,8 @@ export interface components {
     BatchScoreResponse: {
       /** Columns */
       columns: number;
+      /** Csv */
+      csv: string;
       /** Notes */
       notes: string[];
       /** Rows */
@@ -1117,7 +1119,8 @@ export interface components {
     };
     /**
      * LabelCheck
-     * @description Precision and recall against the file's own labels, outside the held-out test rows.
+     * @description Precision and recall against the file's own labels, outside the held-out test rows;
+     *     neither for fewer than 20 labelled rows.
      */
     LabelCheck: {
       /** Excluded Test */
@@ -1126,6 +1129,8 @@ export interface components {
       labelled: number;
       /** Precision */
       precision: number | null;
+      /** Reason */
+      reason: string | null;
       /** Recall */
       recall: number | null;
     };
@@ -1188,6 +1193,7 @@ export interface components {
       threshold_source: string;
       /** Trained At */
       trained_at: string;
+      upload_contract?: components['schemas']['UploadContract'] | null;
       /** Validation Metrics */
       validation_metrics: {
         [key: string]: unknown;
@@ -1531,6 +1537,24 @@ export interface components {
       sensitivity: components['schemas']['Sensitivity'][];
       /** Shipped Threshold */
       shipped_threshold: number;
+    };
+    /**
+     * UploadContract
+     * @description What an uploaded CSV must hold for the served model, beside ``feature_columns``,
+     *     ``numeric_bounds`` and ``limits``. ``rules`` are those ``validate_upload`` applies,
+     *     written beside it in ``churnsense.models.predict``.
+     */
+    UploadContract: {
+      /** Categories */
+      categories: {
+        [key: string]: string[];
+      };
+      /** Id Column */
+      id_column: string;
+      /** Integer Columns */
+      integer_columns: string[];
+      /** Rules */
+      rules: string[];
     };
     /** UploadLimits */
     UploadLimits: {

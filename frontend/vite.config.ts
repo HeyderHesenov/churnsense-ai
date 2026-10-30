@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
@@ -23,6 +24,14 @@ export default defineConfig({
   },
   server: {
     host: '127.0.0.1',
+    fs: {
+      // This folder, and the repository's synthetic fixtures: the batch page's
+      // demo is imported from there with ?raw, which Vite admits only from an
+      // allowed directory. Both are found from this file, never from where the
+      // server was started, so the repository root - which holds data/raw and
+      // artifacts - is never allowed.
+      allow: [import.meta.dirname, resolve(import.meta.dirname, '../tests/fixtures')],
+    },
     proxy: {
       // changeOrigin stays false: the API sees the dev server's own host and
       // origin, which its same-origin check accepts like the built app's.

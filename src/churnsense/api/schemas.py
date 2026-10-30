@@ -165,6 +165,7 @@ class ModelInfoResponse(BaseModel):
     business_defaults: BusinessAssumptions | None = None
     limits: UploadLimits | None = None
     numeric_bounds: NumericBounds | None = None
+    upload_contract: UploadContract | None = None
     provenance: Provenance | None = None
     test_evaluation: HoldoutSummary | None = None
 
@@ -228,6 +229,31 @@ class NumericBounds(BaseModel):
                 column: {"min": low, "max": high}
                 for column, (low, high) in columns.NUMERIC_BOUNDS.items()
             }
+        )
+
+
+class UploadContract(BaseModel):
+    """What an uploaded CSV must hold for the served model, beside ``feature_columns``,
+    ``numeric_bounds`` and ``limits``. ``rules`` are those ``validate_upload`` applies,
+    written beside it in ``churnsense.models.predict``."""
+
+    #: The allowed values of each categorical column the model scores, in its column order.
+    categories: dict[str, list[str]]
+    integer_columns: list[str]
+    id_column: str
+    rules: list[str]
+
+    @classmethod
+    def of_served(cls, feature_columns: list[str], rules: list[str]) -> UploadContract:
+        return cls(
+            categories={
+                c: list(columns.ALLOWED_CATEGORIES[c])
+                for c in feature_columns
+                if c in columns.ALLOWED_CATEGORIES
+            },
+            integer_columns=[c for c in columns.INTEGER_COLUMNS if c in feature_columns],
+            id_column=columns.ID_COLUMN,
+            rules=rules,
         )
 
 

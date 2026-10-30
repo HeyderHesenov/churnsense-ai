@@ -9,7 +9,7 @@
  * customer from ``POST /api/predict``. A typed record is scored once typing
  * settles, and explained only once its probability is in.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError } from '../../api/client';
 import {
@@ -33,8 +33,8 @@ import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState } from '../../components/ui/States';
 import { toCsv } from '../../lib/csv';
-import { downloadText } from '../../lib/download';
 import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import { useDownload } from '../../lib/useDownload';
 import { ApiPanel } from './ApiPanel';
 import { LEDE, notFound, statusLine } from './copy';
 import {
@@ -56,9 +56,6 @@ import styles from './Customer.module.css';
 
 /** How long typing settles before the API is asked, and again before it explains. */
 const SETTLE_MS = 250;
-
-/** How long an emptied status waits before it speaks, so a message said twice is heard twice. */
-const ANNOUNCE_MS = 100;
 
 /** The name the README example goes by, as the artboard's picker calls it. */
 const README_NAME = 'API example';
@@ -266,15 +263,9 @@ export default function CustomerPage() {
   const settled =
     scoreState === 'ready' && score && features ? { score, features, id, name } : null;
 
-  // Which customer's file the browser refused. The message is about the figures
-  // shown then: it goes once another customer is shown or the form is edited.
-  const [unsaved, setUnsaved] = useState<string | null>(null);
-  if (unsaved !== null && unsaved !== choiceKey(shown)) setUnsaved(null);
-  const refusal = useRef<number | undefined>(undefined);
-  const forget = () => {
-    window.clearTimeout(refusal.current);
-    setUnsaved(null);
-  };
+  // A refused save is about the figures shown then: it goes once another
+  // customer is shown or the form is edited.
+  const { unsaved, save, forget } = useDownload(choiceKey(shown));
   const edit = (next: Draft | null) => {
     setTyped(next);
     forget();
@@ -283,7 +274,7 @@ export default function CustomerPage() {
     if (!settled) return;
     const columns = Object.keys(settled.features) as (keyof CustomerFeatures)[];
     const ids = settled.id ? [settled.id] : [];
-    const saved = downloadText(
+    save(
       'churnsense_single_prediction.csv',
       toCsv(
         [
@@ -304,12 +295,6 @@ export default function CustomerPage() {
         ],
       ),
     );
-    // Emptied, then said a moment later: a second refusal in a row is heard too.
-    forget();
-    if (!saved) {
-      const refused = choiceKey(shown);
-      refusal.current = window.setTimeout(() => setUnsaved(refused), ANNOUNCE_MS);
-    }
   };
 
   // The form mounts with the change of address: commit it, then type in it.

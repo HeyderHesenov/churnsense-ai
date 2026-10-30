@@ -37,7 +37,7 @@ The prototype computed everything in the browser from exported JSON. Production 
 
 ```
 browser ──same origin──▶ FastAPI (uvicorn 127.0.0.1, --no-proxy-headers)
-  middleware (outer→inner): SecurityHeaders → LoopbackOnly → TrustedHosts+SameOrigin → RateLimit → BodySizeLimit
+  middleware (outer→inner): SecurityHeaders → LoopbackOnly → TrustedHosts+SameOrigin → BodySizeLimit → RateLimit
   ├─ /api/*                     new JSON/CSV endpoints + /api aliases of the 4 legacy ones
   ├─ /health /model-info /predict /predict/batch   legacy paths, unchanged handlers
   ├─ /docs /redoc /openapi.json docs-only CSP
@@ -124,7 +124,7 @@ Supporting changes:
 | `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. |
 | `GET /api/threshold/sweep` | Inputs: `cost` (0–10,000), `success`, `margin` (0–1), `horizon` (1–120). Returns the validation sweep (101 points), peak, recommendation (`recommend_threshold_from`), indifference band and sensitivity at 10–50 %. |
 | `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. |
-| `POST /api/batch/score` | Multipart, same body limit and `validate_upload`. Returns rows (validated inputs as scored, id, label, prediction), a summary and notes. **Label P/R excludes rows whose `customerID` is in the book's test or unknown partition**, and reports how many were excluded. `/predict/batch` is unchanged. |
+| `POST /api/batch/score` | Multipart, same body limit and `validate_upload` (on the served model's columns). Returns rows (validated inputs as scored, id, label, prediction), a summary, notes and `csv`, the rows as a spreadsheet-safe file without a label. **Label P/R excludes rows whose `customerID` is in the book's test or unknown partition**, reports how many were excluded, gives no rate under 20 labelled rows, and says why a rate is missing. `/predict/batch` shares the reader: a file-level 422 now names its reason in `problems` there too (see "API additions for the batch page"). |
 
 **Rules for every endpoint:**
 - errors use `{"error","detail","problems"}` with explicit codes: `dataset_unavailable`, `rate_limited` (429 added to the map), `explanations_unavailable`;
@@ -263,7 +263,7 @@ Supporting changes:
 4. **Batch**
    - Steps.
    - Drop zone with a client-side size pre-check (convenience only).
-   - Demo file: `tests/fixtures/demo_customers.csv`, imported raw at build time.
+   - Demo file: `tests/fixtures/demo_customers.csv`, imported raw into its own chunk.
    - Required-columns toggle; validation panel (422 problems and notes).
    - Summary, including label P/R with the exclusion note.
    - Rows: all or flagged, sort, pages of 12.
@@ -389,6 +389,11 @@ rules above. Each was fixed or decided explicitly; none is left implicit.
   - **The threshold sweep is exempt.** Its precision and recall are
     operating-point metrics of the whole validation partition, always shown
     beside their denominator (the flagged count).
+  - **The batch label check follows the rule** (2026-10-30): its precision and
+    recall are null for fewer than 20 labelled rows outside the held-out test
+    partition, as the recorded segments' are. The gate counts labelled rows,
+    not each rate's denominator, like the segments; an empty denominator gets
+    its own null and reason.
 - **The recorded test evaluation is shown as recorded.** It is the one
   documented exception to "no test figure", and it covers aggregates only:
   - the published report `make evaluate CONFIRM=yes` writes, with the same
@@ -971,3 +976,220 @@ each retry left the focus where described above.
 unreachable case where a cached response lacks the customer. Landing on
 `main` reads the page's text to a screen reader, but while the Overview has
 failed there is no heading left to land on.
+
+### API additions for the batch page (2026-10-30)
+
+- **Every refusal names its reason.** `_schema_handler` sends
+  `problems = exc.problems or [str(exc)]`. A refusal of the whole file (empty,
+  semicolons, too wide, a row wider than the header, too many rows, a header
+  with no rows, unreadable, an over-long field) used to send `problems: []`,
+  so a page that shows `problems` said "refused" and nothing else.
+  `/predict/batch` shares the handler, so its 422s change the same way.
+- **`ModelInfoResponse.upload_contract`**, optional like `limits`:
+  `categories` (each served categorical column's values, in the served
+  order), `integer_columns`, `id_column` and `rules`.
+  - The rules are `upload_rules(feature_columns)`, written in
+    `models/predict.py` beside the reader they describe.
+  - Each rule has a test file that is refused or accepted as its sentence says
+    (`test_every_upload_rule_holds_as_written`). A guard test fails if a rule
+    has no case.
+  - A value rule is given only under the condition `schema._inconsistencies`
+    checks it on.
+  - `api/schemas.py` takes the rules as an argument and so never imports the
+    model stack. The middleware imports the schemas, and a subprocess test pins
+    that no scikit-learn is loaded with them.
+- **The served model's columns decide what a file must hold.**
+  `validate_upload(..., columns=)` validates the served `feature_columns`, and
+  both batch endpoints and the Streamlit batch section pass them. Before, the
+  config's columns were required. After a config drift, the page's own
+  template, and Streamlit's, could be refused (`missing columns: gender`)
+  while the contract said it was fine.
+- **`BatchScoreResponse.csv`**: the scored rows as a spreadsheet-safe file
+  (`csv_bytes`). It holds `row`, `customerID` if the file has one,
+  `churn_probability`, `risk_band`, `flagged`, then the inputs as scored.
+  - **It never carries a label.** The leak tests assert its exact header for
+    uploads that hold every test customer with their `Churn`.
+  - **It repeats `rows`** (about 2–3 MB at 10,000 rows), so one request, one
+    scoring and one rate-limit token give both the table and the file.
+- **`LabelCheck`**:
+  - precision and recall are null for fewer than `insights.MIN_CELL` (20)
+    labelled rows outside the held-out test partition;
+  - `reason` says why a rate is missing: "A rate needs at least 20 labelled
+    rows.", or which denominator is empty.
+
+## Phase 3.4 — Batch scoring (2026-10-30)
+
+The page reproduces `Batch.dc.html`, but the API checks and scores the file.
+
+**With the real data and model:**
+- the demo file gives 120 rows, P 0.571 · R 0.457 on its own labels;
+- 10,000 rows are accepted in about 1.3 s;
+- the downloaded CSV of a file with formula-shaped IDs has the same sha256 as
+  the API's `csv`, its IDs defused.
+
+**Every figure is the API's.** The page neither validates a value nor scores
+a row; the artboard scored the file in the browser.
+- **Stages** (`batch/batch.ts`, a reducer): idle, reading, staged, pending,
+  then one of the outcomes below.
+  - accepted;
+  - refused (422);
+  - too large (413, or over the served limit and never sent);
+  - rate limited (429);
+  - unavailable (503);
+  - failed (5xx, 408, no answer);
+  - denied (any other 4xx);
+  - unreadable;
+  - several files dropped.
+- **Every choice of a file has an id.** A read or an answer for an earlier
+  choice is dropped, and a new choice, Remove or leaving the page aborts the
+  request still out.
+- **The file is read once into a copy of its bytes**, so a retry sends exactly
+  what was chosen. A file larger than the served limit is "Not sent". A file
+  of exactly the limit is sent, as the API takes it.
+- **One action button stays in place**, whatever it says ("Score file", "Try
+  again", "Choose another file", "Remove file"), so pressing it never drops the
+  focus.
+  - It is `aria-disabled` until the file can be sent. `score()` refuses a
+    second press both by the live request and by the stage, and each guard
+    has its own test.
+  - **After a 429** the button waits out `Retry-After`. Then the title, which
+    is the status line, changes to "Ready to send … again", so a screen reader
+    hears that the wait is over.
+  - **A denied request offers only "Remove file"** on that button: any file
+    would be refused alike.
+- **The label tile** shows the API's figures and its `reason`. The page holds
+  no copy of the 20-row rule.
+- **Rows:**
+  - riskiest first, ties in file order; sortable by row, customer,
+    probability and monthly charges;
+  - All or Flagged; pages of 12, 25 or 50;
+  - the first row shown stays on the page when the page size changes;
+  - the pager reads "Showing 1–12 of 120", the Explorer's words, not row
+    numbers.
+- **Row numbers are 0-based** (the user asked for the logical choice):
+  - the table's Row, the CSV's `row` and the API's JSON `row` are one
+    position, so a person or a script can join them, and the artboard says
+    "0-based";
+  - refusals come from the library, which Streamlit also uses, and count data
+    rows from 1;
+  - the note under the rows says so ("a refusal's data row 1 is row 0 here");
+  - a refusal and results never show together, since a file is scored whole
+    or not at all.
+- **Downloads:**
+  - "Scored CSV" saves the API's `csv`;
+  - the template holds only the header, the served ID column and the served
+    columns, and is offered once the contract is in;
+  - a refused save is said through `lib/useDownload`, now shared with the
+    single customer page. It empties the status, speaks 100 ms later, and is
+    forgotten when the choice changes.
+- **The demo** is `tests/fixtures/demo_customers.csv`, imported with `?raw`
+  into its own chunk (2.90 kB gzip).
+  - Vite admits that import only from an allowed folder.
+  - `server.fs.allow` is the front end's folder plus `tests/fixtures`, both
+    found from the config file (`import.meta.dirname`).
+  - Before, `searchForWorkspaceRoot(process.cwd())` allowed the repository
+    root when Vite was started there. `/@fs/` then served `data/raw` and the
+    model artifact: 200 before, 403 after, from both start folders.
+
+**Deviations from the artboard:**
+- the server checks and scores (the third step reads "Score");
+- the demo note gives no row count, which is unknown before the chunk loads;
+- the label tile's figure is 18px mono;
+- the results header reads name · size · time, since the row count is in its
+  tile;
+- the drop zone's keyboard focus is the global outline, drawn with `:has()`,
+  with a `:focus-within` fallback for browsers without it.
+
+**States the artboard does not draw:**
+- reading;
+- too large (not sent, or refused);
+- several files;
+- unreadable;
+- a demo that could not be loaded;
+- rate limited, then ready again;
+- unavailable;
+- failed;
+- denied;
+- labels not compared (no dataset);
+- no rate (fewer than 20 labelled rows, or an empty denominator);
+- nothing flagged, with "Show all rows".
+
+### Batch review (code-reviewer and qa-expert, 2026-10-30)
+
+**The first pass.**
+- code-reviewer found no critical or high finding: two medium, five low and
+  some nits.
+- **M1: the upload rules did not match the reader.**
+  - A repeated contract column is refused, yet a rule said "any other column
+    is ignored".
+  - A row wider than the header is refused, and no rule said so.
+  - "Every value must be present" contradicted the blank TotalCharges at
+    tenure 0.
+- **M2: the 429 panel kept saying "Try again in N s"** after the wait.
+- qa-expert listed overlapping guards, untested paging and size boundaries,
+  and harness flaws: a request counter that read files asynchronously, and a
+  useless sleep.
+
+All of it was fixed test-first.
+
+**The second code-reviewer pass**, over the fixes, found no critical or high
+finding, one medium and five low. All were fixed test-first:
+- **Medium: the contract and the reader used different column lists.** Fixed
+  by validating the served columns (above).
+- **The blank TotalCharges rule.** It now follows `clean_frame`: the file's
+  tenure decides, scored or not.
+- **The 429 test.** It keeps 10 s of fake time in hand, more than the test's
+  own timeout.
+- **`forget()` mid-wait** is tested.
+- **"Denied" no longer suggests another file** would work, and 408 is
+  retried.
+- **The `:has()` focus ring** has its fallback.
+
+**Found while fixing:** the Churn rule said "never mixed", but `clean_frame`
+encodes Yes/No/0/1 before `validate_frame` checks them, so mixed labels are
+accepted. The rule now says "each value Yes, No, 0 or 1"; the check itself is
+a follow-up.
+
+**Checks:**
+- backend 876 passed, with `make lint`;
+- front end 574 tests (run twice, no `act` warning), with lint, type check,
+  format and build (Batch chunk 6.88 kB gzip), and `npm audit` 0;
+- mutants: 47 front-end and 25 backend, all caught, plus an identity control
+  each;
+- in Chromium against the real API:
+  - the demo;
+  - 10 labelled rows show the API's reason;
+  - a semicolon file and broken values give their 422 reasons;
+  - 6 MB is "Not sent";
+  - a real 429 turns to "Ready to send demo_customers.csv again", and Enter
+    scores it with the focus kept;
+  - the drop zone's focus ring;
+  - no horizontal scroll at 375/768/1024/1440;
+  - the console holds only the deliberate 422/429 lines;
+  - after the second review, a file shaped like the template (`customerID`
+    and the 18 served columns) is scored, and the console stays empty.
+
+**Kept on purpose:**
+- **The add-on rule names the add-ons as a group.** In a model scoring only
+  some, only those are checked.
+- **The rules do not say that gender's values go unchecked.** The rule on
+  repeated columns names it, and the notes say it is ignored.
+- **A line of only commas** is a row of blanks, refused by the blank rule,
+  not a blank line.
+- **`useDownload` takes `about: unknown`.** Lint refuses a single-use type
+  parameter, and only identity is compared.
+- **`score()` has no "is this still the current choice" guard.** A choice and
+  a press cannot land in one task.
+- **`LabelCheck`'s description says 20**, the OpenAPI text, while the code
+  reads `MIN_CELL`.
+
+### Follow-ups found in this phase
+
+- **The mixed-label check never runs.** `validate_frame`'s "mixes Yes/No
+  labels with 0/1" is unreachable through `clean_frame`, which encodes the
+  labels first, so mixed labels are accepted everywhere, training included.
+  - Either remove the check or move it before the encoding.
+  - It touches the training path, so the decision is the user's.
+- **A blank TotalCharges can be read as 0 from an unchecked tenure.**
+  `clean_frame` does so from the file's tenure even when tenure is not scored.
+  That happens only in an ablation without tenure, and the rule says so.

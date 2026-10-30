@@ -9,8 +9,8 @@ from churnsense.config import Config
 from churnsense.models.predict import validate_upload
 
 
-def read_upload(file: UploadFile, cfg: Config) -> tuple[bytes, pd.DataFrame]:
-    """The upload's bytes and its validated frame.
+def read_upload(file: UploadFile, cfg: Config, columns: list[str]) -> tuple[bytes, pd.DataFrame]:
+    """The upload's bytes and its frame, validated for the model scoring ``columns``.
 
     ``BodySizeLimit`` has already refused any request body much larger than
     the limit, so the file here is at most a few KB over it; reading one byte
@@ -24,4 +24,4 @@ def read_upload(file: UploadFile, cfg: Config) -> tuple[bytes, pd.DataFrame]:
             status_code=413,
             detail=f"File exceeds the {cfg.api.max_upload_bytes / 1_048_576:.0f} MB limit.",
         )
-    return payload, validate_upload(payload, cfg)
+    return payload, validate_upload(payload, cfg, columns=columns)

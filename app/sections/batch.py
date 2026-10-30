@@ -100,7 +100,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
 
     payload = upload.getvalue()
     try:
-        cleaned = validate_upload(payload, cfg)
+        cleaned = validate_upload(payload, cfg, columns=inputs)
         # Scored inside the try: the model checks its own feature columns too,
         # and if the config has drifted from the artifact that check fails here.
         scored = with_predictions(cleaned, model.predict_frame(cleaned), inputs)

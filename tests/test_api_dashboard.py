@@ -551,6 +551,7 @@ def test_a_batch_is_scored_by_the_served_model(served, model, raw_frame):
     for row, p in zip(body["rows"], expected["churn_probability"], strict=True):
         assert row["churn_probability"] == pytest.approx(p, abs=1e-12)
     assert body["summary"]["rows"] == 30
+    assert len(body["csv"].splitlines()) == 1 + 30
     assert sum(b["customers"] for b in body["summary"]["bands"]) == 30
 
 
@@ -566,6 +567,135 @@ def test_a_broken_batch_lists_every_problem(served):
     assert response.status_code == 422
     body = response.json()
     assert body["error"] == "invalid_input" and len(body["problems"]) >= 2
+
+
+#: The scored file's columns before the model's inputs; never a label.
+_SCORED_COLUMNS = ["row", schema.ID_COLUMN, "churn_probability", "risk_band", "flagged"]
+
+
+def _scored(body: dict) -> pd.DataFrame:
+    return pd.read_csv(io.StringIO(body["csv"]), dtype=str, keep_default_na=False)
+
+
+def test_the_scored_csv_holds_the_rows_the_page_shows(served, model, raw_frame):
+    """One scoring makes both, so the downloaded file is the table, row for row,
+    with a formula-shaped ID made inert for a spreadsheet."""
+    upload = raw_frame.head(30).copy()
+    upload.loc[0, schema.ID_COLUMN] = '=HYPERLINK("http://example.com")'
+    body = _ok(_upload(served, upload))
+    exported = _scored(body)
+    assert list(exported.columns) == [*_SCORED_COLUMNS, *model.feature_columns]
+    assert exported.loc[0, schema.ID_COLUMN] == """'=HYPERLINK("http://example.com")"""
+    for line, row in zip(exported.to_dict("records"), body["rows"], strict=True):
+        assert int(line["row"]) == row["row"]
+        assert line[schema.ID_COLUMN].removeprefix("'") == row["customer_id"]
+        assert float(line["churn_probability"]) == row["churn_probability"]
+        assert line["risk_band"] == row["risk_band"]
+        assert line["flagged"] == str(row["flagged"])
+        for column, value in row["features"].items():
+            read = line[column] if isinstance(value, str) else float(line[column])
+            assert read == value, column
+
+
+@pytest.mark.parametrize("with_ids", [True, False], ids=["with ids", "without ids"])
+def test_the_scored_csv_never_carries_a_label(served, model, raw_frame, with_ids):
+    """The upload holds every test customer with their Churn; the file sent back
+    has exactly these columns, so no label can ride along."""
+    upload = raw_frame if with_ids else raw_frame.drop(columns=[schema.ID_COLUMN])
+    exported = _scored(_ok(_upload(served, upload)))
+    expected = [c for c in _SCORED_COLUMNS if with_ids or c != schema.ID_COLUMN]
+    assert list(exported.columns) == [*expected, *model.feature_columns]
+
+
+def test_the_scored_csv_scores_the_same_when_uploaded_again(served, raw_frame):
+    """Its extra columns are ignored and its inputs read back as scored. The
+    forest's parallel sum can differ in the last bit between any two calls."""
+    first = _ok(_upload(served, raw_frame.head(40)))
+    again = served.post(
+        "/api/batch/score", files={"file": ("again.csv", first["csv"].encode(), "text/csv")}
+    )
+    assert [r["churn_probability"] for r in _ok(again)["rows"]] == pytest.approx(
+        [r["churn_probability"] for r in first["rows"]], abs=1e-12
+    )
+
+
+def _labelled_churners(raw_frame, ids, model, n: int) -> pd.DataFrame:
+    """``n`` training customers who churned, highest scored first: labelled, flagged, not held out."""
+    churned = raw_frame[
+        raw_frame[schema.ID_COLUMN].isin(ids["train"]) & raw_frame[schema.TARGET].eq("Yes")
+    ]
+    scores = model.predict_frame(_ok_frame(churned))["churn_probability"].to_numpy()
+    return churned.iloc[scores.argsort()[::-1][:n]]
+
+
+@pytest.mark.parametrize(
+    ("n", "reported"), [(insights.MIN_CELL - 1, False), (insights.MIN_CELL, True)]
+)
+def test_a_label_check_on_fewer_than_twenty_rows_reports_no_rate(
+    served, raw_frame, ids, model, n, reported
+):
+    """The rule every page keeps: a rate over a handful of rows is noise, not a finding."""
+    labels = _ok(_upload(served, _labelled_churners(raw_frame, ids, model, n)))["summary"]["labels"]
+    assert labels["labelled"] == n
+    assert (labels["precision"] is not None) is reported
+    assert (labels["recall"] is not None) is reported
+    small = f"A rate needs at least {insights.MIN_CELL} labelled rows."
+    assert labels["reason"] == (None if reported else small)
+
+
+def test_a_label_check_counts_only_the_rows_it_compares(served, raw_frame, ids, model):
+    """The gate counts labelled rows outside the test partition, not the file's:
+    15 compared and 10 held out are still too few for a rate."""
+    held_out = raw_frame[raw_frame[schema.ID_COLUMN].isin(ids["test"])].head(10)
+    upload = pd.concat([_labelled_churners(raw_frame, ids, model, 15), held_out])
+    labels = _ok(_upload(served, upload))["summary"]["labels"]
+    assert (labels["labelled"], labels["excluded_test"]) == (15, 10)
+    assert labels["precision"] is None and labels["recall"] is None
+
+
+def _compared_customers(raw_frame, ids, model, *, flagged: bool, churned: bool) -> pd.DataFrame:
+    """Customers outside the test partition the served model flags (or not) who
+    churned (or not). The forest flags every training churner, so an unflagged
+    churner comes from validation."""
+    compared = raw_frame[~raw_frame[schema.ID_COLUMN].isin(ids["test"])]
+    scored = model.predict_frame(_ok_frame(compared))["flagged"].to_numpy()
+    return compared[(scored == flagged) & (compared[schema.TARGET].eq("Yes").to_numpy() == churned)]
+
+
+@pytest.mark.parametrize(
+    ("customers", "rates", "reason"),
+    [
+        (
+            {(False, False): 19, (False, True): 1},
+            (None, 0.0),
+            "No labelled customer was flagged, so precision is not defined.",
+        ),
+        (
+            {(True, False): 1, (False, False): 19},
+            (0.0, None),
+            "No labelled customer churned, so recall is not defined.",
+        ),
+        (
+            {(False, False): 20},
+            (None, None),
+            "No labelled customer was flagged or churned, so neither rate is defined.",
+        ),
+    ],
+    ids=["nobody flagged", "nobody churned", "neither"],
+)
+def test_a_label_check_says_why_a_rate_has_no_value(
+    served, raw_frame, ids, model, customers, rates, reason
+):
+    """Enough rows, but a rate's denominator is empty: the page says so instead of a bare dash."""
+    upload = pd.concat(
+        [
+            _compared_customers(raw_frame, ids, model, flagged=flagged, churned=churned).head(n)
+            for (flagged, churned), n in customers.items()
+        ]
+    )
+    labels = _ok(_upload(served, upload))["summary"]["labels"]
+    assert labels["labelled"] == 20
+    assert (labels["precision"], labels["recall"], labels["reason"]) == (*rates, reason)
 
 
 # --- every response: no test outcome, no small-cell rate, a clean error shape ------------------------
@@ -621,6 +751,7 @@ def _every_dashboard_response(client, ids, raw_frame) -> Iterator[tuple[str, obj
         ("batch", raw_frame),
         ("batch without ids", raw_frame.drop(columns=["customerID"])),
         ("batch lower-cased ids", lower),
+        ("batch of a few", raw_frame.head(10)),
     ):
         yield name, _upload(client, upload).json()
 
@@ -667,7 +798,7 @@ def test_no_response_reports_an_outcome_rate_for_fewer_than_twenty_customers(
 ):
     small = 0
     for name, obj in _scanned(served, ids, raw_frame):
-        size = obj.get("customers", obj.get("n"))
+        size = next((obj[k] for k in ("customers", "n", "labelled") if k in obj), None)
         if isinstance(size, int) and size < 20 and any(k in obj for k in _OUTCOME_KEYS):
             small += 1
             assert all(obj.get(k) is None for k in _OUTCOME_KEYS), (name, obj)
