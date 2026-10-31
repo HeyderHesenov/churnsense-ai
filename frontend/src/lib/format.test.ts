@@ -2,11 +2,13 @@ import {
   cents,
   cut,
   int,
+  minorDigits,
   money,
   moneyK,
   moneyShort,
   months,
   pct,
+  price,
   probability,
   probabilityPct,
   signedMoney,
@@ -83,5 +85,55 @@ describe('format', () => {
     expect(moneyK(226_179)).toBe('$226.2k');
     expect(moneyK(220_000)).toBe('$220.0k');
     expect(moneyK(-1_500)).toBe('−$1.5k');
+  });
+  it('writes money in the currency it is given, dollars when none is', () => {
+    expect(money(1234.5, 'EUR')).toBe('€1,235');
+    expect(money(-1234, 'EUR')).toBe('−€1,234');
+    expect(money(-0.2, 'EUR')).toBe('€0');
+    expect(signedMoney(32, 'EUR')).toBe('+€32');
+    expect(signedMoney(-1200, 'GBP')).toBe('−£1,200');
+    expect(cents(105.9, 'EUR')).toBe('€105.90');
+    expect(moneyShort(26579, 'EUR')).toBe('€26.6k');
+    expect(money(5, 'CHF')).toBe('CHF\u00a05');
+  });
+
+  it('writes an amount to its currency’s own minor unit', () => {
+    expect(minorDigits('USD')).toBe(2);
+    expect(minorDigits('JPY')).toBe(0);
+    expect(minorDigits('KWD')).toBe(3);
+    expect(minorDigits('not a code')).toBe(2);
+    expect(cents(1250, 'JPY')).toBe('¥1,250');
+    expect(cents(1.5, 'KWD')).toBe('KWD\u00a01.500');
+    expect(price(1250, 'JPY')).toBe('¥1,250');
+    expect(price(1.125, 'KWD')).toBe('KWD\u00a01.125');
+    expect(price(2, 'KWD')).toBe('KWD\u00a02');
+  });
+
+  it('writes no sign at all for an empty currency', () => {
+    expect(money(5, '')).toBe('5');
+  });
+
+  it('writes a currency that is not a currency code as the text it was given', () => {
+    expect(money(5, 'not a code')).toBe('not a code\u00a05');
+    expect(moneyShort(-5000, 'not a code')).toBe('−not a code\u00a05k');
+  });
+
+  it('writes compact money in millions once thousands would reach a thousand', () => {
+    expect(moneyShort(14_090_000)).toBe('$14.1M');
+    expect(moneyShort(-14_090_000)).toBe('−$14.1M');
+    expect(moneyShort(2_000_000)).toBe('$2M');
+    expect(moneyShort(999_949)).toBe('$999.9k');
+    expect(moneyShort(999_950)).toBe('$1M');
+    expect(moneyShort(-999_950)).toBe('−$1M');
+  });
+
+  it('writes a price with cents only when it has some', () => {
+    expect(price(50)).toBe('$50');
+    expect(price(12.5)).toBe('$12.50');
+    expect(price(0.01)).toBe('$0.01');
+    expect(price(0)).toBe('$0');
+    expect(price(10_000)).toBe('$10,000');
+    expect(price(49.999)).toBe('$50');
+    expect(price(7.5, 'EUR')).toBe('€7.50');
   });
 });

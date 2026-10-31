@@ -45,30 +45,94 @@ export function cut(value: number): string {
   return value.toFixed(2);
 }
 
-/** Whole dollars, with a true minus sign: -1234 -> "−$1,234". */
-export function money(value: number): string {
-  const text = `$${Math.round(Math.abs(value)).toLocaleString('en-US')}`;
+interface CurrencyFormat {
+  /** What an amount is written after: "$" for USD, "€" for EUR, "CHF " where there is no symbol. */
+  symbol: string;
+  /** The digits of its minor unit: 2 for cents, 0 for yen, 3 for fils. */
+  digits: number;
+}
+
+const formats = new Map<string, CurrencyFormat>();
+
+/**
+ * How amounts in ``currency`` are written. The currency is configuration, not
+ * a checked code: one ``Intl`` cannot read is written as given, in cents.
+ */
+function currencyFormat(currency: string): CurrencyFormat {
+  let known = formats.get(currency);
+  if (known === undefined) {
+    known = readFormat(currency);
+    formats.set(currency, known);
+  }
+  return known;
+}
+
+function readFormat(currency: string): CurrencyFormat {
+  if (currency.trim() === '') return { symbol: '', digits: 2 };
+  try {
+    const format = new Intl.NumberFormat('en-US', { style: 'currency', currency });
+    const parts = format.formatToParts(0);
+    const before = parts.findIndex((part) => part.type === 'integer');
+    return {
+      symbol: parts
+        .slice(0, before)
+        .map((part) => part.value)
+        .join(''),
+      digits: format.resolvedOptions().maximumFractionDigits ?? 2,
+    };
+  } catch {
+    return { symbol: `${currency}\u00a0`, digits: 2 };
+  }
+}
+
+function symbol(currency: string): string {
+  return currencyFormat(currency).symbol;
+}
+
+/** The decimals an amount of ``currency`` is written to: 2 for USD, 0 for JPY. */
+export function minorDigits(currency: string): number {
+  return currencyFormat(currency).digits;
+}
+
+/** Whole dollars (or another currency), with a true minus sign: -1234 -> "−$1,234". */
+export function money(value: number, currency = 'USD'): string {
+  const text = `${symbol(currency)}${Math.round(Math.abs(value)).toLocaleString('en-US')}`;
   return value < 0 && Math.round(Math.abs(value)) !== 0 ? MINUS + text : text;
 }
 
-/** Dollars and cents: 105.9 -> "$105.90". */
-export function cents(value: number): string {
-  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Dollars and cents (a currency's minor unit): 105.9 -> "$105.90". */
+export function cents(value: number, currency = 'USD'): string {
+  const digits = minorDigits(currency);
+  return `${symbol(currency)}${value.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+}
+
+/** An amount someone set: cents only when it has some, 50 -> "$50", 12.5 -> "$12.50". */
+export function price(value: number, currency = 'USD'): string {
+  const scale = 10 ** minorDigits(currency);
+  return Math.round(value * scale) % scale === 0 ? money(value, currency) : cents(value, currency);
 }
 
 /** A signed amount of dollars: "+$32", "−$1,200"; nothing to sign is "$0". */
-export function signedMoney(value: number): string {
+export function signedMoney(value: number, currency = 'USD'): string {
   const shown = Math.round(value);
-  return (shown > 0 ? '+' : minus(shown)) + money(Math.abs(value));
+  return (shown > 0 ? '+' : minus(shown)) + money(Math.abs(value), currency);
 }
 
-/** Compact dollars for an axis: 26579 -> "$26.6k", 950 -> "$950". */
-export function moneyShort(value: number): string {
+/**
+ * Compact dollars for an axis: 26579 -> "$26.6k", 14090000 -> "$14.1M",
+ * 950 -> "$950". Each step up happens at the rounded value, so nothing reads
+ * "$1000k".
+ */
+export function moneyShort(value: number, currency = 'USD'): string {
   const dollars = Math.round(Math.abs(value));
-  const text =
-    dollars >= 1000
-      ? `$${String(Math.round(dollars / 100) / 10).replace(/\.0$/, '')}k`
-      : `$${dollars}`;
+  const hundreds = Math.round(dollars / 100);
+  const figure =
+    hundreds >= 10_000
+      ? `${Math.round(dollars / 100_000) / 10}M`
+      : dollars >= 1000
+        ? `${hundreds / 10}k`
+        : String(dollars);
+  const text = symbol(currency) + figure;
   return value < 0 && dollars !== 0 ? MINUS + text : text;
 }
 

@@ -1193,3 +1193,270 @@ a follow-up.
 - **A blank TotalCharges can be read as 0 from an unchecked tenure.**
   `clean_frame` does so from the file's tenure even when tenure is not scored.
   That happens only in an ablation without tenure, and the rule says so.
+
+### API addition for the simulator (2026-10-31)
+
+- **`ModelInfoResponse.assumption_bounds`**: `{retention_offer_cost,
+  offer_success_rate, expected_horizon_months, gross_margin}`, each `{min,
+  max, integer}`, from one constant, `api/schemas.ASSUMPTION_BOUNDS`.
+  - The sweep's `Query(ge, le)` reads the same constant, so the page refuses
+    what `/api/threshold/sweep` would refuse rather than a copy that could
+    drift. Optional, like `numeric_bounds`, so older callers see no change.
+  - **Tests:**
+    - the served bounds equal the sweep's OpenAPI parameters (minimum,
+      maximum, integer type);
+    - each served end answers 200 and a step beyond it answers 422 (a whole
+      number of months also refuses a half);
+    - the configured defaults lie inside the bounds (`Business` caps neither
+      the cost nor the horizon);
+    - the configured defaults are as precise as the page shows them (whole
+      percents, cents for USD), since it sends only what it shows.
+  - **`BusinessAssumptions` keeps `Business`'s own invariants** (rates in
+    [0, 1]), not the sweep's input bounds. It is the echo of a `Business`:
+    narrower bounds must refuse a request, never break `/model-info`.
+- Nothing else changed: the simulation itself (`insights.economics`) is
+  untouched.
+
+## Phase 3.5 — Retention simulator (2026-10-31)
+
+The page answers "where should the cut-off sit?" with the API's own sweep of
+the validation partition (`GET /api/threshold/sweep`). With the real data and
+model at the defaults ($50, 30%, 12 months, 65%), it shows the recommendation
+0.36 at +$26,547 (448 flagged of 1,409, 260 of 374 churners reached, precision
+0.580, recall 0.695), the peak 0.30 at +$26,579 and the sensitivity rows
+0.88 / 0.50 / 0.36 / 0.23 / 0.22: each the figure `curl` returns for the same
+query.
+
+**Every figure is the API's.** The page computes no business figure: counts,
+rates, money, the recommendation, the peak, the band and the sensitivity rows
+are read from the response, and a test fixture whose figures cannot be
+derived from one another (241 of 512 is not 0.123) proves it.
+- **Three kinds of figure, kept apart.** "Your assumptions" (amber, ASSUMED),
+  "Measured on validation" (the model's flags at the cut against what those
+  customers did) and "Simulated money" (SIMULATED). A static note says the
+  dataset holds no campaign outcomes; the API's `disclaimer` sits under the
+  figures. No "saved", no causal word: a copy test and a page test scan for
+  both families.
+- **Undefined rates are not measurements.** Precision is "—" where nothing is
+  flagged and recall "—" without churners (the API writes 0.0 there), in the
+  results, the tooltip, the tables, the pins, and as a break in the
+  precision line.
+
+**The scenario lives in the address** (`simulator/simulator.ts`):
+- `cost`, `success`, `horizon` and `margin` hold the text as typed
+  (`param.decimal`: absent is the default, empty is "required", any text
+  without spaces is kept for the page to judge, up to 64 characters), and `t`
+  the cut as `cut()` writes it ("0.40", 0 to 1 only); empty follows the
+  recommendation.
+- A field is sent only once all four can be: within the served bounds, a
+  whole number where the bounds say `integer`, and no more precise than it is
+  shown (money to its currency's minor unit, rates in whole percents). Then
+  all four always go, so a default left out and one written share a request.
+- Nothing typed is turned into another number: "12,50", "1e3" and "$50" are
+  refused with a message, never sent as 1250, 13 or 50, and text longer than
+  12 characters is refused as too long, never cut down to one that fits
+  ("0000000000050" is not 5).
+- Typed edits and the rate sliders settle (250 ms) and replace the history
+  entry; Reset, Use recommended, a chart click, a rate Apply and a pin Apply
+  add one. Reset also takes an edit made a moment before, not yet settled.
+
+**Figures for other assumptions always say so.**
+- `statusOf`: `current` (the response's echo equals what was sent),
+  `updating` (an earlier response kept while the next loads), `mismatch` (the
+  server echoed other assumptions), `unsent` (a field cannot be sent, so
+  nothing was asked for), `failed`, `withheld`.
+- Every card, the cut's included, names the assumptions its figures are
+  for, from the echo ("For $50 · 30% · 12 mo · 65%"), and while they are not
+  the ones set it is dimmed and marked "Not the assumptions set."; the
+  results open with a status line, and the charts' accessible names carry
+  the mark.
+- Only current figures can be pinned or applied as a rate; a cut chosen on
+  stale figures is kept as chosen, not read as "follow".
+
+**The cut.** An index slider over the response's points is the keyboard
+control; the chart is a pointer-only shortcut (hover, click). The cut follows
+the recommendation only while the address sets none: one set by hand stays set
+by hand, even where it is the recommendation now. Points are found by label,
+never by float, since ten grid values are inexact (0.35000000000000003). A
+pin's REC tag says its cut was the recommendation, followed or set by hand;
+Apply restores the address as it was. A response with no point at its own
+recommendation says so instead of drawing a cut.
+
+**Charts** (`SweepCharts.tsx`): the net across every cut, with the strip of
+nets within one offer of the peak (`band.floor` to the peak's net: the
+qualifying cuts need not be side by side, so it is a strip across the chart,
+not a span between two cuts), the zero line, the recommended, peak, selected
+and served cuts; and precision and recall by cut. Each has a screen-reader
+table of every 0.05 plus the marked cuts.
+
+**Reading the recommendation.** "Why not simply take the peak?" in the
+response's figures (both cuts and nets, the offer as the tolerance; a free
+offer, a recommendation that is the peak and a campaign that never pays each
+have their own words). "If the success rate were…" lists the API's five rows;
+a rate outside the served bounds, the rate already set, or any rate while the
+figures are stale cannot be applied, and says why (that explanation is never
+dimmed with the stale figures).
+
+**Compare scenarios.** Up to four pins, each a response as it came (its echo
+and the point at its cut), beside a NOW row while the figures are current.
+No deltas are shown: the values sit side by side. Apply sets a pin's
+assumptions and cut again for the API to answer afresh; Remove moves the
+focus to the next Remove, the previous one, or Pin.
+
+**States.** Model-info pending: a skeleton. Model-info failed: retry.
+Model-info without the bounds or defaults: a plain note, no retry (it would
+answer the same). `outcomes_withheld`: a plain note, latched for the page's
+life, and nothing is asked at all when model-info says the partitions are
+unverified. 5xx or no answer: retried once on its own (`retrySweep`), then
+"Try again", which keeps the focus on the results heading; a failure,
+withheld outcomes or a response with no cut to draw that takes away the
+focused control do the same. 429 (the sweep is not rate
+limited, so only from something in between): never retried on its own. 422:
+the API's problems, or "The API refused these assumptions."
+
+**Money in the served currency.** `lib/format` gained a `currency` argument
+(USD output byte-identical), the currency's minor unit (`minorDigits`: 2 for
+USD, 0 for JPY, 3 for KWD), `price` (cents only when there are some) and an M
+tier for compact money ("$14.1M", switched at the rounded value). A currency
+`Intl` cannot read is written as given.
+
+**Deviations from this plan's Phase 3 list (`Simulator` above).**
+- Pins live in memory, not the URL: a pin is a response, and a URL could
+  only hold the assumptions, which the API would answer afresh anyway.
+- 250 ms settle, as every other box in the app, not 150 ms.
+- Two typed inputs (cost, horizon) and two sliders (the rates), not four
+  sliders: a cost or a horizon is a number someone has, not a position.
+- No cost-versus-retained bar and no "vs now" column: both would picture
+  figures the API does not send.
+- The cut is an index slider in its own card ("Where to cut"), not part of
+  the assumptions: it is a decision, not an assumption.
+
+**Kept on purpose.**
+- A rate the address gives outside the served bounds parks its slider at the
+  nearest end; reaching that end from the keyboard takes two presses (away
+  and back), since a range input fires no change for its own value. The
+  field says why the value cannot be sent.
+- Each field settles on its own timer, so two fields edited within 250 ms
+  send one superseded request: valid, never a duplicate.
+- The withheld latch is per visit: a new visit asks once more.
+- `moneyShort` has no B tier; the validation partition's money peaks around
+  $14M.
+
+**Checks:**
+- backend 880 passed, with `make lint`;
+- front end 756 tests (run twice, no `act` warning), with lint, type check,
+  format and build (Simulator chunk 10.51 kB gzip JS, 2.49 kB CSS);
+  `npm audit --omit=dev` 0 (the dev toolchain's 14 moderate: follow-up below);
+- in Chromium against the real API, through vite and through the built app
+  on :8001 under its CSP:
+  - every figure equals curl's (the defaults' figures above);
+  - "12.5" typed slowly sent one request; 20000 refused on the page, with no
+    request;
+  - the cut slider's arrow keys, Reset, a pin's Apply restoring it, the
+    chart's hover and click;
+  - "12,50" refused and every card marked stale;
+  - no console message, and no horizontal scroll at 375, 768, 1024 and 1440;
+- after the second pass, rechecked there: the cut card's echo and mark; the
+  rates' explanation at full opacity (#8b949e on #10151c, about 6:1); a cut
+  picked on stale figures reads "Set by hand" once they are current; Reset
+  with an edit not yet settled; the description of the rate already set; no
+  console message, no horizontal scroll at 375.
+
+### Simulator review (code-reviewer and qa-expert, 2026-10-31)
+
+**code-reviewer**: no critical; one high, one medium, ten low, nine nits.
+- **High: the reading cards showed figures for other assumptions unmarked**,
+  and called them "your other assumptions". Every card now names its echo
+  and is marked while stale (above).
+- **Medium: the focus dropped to the body** when a rate applied led to a
+  failed sweep (the card holding the button goes away). It now goes to the
+  results heading whenever a failure removes the focused control.
+- **Low, fixed:** a cut chosen on stale figures read as "follow"; the echo
+  model enforced the input bounds (`/model-info` could 500); the currency's
+  minor unit was ignored (JPY "¥12.50"); the empty-pins hint predicted what
+  the API would say; a retry that could never succeed for model-info
+  without bounds; the fixture's band floor differed from the server's
+  (`peak − cost`); missing tests (stale cards, mismatch on the page, the last
+  pin's Remove, a chart click adding a history entry, another currency).
+- **Low, answered with a guard:** the page's precision rule is not served;
+  a backend test holds the configured defaults to it.
+- **Nits, fixed:** the chart table lists every mark of a cut; a pasted true
+  minus reads as a minus; the sensitivity note when the first and last rows
+  share a cut; the free-offer wording; the live region is always mounted;
+  a disabled rate says why; no pin panel while outcomes are withheld.
+
+**qa-expert**: 92 hand-written mutants on a copy, then 22 proposed tests.
+- The weak spots it proved: a fixture consistent enough that a page
+  recomputing precision, recall, missed or offers to stayers would pass; a
+  recommendation that was also the peak in every test; pins checked only at
+  the moment of pinning; rate sliders never moved; the sensitivity card, the
+  currency, loading and busy states, history replace-versus-push and
+  Forward untested; typing tests that relied on keystrokes under 250 ms.
+- **Behaviour it found:** "12,50" was sent as 1250 and "1e3" as 13; a sweep
+  with no point at its own recommendation showed a skeleton for ever; a 422
+  with no problems showed an empty list; the horizon box offered a decimal
+  keypad.
+- All fixed test-first; its 22 tests were taken in (lint-clean, folded into
+  the existing describes), the fixture's point made non-derivable, and the
+  typing helper now pastes (the one test about quick typing types).
+
+**The second code-reviewer pass**, over the fixes, confirmed each first-pass
+fix (each with a test that fails without it) and found no critical or high
+finding: one medium, six low and five nits. All were fixed test-first, except
+where said:
+- **Medium: following the recommendation was index equality.** A cut chosen
+  on stale figures that is the recommendation once they are current claimed
+  to follow: Use recommended was disabled, `t` stayed in the address, and a
+  pin of it followed on Apply. Following now means the address sets no cut;
+  the REC tag stays a fact about the point.
+- **Low:**
+  - Reset ignored an edit not yet settled (the address was still at the
+    defaults). It now always sets, which writes the edit first and then
+    resets; at the defaults with no edit the address does not change.
+  - The focus fell to the body when withheld outcomes, or a response with no
+    cut to draw, took away the focused control. The recovery now follows
+    every such change, not only a failure.
+  - The cut card was the one card without the echo and its mark.
+  - The rates' explanations were dimmed with the stale figures. They are not.
+  - `typedNumber` cut a paste to 12 characters, so "0000000000050" became 5.
+    Text over 12 characters is now refused as too long; the box and the
+    address keep up to 64.
+  - Tests: `/model-info` with configured defaults outside the sweep's bounds
+    (200, now tested); the history entries Reset, a pin's Apply and Use
+    recommended add; fixed waits replaced by waiting for the address; the
+    quick-typing test types back to back (`delay: null`), so a busy machine
+    cannot settle between two keys.
+- **Nits:** a `t` beyond the grid ("1.50") is refused on read; the rate
+  already set says why it cannot be applied; a problem the API lists twice
+  no longer shares a key; the bounds models are frozen. Left as it is: the
+  bounds note says "outside the served bounds" for any refused rate, and the
+  rows are whole percents, so no other refusal can happen.
+
+**Mutants**, each run on its own: a Vite plugin swaps the text as the module
+loads (`cache` and `fsModuleCache` off, or Vitest reuses the unmutated
+module), and a mutant that no longer matches is reported, never counted as
+caught.
+- Front end: 68 for the first pass's fixes, then 12 for the second's.
+  - Five of the first survived, each an untested place: the live region's
+    role, YOURS while the figures are stale, the peak's mark in the chart
+    table, the net chart's stale mark, and the band's served floor. Each got
+    a test.
+  - One of the second survived, the REC tag: the case the medium made
+    reachable (a cut set by hand at the recommendation). It is now tested.
+  - All 80 are caught; the identity control survived each run.
+- Backend: six plus a control, run on `test_api` and `test_api_dashboard`.
+  `served-max` (the cost bound 10,000 → 10,001 in the one constant)
+  survived, since the sweep and `/model-info` move together. The served
+  bounds are now pinned to the contract above; that test and the echo test
+  catch it and an echo capped at the bounds.
+
+### Follow-ups found in this phase
+
+- **`npm audit` reports 14 moderate advisories in the dev toolchain**
+  (minimatch < 11.0.1, GHSA-g3hv-75wg-m249, via eslint and
+  `@redocly/openapi-core`), published after the batch page's audit was clean.
+  `npm audit --omit=dev` is clean; the lock file is untouched. A dependency
+  update, so the user's call.
+- **There is still no frontend CI job and no Playwright e2e or axe run**
+  (Phase 4): the range inputs' arrow keys were checked in Chromium by hand.
+- `explorer.ts:42` hard-codes the API's tenure bounds (seen while planning).

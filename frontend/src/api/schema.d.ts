@@ -438,6 +438,26 @@ export interface components {
       strength: number;
     };
     /**
+     * AssumptionBounds
+     * @description What ``/api/threshold/sweep`` accepts for each assumption, served so a page
+     *     refuses what the sweep would rather than a copy that could drift.
+     */
+    AssumptionBounds: {
+      expected_horizon_months: components['schemas']['AssumptionRange'];
+      gross_margin: components['schemas']['AssumptionRange'];
+      offer_success_rate: components['schemas']['AssumptionRange'];
+      retention_offer_cost: components['schemas']['AssumptionRange'];
+    };
+    /** AssumptionRange */
+    AssumptionRange: {
+      /** Integer */
+      integer: boolean;
+      /** Max */
+      max: number;
+      /** Min */
+      min: number;
+    };
+    /**
      * AtHalf
      * @description Validation metrics at threshold 0.50.
      */
@@ -596,6 +616,10 @@ export interface components {
     /**
      * BusinessAssumptions
      * @description SIMULATED economics: assumptions, never estimates from the data.
+     *
+     *     The echo of a ``Business``, so it holds ``Business``'s own invariants, not
+     *     what the sweep accepts (``ASSUMPTION_BOUNDS``): narrower bounds must refuse a
+     *     request, never break ``/model-info``.
      */
     BusinessAssumptions: {
       /** Currency */
@@ -1152,6 +1176,7 @@ export interface components {
      * @description What the service is serving. Deliberately excludes any filesystem path.
      */
     ModelInfoResponse: {
+      assumption_bounds?: components['schemas']['AssumptionBounds'] | null;
       business_defaults?: components['schemas']['BusinessAssumptions'] | null;
       /** Calibrated */
       calibrated: boolean;

@@ -11,6 +11,7 @@ import {
   customersQuery,
   retryDelay,
   retryExplanation,
+  retrySweep,
   scoreBatch,
   shouldRetry,
   useCustomer,
@@ -18,6 +19,7 @@ import {
   useCustomers,
   useExplanations,
   useSelection,
+  useSweep,
   type CustomerQuery,
 } from './queries';
 
@@ -209,6 +211,16 @@ describe('retries', () => {
     expect(retryExplanation(0, new Error('not from the API'))).toBe(false);
   });
 
+  it('asks for a sweep again once after a failure, never while outcomes are withheld', () => {
+    expect(retrySweep(0, new ApiError(503, 'dataset_unavailable'))).toBe(true);
+    expect(retrySweep(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(retrySweep(1, new ApiError(503, 'dataset_unavailable'))).toBe(false);
+    expect(retrySweep(0, new ApiError(503, 'outcomes_withheld'))).toBe(false);
+    expect(retrySweep(0, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
+    expect(retrySweep(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retrySweep(0, new Error('not from the API'))).toBe(false);
+  });
+
   it('waits as long as the server asks, up to ten seconds', () => {
     expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3))).toBe(3000);
     expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3600))).toBe(10_000);
@@ -246,5 +258,33 @@ describe('scoring a file', () => {
     expect(refusal).toBeInstanceOf(ApiError);
     expect((refusal as ApiError).problems).toEqual(problems.slice(0, 50));
     expect((refusal as ApiError).problemsOmitted).toBe(3);
+  });
+});
+
+describe('the threshold sweep', () => {
+  it('asks for nothing while there are no assumptions to send', async () => {
+    const seen = recordRequests();
+    const { result } = renderHook(() => useSweep(null), { wrapper });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+
+  it('sends every assumption it is given', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/threshold/sweep', 422, 'validation_error'));
+    const { result } = renderHook(
+      () => useSweep({ cost: 12.5, success: 0.3, horizon: 12, margin: 0.65 }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(seen.map((url) => [...url.searchParams])).toEqual([
+      [
+        ['cost', '12.5'],
+        ['success', '0.3'],
+        ['horizon', '12'],
+        ['margin', '0.65'],
+      ],
+    ]);
   });
 });

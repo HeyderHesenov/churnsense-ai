@@ -31,7 +31,7 @@ from churnsense.book import score_book
 from churnsense.config import Config, RateLimit
 from churnsense.data import schema
 from churnsense.evaluation.threshold import recommend_threshold
-from tests.conftest import SYNTHETIC_SHA256
+from tests.conftest import SWEEP_ASSUMPTIONS, SYNTHETIC_SHA256
 
 LOCAL = "http://localhost"
 LOOPBACK = ("127.0.0.1", 50000)
@@ -494,11 +494,24 @@ def test_the_sweep_follows_the_assumptions_it_is_given(served):
     assert band["low"] <= default["recommended"]["threshold"] == band["high"]
 
 
-@pytest.mark.parametrize(
-    "params", [{"success": 1.5}, {"cost": -1}, {"horizon": 0}, {"margin": "x"}, {"horizon": 2.5}]
-)
-def test_out_of_range_assumptions_are_a_422(served, params):
+@pytest.mark.parametrize("params", [{"margin": "x"}, {"cost": "nan"}, {"success": "inf"}])
+def test_assumptions_that_are_not_numbers_are_a_422(served, params):
     assert served.get("/api/threshold/sweep", params=params).status_code == 422
+
+
+def test_each_served_bound_is_accepted_and_a_step_beyond_it_refused(served):
+    """The bounds /model-info serves are the ones the sweep applies, at both ends."""
+    bounds = _ok(served.get("/api/model-info"))["assumption_bounds"]
+    for name, field in SWEEP_ASSUMPTIONS.items():
+        low, high, whole = bounds[field]["min"], bounds[field]["max"], bounds[field]["integer"]
+        step = 1 if whole else 0.01
+        for value in (low, high):
+            response = served.get("/api/threshold/sweep", params={name: value})
+            assert _ok(response)["assumptions"][field] == value, name
+        refused = [low - step, high + step] + ([low + 0.5] if whole else [])
+        for value in refused:
+            response = served.get("/api/threshold/sweep", params={name: value})
+            assert response.status_code == 422, (name, value)
 
 
 # --- performance ------------------------------------------------------------------------------

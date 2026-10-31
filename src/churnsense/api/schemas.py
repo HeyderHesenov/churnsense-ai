@@ -165,6 +165,7 @@ class ModelInfoResponse(BaseModel):
     business_defaults: BusinessAssumptions | None = None
     limits: UploadLimits | None = None
     numeric_bounds: NumericBounds | None = None
+    assumption_bounds: AssumptionBounds | None = None
     upload_contract: UploadContract | None = None
     provenance: Provenance | None = None
     test_evaluation: HoldoutSummary | None = None
@@ -179,8 +180,48 @@ class ErrorResponse(BaseModel):
 # --- shared by /model-info and the dashboard endpoints ----------------------------
 
 
+class NumericRange(BaseModel):
+    min: float
+    max: float
+
+
+class AssumptionRange(NumericRange):
+    model_config = ConfigDict(frozen=True)
+
+    integer: bool
+
+
+class AssumptionBounds(BaseModel):
+    """What ``/api/threshold/sweep`` accepts for each assumption, served so a page
+    refuses what the sweep would rather than a copy that could drift.
+
+    Frozen: one instance (``ASSUMPTION_BOUNDS``) is shared by every request."""
+
+    model_config = ConfigDict(frozen=True)
+
+    retention_offer_cost: AssumptionRange
+    offer_success_rate: AssumptionRange
+    expected_horizon_months: AssumptionRange
+    gross_margin: AssumptionRange
+
+
+#: The one statement of those bounds: the sweep's query parameters read them
+#: from here, and /model-info serves them.
+ASSUMPTION_BOUNDS = AssumptionBounds(
+    retention_offer_cost=AssumptionRange(min=0, max=10_000, integer=False),
+    offer_success_rate=AssumptionRange(min=0, max=1, integer=False),
+    expected_horizon_months=AssumptionRange(min=1, max=120, integer=True),
+    gross_margin=AssumptionRange(min=0, max=1, integer=False),
+)
+
+
 class BusinessAssumptions(BaseModel):
-    """SIMULATED economics: assumptions, never estimates from the data."""
+    """SIMULATED economics: assumptions, never estimates from the data.
+
+    The echo of a ``Business``, so it holds ``Business``'s own invariants, not
+    what the sweep accepts (``ASSUMPTION_BOUNDS``): narrower bounds must refuse a
+    request, never break ``/model-info``.
+    """
 
     currency: str
     retention_offer_cost: float
@@ -208,11 +249,6 @@ class UploadLimits(BaseModel):
     max_batch_rows: int
     max_upload_bytes: int
     max_upload_columns: int
-
-
-class NumericRange(BaseModel):
-    min: float
-    max: float
 
 
 class NumericBounds(BaseModel):

@@ -195,3 +195,43 @@ describe('a whole number that may be left empty', () => {
     expect(window.location.search).toBe('');
   });
 });
+
+describe('a number kept as it was typed', () => {
+  const typed = { cost: param.decimal({ maxLength: 8 }) };
+
+  function hook(search: string) {
+    window.history.replaceState(null, '', `/simulator${search}`);
+    return renderHook(() => useParams(typed));
+  }
+
+  it('reads as null when the key is left out, and as empty text when it is given empty', () => {
+    expect(hook('').result.current[0].cost).toBeNull();
+    expect(hook('?cost=').result.current[0].cost).toBe('');
+  });
+
+  it.each([['12.5'], ['12.'], ['.5'], ['-3'], ['-'], ['0'], ['12345678'], ['1e3'], ['12,50']])(
+    'keeps %s as it is, for the page to read',
+    (text) => {
+      expect(hook(`?cost=${text}`).result.current[0].cost).toBe(text);
+    },
+  );
+
+  it.each([
+    ['a space', '%205'],
+    ['a line break', '5%0A'],
+    ['text over the length limit', '123456789'],
+  ])('reads %s as null', (_name, text) => {
+    expect(hook(`?cost=${text}`).result.current[0].cost).toBeNull();
+  });
+
+  it('writes empty text as an empty value, and removes the key for null', () => {
+    const { result } = hook('');
+    act(() => result.current[1]({ cost: '12.5' }));
+    expect(window.location.search).toBe('?cost=12.5');
+    act(() => result.current[1]({ cost: '' }));
+    expect(window.location.search).toBe('?cost=');
+    expect(result.current[0].cost).toBe('');
+    act(() => result.current[1]({ cost: null }));
+    expect(window.location.search).toBe('');
+  });
+});

@@ -20,7 +20,7 @@ from churnsense.data.split import make_splits
 from churnsense.exceptions import ModelNotAvailableError
 from churnsense.models.predict import load_predictor
 from churnsense.models.train import save_artifact, train_all
-from tests.conftest import DROP, edit_sidecar
+from tests.conftest import DROP, SWEEP_ASSUMPTIONS, edit_sidecar
 
 #: TestClient's default host, "testserver", is not an allowed host.
 LOCAL = "http://localhost"
@@ -667,6 +667,78 @@ def test_model_info_serves_the_numeric_bounds(client):
     assert client.get("/model-info").json()["numeric_bounds"] == {
         column: {"min": low, "max": high} for column, (low, high) in schema.NUMERIC_BOUNDS.items()
     }
+
+
+def test_model_info_serves_the_bounds_the_sweep_enforces(client):
+    """The simulator refuses what the sweep would from these, not from a copy that could drift."""
+    operation = client.app.openapi()["paths"]["/api/threshold/sweep"]["get"]
+    enforced = {}
+    for parameter in operation["parameters"]:
+        (accepted,) = [s for s in parameter["schema"]["anyOf"] if s["type"] != "null"]
+        enforced[SWEEP_ASSUMPTIONS[parameter["name"]]] = {
+            "min": accepted["minimum"],
+            "max": accepted["maximum"],
+            "integer": accepted["type"] == "integer",
+        }
+    assert client.get("/model-info").json()["assumption_bounds"] == enforced
+    assert len(enforced) == len(SWEEP_ASSUMPTIONS)
+
+
+def test_the_configured_assumptions_lie_inside_the_served_bounds(client):
+    """``Business`` caps neither the cost nor the horizon: a default outside the bounds
+    would leave the simulator unable to send the figures it starts from."""
+    info = client.get("/model-info").json()
+    for field, bounds in info["assumption_bounds"].items():
+        assert bounds["min"] <= info["business_defaults"][field] <= bounds["max"], field
+
+
+def test_the_configured_assumptions_are_as_precise_as_the_simulator_shows(cfg: Config):
+    """The simulator shows rates in whole percents and money in its currency's
+    minor unit (cents, for the configured USD), and sends only what it shows: a
+    default finer than that would leave it unable to send its own starting point."""
+    business = cfg.business
+    assert business.currency == "USD", "cents are USD's minor unit; check the new currency's"
+    for value in (
+        business.offer_success_rate * 100,
+        business.gross_margin * 100,
+        business.retention_offer_cost * 100,
+    ):
+        assert abs(value - round(value)) < 1e-9, value
+
+
+def test_the_served_assumption_bounds_are_the_documented_contract(client):
+    """The bounds are part of the API (docs/frontend/PLAN.md): one source keeps the
+    sweep and /model-info agreeing, and this keeps a change to it a decision."""
+    assert client.get("/model-info").json()["assumption_bounds"] == {
+        "retention_offer_cost": {"min": 0, "max": 10_000, "integer": False},
+        "offer_success_rate": {"min": 0, "max": 1, "integer": False},
+        "expected_horizon_months": {"min": 1, "max": 120, "integer": True},
+        "gross_margin": {"min": 0, "max": 1, "integer": False},
+    }
+
+
+def test_model_info_echoes_configured_defaults_the_sweep_would_refuse(client, monkeypatch):
+    """The echo holds ``Business``'s invariants, not the sweep's bounds: a default
+    outside them is the simulator's to refuse, never a 500 from /model-info."""
+    import dataclasses
+    from types import SimpleNamespace
+
+    from churnsense.api import main as api_main
+
+    predictor = api_main.require_predictor()
+    business = dataclasses.replace(
+        predictor.config.business, retention_offer_cost=20_000, expected_horizon_months=240
+    )
+    config = dataclasses.replace(predictor.config, business=business)
+    served = SimpleNamespace(meta=predictor.meta, config=config)
+    monkeypatch.setattr(api_main, "require_predictor", lambda: served)
+    response = client.get("/model-info")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["business_defaults"]["retention_offer_cost"] == 20_000
+    assert body["business_defaults"]["expected_horizon_months"] == 240
+    assert body["assumption_bounds"]["retention_offer_cost"]["max"] < 20_000
+    assert body["assumption_bounds"]["expected_horizon_months"]["max"] < 240
 
 
 def test_model_info_serves_the_upload_contract(client):

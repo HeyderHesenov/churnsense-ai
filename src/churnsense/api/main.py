@@ -48,6 +48,7 @@ from churnsense.api.middleware import (
     error_response,
 )
 from churnsense.api.schemas import (
+    ASSUMPTION_BOUNDS,
     BatchPredictionRow,
     BatchResponse,
     BusinessAssumptions,
@@ -234,6 +235,7 @@ def model_info(
             max_upload_columns=cfg.api.max_upload_columns,
         ),
         numeric_bounds=NumericBounds.of_contract(),
+        assumption_bounds=ASSUMPTION_BOUNDS,
         upload_contract=UploadContract.of_served(
             meta["feature_columns"], upload_rules(meta["feature_columns"])
         ),

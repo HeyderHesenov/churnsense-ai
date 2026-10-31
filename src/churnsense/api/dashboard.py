@@ -32,6 +32,7 @@ from pydantic import StringConstraints, ValidationError
 from churnsense import insights, reports
 from churnsense.api import dashboard_schemas as out
 from churnsense.api.schemas import (
+    ASSUMPTION_BOUNDS,
     BusinessAssumptions,
     ContractValue,
     CustomerFeatures,
@@ -592,14 +593,22 @@ def segments(
 
 # --- threshold economics ----------------------------------------------------------------------
 
+#: What the sweep accepts, as /model-info serves it.
+_COST, _SUCCESS, _HORIZON, _MARGIN = (
+    ASSUMPTION_BOUNDS.retention_offer_cost,
+    ASSUMPTION_BOUNDS.offer_success_rate,
+    ASSUMPTION_BOUNDS.expected_horizon_months,
+    ASSUMPTION_BOUNDS.gross_margin,
+)
+
 
 @router.get("/threshold/sweep", response_model=out.SweepResponse, responses=_ERRORS)
 def threshold_sweep(
     d: Annotated[Dashboard, Depends(get_dashboard)],
-    cost: Annotated[float | None, Query(ge=0, le=10_000)] = None,
-    success: Annotated[float | None, Query(ge=0, le=1)] = None,
-    horizon: Annotated[int | None, Query(ge=1, le=120)] = None,
-    margin: Annotated[float | None, Query(ge=0, le=1)] = None,
+    cost: Annotated[float | None, Query(ge=_COST.min, le=_COST.max)] = None,
+    success: Annotated[float | None, Query(ge=_SUCCESS.min, le=_SUCCESS.max)] = None,
+    horizon: Annotated[int | None, Query(ge=_HORIZON.min, le=_HORIZON.max)] = None,
+    margin: Annotated[float | None, Query(ge=_MARGIN.min, le=_MARGIN.max)] = None,
 ) -> out.SweepResponse:
     """The validation partition swept across thresholds under the given assumptions.
 

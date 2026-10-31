@@ -1,0 +1,589 @@
+/* The retention simulator, with Simulator.dc.html's measurements: assumptions in amber on the left, results on the right. */
+
+.simNote {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border: 1px solid var(--sim-line);
+  border-radius: var(--radius-12);
+  background: var(--sim-soft);
+  font-size: 13px;
+  color: var(--sim-note);
+}
+.simNote p {
+  margin: 0;
+}
+.simNote b {
+  font-weight: 600;
+  color: var(--sim-text);
+}
+.simNoteIcon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--sim);
+}
+
+/* --- layout ------------------------------------------------------------------ */
+.layout {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+.controls,
+.output {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+@media (min-width: 1024px) {
+  .layout {
+    grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+  }
+  .controls {
+    position: sticky;
+    top: 16px;
+  }
+}
+
+/* --- assumptions --------------------------------------------------------------- */
+.panel {
+  gap: 18px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fieldTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.fieldValue {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--sim-text);
+}
+.cutValue {
+  font-family: var(--font-mono);
+  font-size: 18px;
+}
+.inputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.input {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  background: var(--well);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-9);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.invalid {
+  border-color: var(--critical-line);
+}
+.unit {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.slider {
+  width: 100%;
+  margin: 4px 0;
+  accent-color: var(--sim);
+}
+.bounds,
+.caveat,
+.problem,
+.tip,
+.followNote {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.bounds {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.problem {
+  color: var(--critical-ink);
+}
+.problem::before {
+  content: '! ';
+  font-weight: 700;
+}
+.formula {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--well);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-2);
+}
+.formula p {
+  margin: 0;
+}
+.formula span {
+  color: var(--muted);
+}
+.formulaTitle {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.formulaNet {
+  color: var(--ink);
+}
+.follow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.followNote {
+  font-size: 12px;
+}
+
+/* --- results ------------------------------------------------------------------- */
+.results {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--sim-card-line);
+  border-radius: var(--radius-16);
+  background: var(--surface);
+}
+/* Figures for other assumptions: dimmed under the line that names them. */
+.stale .groups,
+.stale .recommended,
+.stale figure,
+.stale .readingText,
+.stale .rates,
+.stale .readingNote:not(.why) {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+.forLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.staleMark {
+  font-family: var(--font-sans);
+  color: var(--critical-ink);
+}
+.staleMark::before {
+  content: '! ';
+  font-weight: 700;
+}
+.unserved {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.resultsTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.resultsTitle {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.resultsTitle:focus {
+  outline: none;
+}
+.statusNote {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--sim-line);
+  border-radius: var(--radius-9);
+  font-size: 12.5px;
+  color: var(--sim-note);
+}
+.statusNote[data-status='unsent'],
+.statusNote[data-status='mismatch'] {
+  border-color: var(--critical-line);
+  color: var(--critical-ink);
+}
+.provenance {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.withheld {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-14);
+}
+.simGroup {
+  border-color: var(--sim-card-line);
+  background: linear-gradient(180deg, var(--sim-soft), transparent 70%);
+}
+.groupTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.groupNote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 10px 14px;
+  margin: 6px 0 0;
+}
+.figure {
+  min-width: 0;
+}
+.figure dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+.figure dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.wide {
+  grid-column: 1 / -1;
+}
+.wide dd {
+  font-size: 30px;
+}
+.of {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.net[data-sign='net gain'] {
+  color: var(--sim-text);
+}
+.net[data-sign='net loss'] {
+  color: var(--critical-ink);
+}
+.netWord {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.recommended {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--sim-text);
+}
+.disclaimer {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.refused {
+  font-size: 13px;
+  color: var(--critical-ink);
+}
+.refused p,
+.refused ul {
+  margin: 0;
+}
+.refused ul {
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* --- charts -------------------------------------------------------------------- */
+.chartCard {
+  gap: 10px;
+}
+.subTitle {
+  margin: 8px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.grid {
+  stroke: var(--line-soft);
+}
+.zero {
+  stroke: var(--line-axis);
+}
+.band {
+  fill: var(--sim-soft-2);
+}
+.served {
+  stroke: var(--muted);
+  stroke-dasharray: 3 4;
+}
+.netLine {
+  fill: none;
+  stroke: var(--sim);
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+}
+.selectedLine {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+.hoverLine {
+  stroke: var(--ink-2);
+  stroke-dasharray: 3 3;
+  pointer-events: none;
+}
+.peak {
+  fill: var(--surface);
+  stroke: var(--sim);
+  stroke-width: 2;
+}
+.rec {
+  fill: var(--sim);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.precisionLine,
+.recallLine {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.precisionLine {
+  stroke: var(--precision);
+}
+.recallLine {
+  stroke: var(--recall);
+  stroke-dasharray: 6 3;
+}
+.tick {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--muted);
+}
+.yTick {
+  position: absolute;
+  left: calc(54 / 760 * 100%);
+  top: calc(var(--y) * 100%);
+  transform: translate(-100%, -50%);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.capture {
+  position: absolute;
+  left: calc(60 / 760 * 100%);
+  top: calc(var(--top) * 100%);
+  width: calc(684 / 760 * 100%);
+  height: calc(var(--h) * 100%);
+  cursor: crosshair;
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.netKey,
+.precisionKey,
+.recallKey {
+  width: 14px;
+  height: 2px;
+}
+.netKey {
+  background: var(--sim);
+}
+.precisionKey {
+  background: var(--precision);
+}
+.recallKey {
+  border-top: 2px dashed var(--recall);
+  height: 0;
+}
+.bandKey {
+  width: 14px;
+  height: 9px;
+  border-radius: var(--radius-2);
+  background: var(--sim-soft-2);
+  border: 1px solid var(--sim-line);
+}
+.recKey,
+.peakKey {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.recKey {
+  background: var(--sim);
+}
+.peakKey {
+  border: 2px solid var(--sim);
+}
+.selectedKey {
+  width: 0;
+  height: 12px;
+  border-left: 1.5px solid var(--ink);
+}
+.servedKey {
+  width: 0;
+  height: 12px;
+  border-left: 1.5px dashed var(--muted);
+}
+
+/* --- reading the recommendation ---------------------------------------------- */
+.readings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+.reading {
+  gap: 10px;
+}
+.readingText,
+.readingNote {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+.readingNote {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rate {
+  display: grid;
+  grid-template-columns: minmax(64px, 1fr) auto minmax(72px, auto) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line-row);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.rateName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rateCut {
+  color: var(--ink-2);
+}
+.rateNet {
+  text-align: right;
+  color: var(--sim-text);
+}
+
+/* --- scenarios ------------------------------------------------------------------ */
+.scenarios {
+  gap: 10px;
+}
+.scenariosHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 20px;
+}
+.pinWhy,
+.emptyPins {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.emptyPins {
+  padding: 4px 20px 14px;
+  font-size: 13px;
+}
+.tableWrap {
+  overflow-x: auto;
+}
+.pins {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.pins th {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pins td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-row);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+.pins th:first-child,
+.pins td:first-child {
+  padding-left: 20px;
+}
+.nowRow td {
+  background: var(--sim-soft);
+}
+.pinActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-right: 20px;
+}

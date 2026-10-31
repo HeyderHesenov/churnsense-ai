@@ -280,12 +280,26 @@ export interface Assumptions {
   margin: number;
 }
 
+/**
+ * A sweep is asked for again once when the server or the network failed; never
+ * when the server withholds the validation outcomes it rests on, which it does
+ * for as long as it runs.
+ */
+export function retrySweep(failures: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.code === 'outcomes_withheld') return false;
+  return shouldRetry(failures, error);
+}
+
+/** The validation sweep under ``assumptions``; nothing is asked for while they are ``null``. */
 export function useSweep(assumptions: Assumptions | null): UseQueryResult<Sweep> {
   return useQuery({
     queryKey: ['sweep', assumptions],
-    queryFn: ({ signal }) =>
-      request<Sweep>('/threshold/sweep', { query: { ...assumptions }, signal }),
+    queryFn:
+      assumptions === null
+        ? skipToken
+        : ({ signal }) => request<Sweep>('/threshold/sweep', { query: { ...assumptions }, signal }),
     placeholderData: keepPreviousData,
+    retry: (failures, error: Error) => retrySweep(failures, error),
   });
 }
 

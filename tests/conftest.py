@@ -180,6 +180,14 @@ def _api_guards(monkeypatch_session):
 #: partitions are trusted exactly as the real artifact's would be.
 SYNTHETIC_SHA256 = hashlib.sha256(b"synthetic customers").hexdigest()
 
+#: The threshold sweep's query parameters and the assumption each one sets.
+SWEEP_ASSUMPTIONS = {
+    "cost": "retention_offer_cost",
+    "success": "offer_success_rate",
+    "horizon": "expected_horizon_months",
+    "margin": "gross_margin",
+}
+
 
 @pytest.fixture(scope="session")
 def dashboard_parts(clean_frame: pd.DataFrame, cfg: Config):

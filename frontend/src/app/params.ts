@@ -87,6 +87,25 @@ function text({ pattern, maxLength }: { pattern: RegExp; maxLength: number }): P
   };
 }
 
+/** No space or line break: what a number box keeps of what is typed. */
+const UNBROKEN = /^\S*$/;
+
+/**
+ * A number as it was typed, kept as text so a box can hold "12." on its way
+ * to "12.5", and "12,50" as typed rather than as another number. ``null`` is
+ * the key left out (the default); ``''`` is the key given empty, which a page
+ * reads as nothing given, not as the default. The page says whether the text
+ * is a number in its bounds; only text no box could hold reads as ``null``.
+ */
+function decimal({ maxLength }: { maxLength: number }): Param<string | null> {
+  return {
+    fallback: null,
+    parse: ([raw]) =>
+      raw !== undefined && raw.length <= maxLength && UNBROKEN.test(raw) ? raw : null,
+    write: (value) => value ?? undefined,
+  };
+}
+
 /**
  * Several of ``values``: the key repeated. Members are kept in the order
  * ``values`` declares, so one choice has one address whatever order it was
@@ -126,7 +145,7 @@ function list<const T extends string, const D extends readonly T[] | null>(
   };
 }
 
-export const param = { choice, optional, int, optionalInt, text, list };
+export const param = { choice, optional, int, optionalInt, text, decimal, list };
 
 type Schema = Record<string, Param<unknown>>;
 export type Values<S extends Schema> = {

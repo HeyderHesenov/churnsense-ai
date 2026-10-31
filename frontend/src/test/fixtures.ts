@@ -63,6 +63,14 @@ export function modelInfo(overrides: Partial<ModelInfo> = {}): ModelInfo {
       gross_margin: 0.65,
     },
     limits: { max_batch_rows: 10000, max_upload_bytes: 5242880, max_upload_columns: 1000 },
+    // Unlike the real bounds (0 to 10,000, 0 to 1, 1 to 120, 0 to 1), so a page
+    // that shows or applies these read them from here.
+    assumption_bounds: {
+      retention_offer_cost: { min: 1, max: 500, integer: false },
+      offer_success_rate: { min: 0, max: 0.8, integer: false },
+      expected_horizon_months: { min: 2, max: 60, integer: true },
+      gross_margin: { min: 0.1, max: 0.9, integer: false },
+    },
     numeric_bounds: {
       tenure: { min: 0, max: 120 },
       MonthlyCharges: { min: 0, max: 1000 },
