@@ -234,7 +234,8 @@ export interface paths {
     };
     /**
      * Performance
-     * @description Selection, calibration and the validation sweep, plus the recorded test evaluation.
+     * @description Selection, calibration, the validation sweep and the served model measured
+     *     on validation, plus the recorded test evaluation.
      *
      *     No figure here is computed from the test partition: the test block is the
      *     record ``make evaluate CONFIRM=yes`` wrote for this very artifact, or
@@ -441,6 +442,8 @@ export interface components {
      * AssumptionBounds
      * @description What ``/api/threshold/sweep`` accepts for each assumption, served so a page
      *     refuses what the sweep would rather than a copy that could drift.
+     *
+     *     Frozen: one instance (``ASSUMPTION_BOUNDS``) is shared by every request.
      */
     AssumptionBounds: {
       expected_horizon_months: components['schemas']['AssumptionRange'];
@@ -1025,6 +1028,8 @@ export interface components {
      * @description Recorded by ``make evaluate CONFIRM=yes``; no page computes it.
      */
     HoldoutEvaluation: {
+      /** Churn Rate */
+      churn_rate: number | null;
       /** Ece */
       ece: number | null;
       /** Evaluated At */
@@ -1037,7 +1042,10 @@ export interface components {
       /** Test Optimal Threshold */
       test_optimal_threshold: number;
     };
-    /** HoldoutMetrics */
+    /**
+     * HoldoutMetrics
+     * @description The recorded test evaluation's metrics.
+     */
     HoldoutMetrics: {
       /** Accuracy */
       accuracy: number;
@@ -1071,6 +1079,8 @@ export interface components {
     /**
      * HoldoutSegment
      * @description One segment of the recorded test evaluation; rates are null below 20 customers.
+     *
+     *     Records written before intervals were kept have none: those fields are null.
      */
     HoldoutSegment: {
       /** Churn Rate */
@@ -1087,12 +1097,22 @@ export interface components {
       flagged_rate: number | null;
       /** Precision */
       precision: number | null;
+      /** Precision High */
+      precision_high?: number | null;
+      /** Precision Low */
+      precision_low?: number | null;
       /** Recall */
       recall: number | null;
+      /** Recall High */
+      recall_high?: number | null;
+      /** Recall Low */
+      recall_low?: number | null;
+      /** Roc Auc */
+      roc_auc?: number | null;
       /** Segment */
       segment: string;
       /** Unscanned */
-      unscanned: boolean;
+      unscanned: boolean | null;
     };
     /**
      * HoldoutSummary
@@ -1290,6 +1310,8 @@ export interface components {
       candidates: components['schemas']['Candidate'][] | null;
       /** Display Name */
       display_name: string;
+      /** Model Sha256 */
+      model_sha256: string | null;
       selection: components['schemas']['Selection'] | null;
       test: components['schemas']['HoldoutEvaluation'] | null;
       /** Test Reason */
@@ -1297,6 +1319,7 @@ export interface components {
       /** Threshold */
       threshold: number;
       validation: components['schemas']['ValidationCurve'] | null;
+      validation_evaluation: components['schemas']['ValidationEvaluation'] | null;
       /** Withheld Reason */
       withheld_reason: string | null;
     };
@@ -1337,6 +1360,26 @@ export interface components {
       verified: boolean;
       /** Withheld Reason */
       withheld_reason: string | null;
+    };
+    /**
+     * ReliabilityBin
+     * @description Customers whose probability fell in ``(low, high]`` (the first bin holds 0 too).
+     *
+     *     ``churned`` and ``rate`` are null for fewer than 20 customers.
+     */
+    ReliabilityBin: {
+      /** Churned */
+      churned: number | null;
+      /** Customers */
+      customers: number;
+      /** High */
+      high: number;
+      /** Low */
+      low: number;
+      /** Mean Predicted */
+      mean_predicted: number;
+      /** Rate */
+      rate: number | null;
     };
     /**
      * ReportedCell
@@ -1454,6 +1497,8 @@ export interface components {
       folds: number;
       /** Leader */
       leader: string;
+      /** Leader Name */
+      leader_name: string;
       /** Metric */
       metric: string;
       /** Rule */
@@ -1597,7 +1642,127 @@ export interface components {
       /** Customers */
       customers: number;
       /** Points */
-      points: components['schemas']['SweepPoint'][];
+      points: components['schemas']['ValidationCut'][];
+    };
+    /**
+     * ValidationCut
+     * @description A sweep point with the customers it leaves alone who stayed.
+     */
+    ValidationCut: {
+      /** F1 */
+      f1: number;
+      /** False Negatives */
+      false_negatives: number;
+      /** False Positives */
+      false_positives: number;
+      /** Flagged */
+      flagged: number;
+      /** Intervention Cost */
+      intervention_cost: number;
+      /** Net Benefit */
+      net_benefit: number;
+      /** Precision */
+      precision: number;
+      /** Recall */
+      recall: number;
+      /** Retained Value */
+      retained_value: number;
+      /** Threshold */
+      threshold: number;
+      /** True Negatives */
+      true_negatives: number;
+      /** True Positives */
+      true_positives: number;
+    };
+    /**
+     * ValidationEvaluation
+     * @description The served model measured on validation, which chose the threshold and calibration.
+     */
+    ValidationEvaluation: {
+      /** Churn Rate */
+      churn_rate: number;
+      /** Ece */
+      ece: number;
+      metrics: components['schemas']['ValidationMetrics'];
+      /** No Skill Accuracy */
+      no_skill_accuracy: number;
+      /** Reliability */
+      reliability: components['schemas']['ReliabilityBin'][];
+      /** Segments */
+      segments: components['schemas']['ValidationSegment'][];
+    };
+    /**
+     * ValidationMetrics
+     * @description The served model on the validation partition, at the shipped threshold.
+     */
+    ValidationMetrics: {
+      /** Accuracy */
+      accuracy: number;
+      /** Average Precision */
+      average_precision: number;
+      /** Brier */
+      brier: number;
+      /** F1 */
+      f1: number;
+      /** Fn */
+      fn: number;
+      /** Fp */
+      fp: number;
+      /** N */
+      n: number;
+      /** Positives */
+      positives: number;
+      /** Precision */
+      precision: number;
+      /** Recall */
+      recall: number;
+      /** Roc Auc */
+      roc_auc: number;
+      /** Threshold */
+      threshold: number;
+      /** Tn */
+      tn: number;
+      /** Tp */
+      tp: number;
+    };
+    /**
+     * ValidationSegment
+     * @description One segment at the shipped threshold; every outcome field is null below 20 customers.
+     *
+     *     ``precision`` is null where nothing is flagged (undefined, not zero) and
+     *     ``recall`` where nobody churned; intervals are 95 % Wilson intervals.
+     */
+    ValidationSegment: {
+      /** Churn Rate */
+      churn_rate: number | null;
+      /** Churners */
+      churners: number | null;
+      /** Customers */
+      customers: number;
+      /** Dimension */
+      dimension: string;
+      /** Flagged */
+      flagged: number;
+      /** Flagged Rate */
+      flagged_rate: number | null;
+      /** Precision */
+      precision: number | null;
+      /** Precision High */
+      precision_high: number | null;
+      /** Precision Low */
+      precision_low: number | null;
+      /** Recall */
+      recall: number | null;
+      /** Recall High */
+      recall_high: number | null;
+      /** Recall Low */
+      recall_low: number | null;
+      /** Roc Auc */
+      roc_auc: number | null;
+      /** Segment */
+      segment: string;
+      /** Unscanned */
+      unscanned: boolean | null;
     };
   };
   responses: never;

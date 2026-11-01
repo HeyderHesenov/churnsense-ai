@@ -61,6 +61,7 @@ from churnsense.explainability.shap_explain import (
 )
 from churnsense.exports import csv_bytes
 from churnsense.models.predict import ignored_columns
+from churnsense.models.registry import DISPLAY_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,20 @@ def _points(sweep: pd.DataFrame) -> list[out.SweepPoint]:
     return [out.SweepPoint(**row) for row in sweep[columns].to_dict(orient="records")]
 
 
+def _curve(economics: insights.Economics) -> out.ValidationCurve:
+    """The sweep with each cut's true negatives: stayers who were left alone."""
+    stayed = economics.customers - economics.churners
+    columns = list(out.SweepPoint.model_fields)
+    return out.ValidationCurve(
+        customers=economics.customers,
+        churners=economics.churners,
+        points=[
+            out.ValidationCut(**row, true_negatives=stayed - row["false_positives"])
+            for row in economics.sweep[columns].to_dict(orient="records")
+        ],
+    )
+
+
 def _report(reader: Callable[[Path], pd.DataFrame | None], directory: Path) -> pd.DataFrame | None:
     """A tracked report, or ``None`` - also when it is malformed, which is logged, not raised."""
     try:
@@ -171,20 +186,18 @@ def recorded_evaluation(reports_dir: Path, model_sha256: str) -> out.HoldoutEval
         record = reports.final_evaluation(reports_dir, model_sha256)
         if record is None:
             return None
+        fields = out.HoldoutSegment.model_fields
         segments = [
-            {k: row[k] for k in out.HoldoutSegment.model_fields}
-            | (
-                {}
-                if row["customers"] >= insights.MIN_CELL
-                else dict.fromkeys(
-                    ("churners", "churn_rate", "flagged_rate", "precision", "recall")
-                )
+            insights.small_group(
+                {k: row[k] if f.is_required() else row.get(k) for k, f in fields.items()}
             )
             for row in record["segments"]
         ]
+        metrics = record["metrics"]
         return out.HoldoutEvaluation(
             evaluated_at=record["evaluated_at"],
-            metrics=record["metrics"],
+            metrics=metrics,
+            churn_rate=metrics["positives"] / metrics["n"] if metrics["n"] else None,
             ece=record["ece"],
             no_skill_accuracy=record["no_skill_accuracy"],
             test_optimal_threshold=record["test_optimal_threshold"],
@@ -658,7 +671,8 @@ def _at_half(metrics: dict | None) -> out.AtHalf | None:
 
 @router.get("/performance", response_model=out.PerformanceResponse, responses=_ERRORS)
 def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.PerformanceResponse:
-    """Selection, calibration and the validation sweep, plus the recorded test evaluation.
+    """Selection, calibration, the validation sweep and the served model measured
+    on validation, plus the recorded test evaluation.
 
     No figure here is computed from the test partition: the test block is the
     record ``make evaluate CONFIRM=yes`` wrote for this very artifact, or
@@ -671,6 +685,7 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
     record = recorded_evaluation(d.reports_dir, meta.get("model_sha256", ""))
     return out.PerformanceResponse(
         display_name=meta["display_name"],
+        model_sha256=meta.get("model_sha256"),
         threshold=d.model.threshold,
         selection=None
         if not selection
@@ -679,6 +694,7 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
             metric=meta["cv_metric"],
             folds=meta["cv_folds"],
             leader=selection["leader"],
+            leader_name=DISPLAY_NAMES.get(selection["leader"], selection["leader"]),
             standard_error=selection["standard_error"],
             cutoff=selection["cutoff"],
             eligible=selection["eligible"],
@@ -698,12 +714,12 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
             calibrated_ece=meta.get("calibrated_ece"),
         ),
         bands=d.memo("bands", lambda: insights.band_summaries(d.book, d.config)),
-        validation=None
-        if economics is None
-        else out.ValidationCurve(
-            customers=economics.customers,
-            churners=economics.churners,
-            points=_points(economics.sweep),
+        validation=None if economics is None else _curve(economics),
+        validation_evaluation=d.memo(
+            "validation_evaluation",
+            lambda: insights.validation_evaluation(
+                d.book, d.model.threshold, schema.VALIDATION_SEGMENTS
+            ),
         ),
         test=record,
         test_reason=None

@@ -140,6 +140,33 @@ def test_reliability_table_drops_empty_bins():
     assert len(table) == 1, "only the bin containing 0.5 should appear"
 
 
+def test_reliability_table_keeps_its_columns_unless_edges_are_asked_for():
+    """The recorded test report writes these columns; edges are opt-in."""
+    y = np.array([0, 1] * 20)
+    proba = np.linspace(0.0, 1.0, 40)
+    assert list(reliability_table(y, proba).columns) == [
+        "mean_predicted",
+        "observed_rate",
+        "count",
+        "gap",
+    ]
+    edged = reliability_table(y, proba, with_edges=True)
+    assert list(edged.columns) == ["low", "high", "mean_predicted", "observed_rate", "count", "gap"]
+
+
+def test_reliability_edges_are_the_bins_the_customers_fell_into():
+    """Right-closed bins: 0.0 and 0.1 share the first, 0.1001 starts the second;
+    an empty bin is dropped, so edges cannot be inferred from positions."""
+    y = np.array([0, 1, 0, 1, 1])
+    proba = np.array([0.0, 0.1, 0.1001, 0.55, 1.0])
+    table = reliability_table(y, proba, with_edges=True)
+    assert table["low"].tolist() == pytest.approx([0.0, 0.1, 0.5, 0.9])
+    assert table["high"].tolist() == pytest.approx([0.1, 0.2, 0.6, 1.0])
+    assert table["count"].tolist() == [2, 1, 1, 1]
+    assert (table["mean_predicted"] >= table["low"]).all()
+    assert (table["mean_predicted"] <= table["high"]).all()
+
+
 def test_expected_calibration_error_is_zero_for_a_perfectly_calibrated_model():
     rng = np.random.default_rng(0)
     proba = rng.uniform(0, 1, 20_000)

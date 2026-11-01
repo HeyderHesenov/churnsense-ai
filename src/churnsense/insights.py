@@ -27,6 +27,13 @@ import pandas as pd
 from churnsense import analysis as an
 from churnsense import book as books
 from churnsense.data import schema
+from churnsense.evaluation.metrics import (
+    ClassificationMetrics,
+    evaluate,
+    expected_calibration_error,
+    reliability_table,
+    segment_table,
+)
 from churnsense.evaluation.threshold import (
     ThresholdScenario,
     indifference_band,
@@ -46,6 +53,23 @@ HISTOGRAM_BINS = 20
 #: reliability threshold for what a page presents - not disclosure control:
 #: training and validation customers' own outcomes are listed one by one.
 MIN_CELL = 20
+#: A segment row's fields that state an outcome, or rest on one: a segment of
+#: fewer than ``MIN_CELL`` customers shows none of them. A 95 % interval is a
+#: rate in disguise, a within-segment ROC-AUC is read off the outcomes, and
+#: "not scanned" (nobody flagged though someone churned) says whether anyone did.
+SEGMENT_OUTCOMES: tuple[str, ...] = (
+    "churners",
+    "churn_rate",
+    "flagged_rate",
+    "precision",
+    "precision_low",
+    "precision_high",
+    "recall",
+    "recall_low",
+    "recall_high",
+    "roc_auc",
+    "unscanned",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +124,21 @@ OVERVIEW_SEGMENTS: tuple[str, ...] = ("Contract", "PaymentMethod", "InternetServ
 def _rate(numerator: float, denominator: float) -> float | None:
     """A share, or ``None`` when there is nothing to divide by."""
     return float(numerator) / float(denominator) if denominator else None
+
+
+def _finite(value: object) -> object:
+    """``value``, with an undefined float (NaN) as ``None``: JSON has no NaN."""
+    return None if isinstance(value, float) and np.isnan(value) else value
+
+
+def small_group(row: dict) -> dict:
+    """A segment row, or the same row with every outcome field null below ``MIN_CELL``.
+
+    The one rule for a segment table, recorded (test) or measured (validation).
+    """
+    if row["customers"] >= MIN_CELL:
+        return row
+    return row | dict.fromkeys(SEGMENT_OUTCOMES)
 
 
 def histogram_bins(probabilities: pd.Series | np.ndarray) -> np.ndarray:
@@ -218,6 +257,21 @@ class Economics:
     band_high: float
     band_floor: float
     sensitivity: pd.DataFrame
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationEvaluation:
+    """The served model measured on the validation partition at one threshold."""
+
+    metrics: ClassificationMetrics
+    #: Churners over customers: the precision of flagging everyone, PR-AUC's no-skill line.
+    churn_rate: float
+    #: The accuracy of flagging nobody.
+    no_skill_accuracy: float
+    #: Expected calibration error over ``reliability``'s bins, on the served probabilities.
+    ece: float
+    reliability: list[dict]
+    segments: list[dict]
 
 
 # --- the book, scored --------------------------------------------------------
@@ -413,6 +467,63 @@ def economics(book: books.Book, business: Business) -> Economics | None:
         band_high=float(band["threshold"].max()),
         band_floor=float(sweep["net_benefit"].max() - max(business.retention_offer_cost, 0.0)),
         sensitivity=threshold_sensitivity(y, p, charges, business),
+    )
+
+
+def reliability_bins(y: np.ndarray, p: np.ndarray) -> list[dict]:
+    """``reliability_table``'s bins with their edges; below ``MIN_CELL`` customers, no rate."""
+    return [
+        {
+            "low": float(row.low),
+            "high": float(row.high),
+            "customers": int(row.count),
+            "mean_predicted": float(row.mean_predicted),
+        }
+        | (
+            {"churned": round(row.observed_rate * row.count), "rate": float(row.observed_rate)}
+            if row.count >= MIN_CELL
+            else {"churned": None, "rate": None}
+        )
+        for row in reliability_table(y, p, with_edges=True).itertuples(index=False)
+    ]
+
+
+def validation_evaluation(
+    book: books.Book, threshold: float, columns: tuple[str, ...]
+) -> ValidationEvaluation | None:
+    """The served model on validation at ``threshold``: metrics, reliability and segments.
+
+    The figures the Streamlit performance page computes, from the book's
+    validation rows and the served probabilities, so they are the numbers a
+    customer's own page shows. Validation chose the threshold and whether
+    calibration is kept, so they are somewhat optimistic; nothing here reads
+    the test partition. ``None`` when validation outcomes may not be shown, or
+    hold a single outcome, for which no ranking metric is defined.
+    """
+    rows = books.labelled(book.frame, "validation", shown=book.outcomes)
+    y = rows[schema.TARGET].to_numpy()
+    if np.unique(y).size < 2:
+        return None
+    p = rows["churn_probability"].to_numpy()
+    metrics = evaluate(y, p, threshold)
+    churn_rate = metrics.positives / metrics.n
+    reliability = reliability_bins(y, p)
+    present = [column for column in columns if column in rows.columns]
+    table = segment_table(y, p, rows, present, threshold) if present else pd.DataFrame()
+    segments = [
+        small_group(
+            {key: _finite(value) for key, value in row.items()}
+            | {"unscanned": row["flagged"] == 0 and row["churners"] > 0}
+        )
+        for row in table.to_dict(orient="records")
+    ]
+    return ValidationEvaluation(
+        metrics=metrics,
+        churn_rate=churn_rate,
+        no_skill_accuracy=1 - churn_rate,
+        ece=expected_calibration_error(y, p),
+        reliability=reliability,
+        segments=segments,
     )
 
 

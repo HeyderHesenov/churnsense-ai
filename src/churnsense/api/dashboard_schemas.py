@@ -394,6 +394,8 @@ class Selection(_Model):
     metric: str
     folds: int
     leader: str
+    #: The leader as ``candidates`` name it.
+    leader_name: str
     standard_error: float
     cutoff: float
     eligible: list[str]
@@ -427,13 +429,21 @@ class Calibration(_Model):
     calibrated_ece: float | None
 
 
+class ValidationCut(SweepPoint):
+    """A sweep point with the customers it leaves alone who stayed."""
+
+    true_negatives: int
+
+
 class ValidationCurve(_Model):
     customers: int
     churners: int
-    points: list[SweepPoint]
+    points: list[ValidationCut]
 
 
-class HoldoutMetrics(_Model):
+class PartitionMetrics(_Model):
+    """One partition scored at one threshold; precision, recall and F1 are 0.0 when undefined."""
+
     threshold: float
     n: int
     positives: int
@@ -450,8 +460,19 @@ class HoldoutMetrics(_Model):
     brier: float
 
 
+class HoldoutMetrics(PartitionMetrics):
+    """The recorded test evaluation's metrics."""
+
+
+class ValidationMetrics(PartitionMetrics):
+    """The served model on the validation partition, at the shipped threshold."""
+
+
 class HoldoutSegment(_Model):
-    """One segment of the recorded test evaluation; rates are null below 20 customers."""
+    """One segment of the recorded test evaluation; rates are null below 20 customers.
+
+    Records written before intervals were kept have none: those fields are null.
+    """
 
     dimension: str
     segment: str
@@ -462,7 +483,12 @@ class HoldoutSegment(_Model):
     flagged_rate: float | None
     precision: float | None
     recall: float | None
-    unscanned: bool
+    unscanned: bool | None
+    precision_low: Share | None = None
+    precision_high: Share | None = None
+    recall_low: Share | None = None
+    recall_high: Share | None = None
+    roc_auc: Share | None = None
 
 
 class HoldoutEvaluation(_Model):
@@ -470,20 +496,77 @@ class HoldoutEvaluation(_Model):
 
     evaluated_at: str
     metrics: HoldoutMetrics
+    #: Churners over customers in the record.
+    churn_rate: Share | None
     ece: float | None
     no_skill_accuracy: float
     test_optimal_threshold: float
     segments: list[HoldoutSegment]
 
 
+class ReliabilityBin(_Model):
+    """Customers whose probability fell in ``(low, high]`` (the first bin holds 0 too).
+
+    ``churned`` and ``rate`` are null for fewer than 20 customers.
+    """
+
+    low: Probability
+    high: Probability
+    customers: int
+    mean_predicted: Probability
+    churned: int | None
+    rate: Share | None
+
+
+class ValidationSegment(_Model):
+    """One segment at the shipped threshold; every outcome field is null below 20 customers.
+
+    ``precision`` is null where nothing is flagged (undefined, not zero) and
+    ``recall`` where nobody churned; intervals are 95 % Wilson intervals.
+    """
+
+    dimension: str
+    segment: str
+    customers: int
+    churners: int | None
+    churn_rate: Share | None
+    flagged: int
+    flagged_rate: Share | None
+    precision: Share | None
+    precision_low: Share | None
+    precision_high: Share | None
+    recall: Share | None
+    recall_low: Share | None
+    recall_high: Share | None
+    #: Ranking within the segment; null when it holds one outcome only.
+    roc_auc: Share | None
+    #: Nobody flagged although someone churned: not scanned, which is not "no risk".
+    unscanned: bool | None
+
+
+class ValidationEvaluation(_Model):
+    """The served model measured on validation, which chose the threshold and calibration."""
+
+    metrics: ValidationMetrics
+    churn_rate: Share
+    no_skill_accuracy: Share
+    ece: Share
+    reliability: list[ReliabilityBin]
+    segments: list[ValidationSegment]
+
+
 class PerformanceResponse(_Model):
     display_name: str
+    #: The artifact these figures describe, to compare with ``/api/model-info``.
+    model_sha256: str | None
     threshold: Probability
     selection: Selection | None
     candidates: list[Candidate] | None
     calibration: Calibration
     bands: list[BandSummary]
     validation: ValidationCurve | None
+    #: The served model on validation at ``threshold``; null when withheld.
+    validation_evaluation: ValidationEvaluation | None
     test: HoldoutEvaluation | None
     #: Why ``test`` is empty, when it is.
     test_reason: str | None

@@ -548,6 +548,195 @@ def test_a_recorded_evaluation_is_shown_only_for_the_artifact_it_describes(
         path.unlink(missing_ok=True)
 
 
+def _validation(book) -> pd.DataFrame:
+    from churnsense import book as books
+
+    return books.labelled(book.frame, "validation", shown=book.outcomes)
+
+
+def test_the_served_validation_rows_are_the_ones_training_measured(book, model):
+    """Scored by the served artifact, the book's validation rows reproduce what
+    training recorded at 0.50 - the evidence that the page's live figures and
+    the artifact's own describe the same customers and the same probabilities."""
+    from churnsense.evaluation.metrics import evaluate
+
+    rows = _validation(book)
+    measured = evaluate(rows[schema.TARGET], rows["churn_probability"], 0.5).as_dict()
+    assert measured == pytest.approx(model.meta["validation_metrics"])
+
+
+def test_performance_measures_the_served_model_at_its_cut(served, model):
+    body = _ok(served.get("/api/performance"))
+    measured, curve = body["validation_evaluation"], body["validation"]
+    metrics = measured["metrics"]
+    assert metrics["threshold"] == body["threshold"] == model.threshold
+    # Threshold-free figures do not move with the cut: they are training's own.
+    recorded = model.meta["validation_metrics"]
+    for key in ("roc_auc", "average_precision", "brier"):
+        assert metrics[key] == pytest.approx(recorded[key]), key
+    # The counts at the cut are the sweep's at the same label, which must exist.
+    point = next(p for p in curve["points"] if p["threshold"] == body["threshold"])
+    assert (metrics["tp"], metrics["fp"], metrics["fn"]) == (
+        point["true_positives"],
+        point["false_positives"],
+        point["false_negatives"],
+    )
+    assert (metrics["n"], metrics["positives"]) == (curve["customers"], curve["churners"])
+    assert metrics["tn"] == metrics["n"] - metrics["positives"] - metrics["fp"]
+    assert point["true_negatives"] == metrics["tn"]
+    # Flagging everyone has the churn rate as its precision: the no-skill line.
+    everyone = curve["points"][0]
+    assert (everyone["threshold"], everyone["flagged"]) == (0.0, curve["customers"])
+    assert measured["churn_rate"] == pytest.approx(everyone["precision"])
+    assert measured["no_skill_accuracy"] == pytest.approx(1 - measured["churn_rate"])
+
+
+def test_every_cut_of_the_curve_accounts_for_every_validation_customer(served):
+    curve = _ok(served.get("/api/performance"))["validation"]
+    for p in curve["points"]:
+        counts = p["true_negatives"] + p["false_positives"] + p["false_negatives"]
+        assert counts + p["true_positives"] == curve["customers"], p["threshold"]
+
+
+def test_the_live_ece_is_trainings_within_the_clamp(served, model):
+    """Training measured ECE on raw probabilities; the clamp moves none by more than ε."""
+    measured = _ok(served.get("/api/performance"))["validation_evaluation"]
+    meta = model.meta
+    recorded = meta["calibrated_ece"] if meta["calibrated"] else meta["uncalibrated_ece"]
+    assert abs(measured["ece"] - recorded) <= meta["probability_epsilon"] + 1e-12
+
+
+def test_reliability_bins_cover_validation_and_small_bins_lose_their_rate(served):
+    measured = _ok(served.get("/api/performance"))["validation_evaluation"]
+    bins = measured["reliability"]
+    assert sum(b["customers"] for b in bins) == measured["metrics"]["n"]
+    assert [b["low"] for b in bins] == sorted(b["low"] for b in bins)
+    for b in bins:
+        assert b["high"] - b["low"] == pytest.approx(0.1)
+        assert b["low"] <= b["mean_predicted"] <= b["high"]
+        if b["customers"] < insights.MIN_CELL:
+            assert b["churned"] is None and b["rate"] is None
+        else:
+            assert b["rate"] == pytest.approx(b["churned"] / b["customers"])
+    assert any(b["rate"] is not None for b in bins)
+
+
+def test_validation_segments_add_up_and_small_ones_say_nothing(served, model):
+    measured = _ok(served.get("/api/performance"))["validation_evaluation"]
+    metrics, segments = measured["metrics"], measured["segments"]
+    assert {s["dimension"] for s in segments} == set(schema.VALIDATION_SEGMENTS)
+    for dimension in schema.VALIDATION_SEGMENTS:
+        rows = [s for s in segments if s["dimension"] == dimension]
+        assert sum(s["customers"] for s in rows) == metrics["n"], dimension
+        assert sum(s["flagged"] for s in rows) == metrics["tp"] + metrics["fp"], dimension
+    hidden = ("churners", "churn_rate", "flagged_rate", "roc_auc", *_INTERVALS, "precision")
+    for s in segments:
+        if s["customers"] < insights.MIN_CELL:
+            assert all(s[k] is None for k in (*hidden, "recall")), s
+            continue
+        assert s["unscanned"] == (s["flagged"] == 0 and s["churners"] > 0)
+        if s["flagged"] == 0:
+            assert s["precision"] is None, "undefined, not zero"
+        else:
+            assert s["precision_low"] <= s["precision"] <= s["precision_high"]
+        if s["churners"]:
+            assert s["recall_low"] <= s["recall"] <= s["recall_high"]
+
+
+def test_an_undefined_segment_rate_is_null_not_a_failure(book, model):
+    """At a cut above every score nothing is flagged: precision is undefined everywhere."""
+    from churnsense.api import dashboard_schemas as out
+
+    measured = insights.validation_evaluation(book, 1.0, schema.VALIDATION_SEGMENTS)
+    body = out.ValidationEvaluation.model_validate(measured).model_dump()
+    assert all(s["precision"] is None for s in body["segments"])
+    # The NaN Wilson bounds of an empty denominator are null too.
+    assert all(s["precision_low"] is None and s["precision_high"] is None for s in body["segments"])
+    assert body["metrics"]["tp"] + body["metrics"]["fp"] == 0
+
+
+def test_a_small_segment_does_not_say_whether_anyone_in_it_churned(book):
+    """With nothing flagged, "not scanned" would tell churners > 0 from none."""
+    measured = insights.validation_evaluation(book, 1.0, schema.VALIDATION_SEGMENTS)
+    small = [s for s in measured.segments if s["customers"] < insights.MIN_CELL]
+    assert small, "the fixture has no small segment"
+    assert all(s["unscanned"] is None for s in small)
+    big = [s for s in measured.segments if s["customers"] >= insights.MIN_CELL]
+    assert all(s["unscanned"] == (s["churners"] > 0) for s in big)
+
+
+def test_the_segment_rules_name_only_fields_the_tables_have():
+    """A key nulled for small groups must be a field of both tables, and the
+    validation table must carry exactly what segment_table measures."""
+    import numpy as np
+
+    from churnsense.api import dashboard_schemas as out
+    from churnsense.evaluation.metrics import segment_table
+
+    assert set(insights.SEGMENT_OUTCOMES) <= set(out.HoldoutSegment.model_fields)
+    assert set(insights.SEGMENT_OUTCOMES) <= set(out.ValidationSegment.model_fields)
+    y = np.array([0, 1, 0, 1])
+    frame = pd.DataFrame({"Contract": ["A", "A", "B", "B"]})
+    columns = set(segment_table(y, np.array([0.1, 0.9, 0.2, 0.8]), frame, ["Contract"], 0.5))
+    assert set(out.ValidationSegment.model_fields) == columns | {"unscanned"}
+
+
+def test_a_segment_list_absent_from_the_book_measures_no_segment(book, model):
+    measured = insights.validation_evaluation(book, model.threshold, ("NotAColumn",))
+    assert measured is not None and measured.segments == []
+
+
+def test_validation_with_one_outcome_has_no_evaluation(book, model):
+    """ROC-AUC needs both outcomes; a partition with one is not measured, nor a 500."""
+    rows = _validation(book)
+    stayed = book.outcomes.copy()
+    stayed.loc[rows[schema.ID_COLUMN]] = 0
+    one_class = book._replace(outcomes=stayed)
+    assert insights.validation_evaluation(one_class, model.threshold, ("Contract",)) is None
+
+
+def test_performance_names_the_leader_and_the_artifact(served, model):
+    from churnsense.models.registry import DISPLAY_NAMES
+
+    body = _ok(served.get("/api/performance"))
+    selection = body["selection"]
+    # The name `candidates` (model_comparison.csv) use for the same model.
+    assert selection["leader_name"] == DISPLAY_NAMES[selection["leader"]]
+    info = _ok(served.get("/api/model-info"))
+    assert body["model_sha256"] == info["model_sha256"] == model.meta["model_sha256"]
+
+
+def test_an_unknown_leader_is_named_by_its_key_not_a_failure(served, model, monkeypatch):
+    monkeypatch.setitem(model.meta["selection"], "leader", "a_model_since_removed")
+    selection = _ok(served.get("/api/performance"))["selection"]
+    assert selection["leader_name"] == "a_model_since_removed"
+
+
+def test_a_recorded_evaluation_carries_its_rate_and_intervals(served, recorded):
+    test = _ok(served.get("/api/performance"))["test"]
+    metrics = test["metrics"]
+    assert test["churn_rate"] == pytest.approx(metrics["positives"] / metrics["n"])
+    big = [s for s in test["segments"] if s["customers"] >= insights.MIN_CELL and s["flagged"]]
+    assert big, "the record has no segment to read an interval from"
+    for s in big:
+        assert s["precision_low"] <= s["precision"] <= s["precision_high"]
+
+
+def test_a_record_written_before_intervals_still_loads(served, recorded, environment):
+    _, reports = environment
+    older = {
+        **recorded,
+        "segments": [
+            {k: v for k, v in s.items() if k not in (*_INTERVALS, "roc_auc")}
+            for s in recorded["segments"]
+        ],
+    }
+    (reports / "final_evaluation.json").write_text(json.dumps(older, allow_nan=False))
+    test = _ok(served.get("/api/performance"))["test"]
+    assert test is not None
+    assert all(s[k] is None for s in test["segments"] for k in (*_INTERVALS, "roc_auc"))
+
+
 # --- batch scoring ----------------------------------------------------------------------------
 
 
@@ -802,8 +991,21 @@ def test_no_response_carries_a_test_customers_outcome(served, ids, raw_frame, re
     assert labelled_test == 0, "a batch echoed a held-out customer's label"
 
 
+#: A rate's 95 % interval: a rate in disguise, so it follows the rate.
+_INTERVALS = ("precision_low", "precision_high", "recall_low", "recall_high")
 #: Keys that state an outcome rate or count of a group.
-_OUTCOME_KEYS = ("rate", "churned", "churn_rate", "churners", "precision", "recall")
+_OUTCOME_KEYS = (
+    "rate",
+    "churned",
+    "churn_rate",
+    "churners",
+    "precision",
+    "recall",
+    "roc_auc",
+    # "Nobody flagged though someone churned" says whether anyone churned.
+    "unscanned",
+    *_INTERVALS,
+)
 
 
 def test_no_response_reports_an_outcome_rate_for_fewer_than_twenty_customers(
@@ -820,9 +1022,31 @@ def test_no_response_reports_an_outcome_rate_for_fewer_than_twenty_customers(
 
 def test_the_recorded_test_segments_lose_their_rates_below_twenty(served, recorded):
     segments = _ok(served.get("/api/performance"))["test"]["segments"]
-    for segment in segments:
-        if segment["customers"] < 20:
-            assert segment["churn_rate"] is None and segment["recall"] is None
+    small = [s for s in segments if s["customers"] < insights.MIN_CELL]
+    assert small, "the record has no small segment"
+    for segment in small:
+        assert all(segment[k] is None for k in insights.SEGMENT_OUTCOMES), segment
+
+
+def test_a_group_of_exactly_twenty_keeps_its_figures_and_nineteen_loses_them():
+    row = {"customers": 20, "churners": 3, "precision": 0.5, "unscanned": False}
+    assert insights.small_group(row) == row
+    small = insights.small_group({**row, "customers": 19})
+    assert small["customers"] == 19
+    assert all(small[k] is None for k in insights.SEGMENT_OUTCOMES)
+
+
+def test_a_reliability_bin_of_twenty_has_a_rate_and_nineteen_has_none():
+    import numpy as np
+
+    y = np.array([1] * 5 + [0] * 15 + [1] * 2 + [0] * 17)
+    p = np.array([0.35] * 20 + [0.75] * 19)
+    bins = insights.reliability_bins(y, p)
+    assert [(b["low"], b["customers"], b["churned"]) for b in bins] == [
+        (pytest.approx(0.3), 20, 5),
+        (pytest.approx(0.7), 19, None),
+    ]
+    assert bins[0]["rate"] == pytest.approx(0.25) and bins[1]["rate"] is None
 
 
 def test_a_small_selection_shows_no_observed_rate(served, ids):
@@ -881,6 +1105,9 @@ def test_untrusted_partitions_withhold_every_outcome_everywhere(
     for path in ("/api/segments", "/api/threshold/sweep"):
         response = served.get(path)
         assert response.status_code == 503 and response.json()["error"] == "outcomes_withheld"
+    performance = _ok(served.get("/api/performance"))
+    assert performance["withheld_reason"] == overview["withheld_reason"]
+    assert performance["validation"] is None and performance["validation_evaluation"] is None
     response = served.post("/api/explain", json={"customer_ids": ["DEMO-00001"]})
     assert response.json()["error"] == "explanations_unavailable"
     assert _ok(served.get("/api/model-info"))["provenance"]["verified"] is False

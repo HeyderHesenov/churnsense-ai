@@ -123,7 +123,7 @@ Supporting changes:
 | `GET /api/segments?rows=&cols=` | Train cross-tab. A cell with n < 20 becomes `{"suppressed": true, "n": n}`. Returns marginals, base rate, the top 7 combinations and the association list (`association_ranking.csv`). |
 | `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. |
 | `GET /api/threshold/sweep` | Inputs: `cost` (0–10,000), `success`, `margin` (0–1), `horizon` (1–120). Returns the validation sweep (101 points), peak, recommendation (`recommend_threshold_from`), indifference band and sensitivity at 10–50 %. |
-| `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. |
+| `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. Since 3.6: the served model measured on validation (`validation_evaluation`), true negatives per cut, `leader_name`, `model_sha256` (see "API additions for the performance page"). |
 | `POST /api/batch/score` | Multipart, same body limit and `validate_upload` (on the served model's columns). Returns rows (validated inputs as scored, id, label, prediction), a summary, notes and `csv`, the rows as a spreadsheet-safe file without a label. **Label P/R excludes rows whose `customerID` is in the book's test or unknown partition**, reports how many were excluded, gives no rate under 20 labelled rows, and says why a rate is missing. `/predict/batch` shares the reader: a file-level 422 now names its reason in `problems` there too (see "API additions for the batch page"). |
 
 **Rules for every endpoint:**
@@ -277,13 +277,15 @@ Supporting changes:
    - "Why not the peak" panel.
    - Sensitivity pills.
    - 150 ms debounce; the previous result stays visible while the next loads.
-6. **Performance**
-   - Recorded test tiles, or the "not recorded" state.
+6. **Performance** (built 2026-11-01; see "Phase 3.6" for what changed and why)
+   - Provenance strip, then a scorecard table: validation, plus the recorded
+     test column only when a record exists ("not recorded" otherwise).
    - 1-SE chart and candidate table.
-   - Confusion matrix: recorded test / validation explore with slider.
+   - Errors at a cut: validation explore with slider, recorded test tab.
    - PR curve with F1 contours, hover, and click to load the cut.
-   - Calibration by band and the uncalibrated-vs-shipped table.
-   - Test segment table (NOT SCANNED rows).
+   - Validation reliability diagram and the uncalibrated-vs-shipped table.
+   - Segment table with Wilson intervals (NOT SCANNED rows), validation or
+     recorded test.
 7. **Explainability**
    - Method tiles.
    - Selectable swarm rows.
@@ -1452,11 +1454,248 @@ caught.
 
 ### Follow-ups found in this phase
 
-- **`npm audit` reports 14 moderate advisories in the dev toolchain**
-  (minimatch < 11.0.1, GHSA-g3hv-75wg-m249, via eslint and
-  `@redocly/openapi-core`), published after the batch page's audit was clean.
-  `npm audit --omit=dev` is clean; the lock file is untouched. A dependency
-  update, so the user's call.
+- **`npm audit` reports 14 moderate entries in the dev toolchain: one advisory,
+  reviewed 2026-11-01 and deferred on purpose.**
+  - **The advisory:** GHSA-g3hv-75wg-m249 / CVE-2026-118764, minimatch
+    `< 11.0.1`, globparts amplification (CWE-405).
+    - Published 2026-10-30. The first patch is 11.0.1, and 10.x has no
+      backport.
+    - The other 13 entries are packages npm lists `via` minimatch, not
+      advisories of their own.
+  - **Installed copies:** two, both dev-only.
+    - 10.2.6, used by eslint, `@eslint/config-array`,
+      `@typescript-eslint/typescript-estree` and `eslint-plugin-jsx-a11y-x`.
+    - 5.1.9, pinned exactly by `@redocly/openapi-core` 1.34.21 under
+      `openapi-typescript`.
+  - **Production is not affected.** `npm audit --omit=dev` is 0, `dist/`
+    holds no minimatch code, and no CI job runs the front end yet.
+  - **The vulnerable code is not reachable.**
+    - It runs only at `optimizationLevel >= 2`. The default is 1, and none of
+      the four callers sets it.
+    - 5.1.9 does not have that code at all.
+    - The patterns come only from our own `eslint.config.js`. Anyone who can
+      edit that file can already run code through it.
+  - **Rejected: `npm audit fix --force`.** Its "fixes" are downgrades (eslint
+    4.0.0, typescript-eslint 8.14.0, openapi-typescript 6.7.6) that would
+    break the toolchain.
+  - **Rejected: an `overrides` to minimatch 11.**
+    - 11.0 is a rewrite with a new dependency
+      (`@isaacs/nonrecursive-glob-match`).
+    - It changes `partial` and `**` matching, and eslint calls
+      `match(path, true)`. So the set of linted files could change silently.
+    - It would push redocly six majors past its exact pin, all to close a
+      path we never reach.
+  - **Re-check when** eslint, `@eslint/config-array` or typescript-eslint
+    depend on `minimatch ^11.0.1`.
+    - Then a normal bump clears 12 of the 14.
+    - Run lint, typecheck, vitest and build, and check that lint still covers
+      the same files.
+    - The redocly pair waits for `openapi-typescript` to move.
+    - The planned CI gate (`npm audit --audit-level=high`) does not fail on
+      these.
 - **There is still no frontend CI job and no Playwright e2e or axe run**
   (Phase 4): the range inputs' arrow keys were checked in Chromium by hand.
 - `explorer.ts:42` hard-codes the API's tenure bounds (seen while planning).
+
+### API additions for the performance page (2026-11-01)
+
+All additive and validation-only; no new endpoint, and nothing reads the test
+partition. The Streamlit performance page (`app/sections/performance.py`)
+already computed these live on validation; the API now serves the same
+figures from the same functions.
+
+- **`PerformanceResponse.validation_evaluation`**
+  (`insights.validation_evaluation`, memoised per dashboard):
+  - `metrics` = `evaluation.metrics.evaluate(y, p, threshold)` on the book's
+    validation rows and the served (calibrated, clamped) probabilities, at
+    the served threshold and the served flag rule `p >= threshold`;
+  - `churn_rate`, `no_skill_accuracy` (computed on the server);
+  - `ece` = `expected_calibration_error` over the same probabilities as the
+    bins;
+  - `reliability`: `reliability_table(..., with_edges=True)` bins
+    `{low, high, customers, mean_predicted, churned, rate}` (right-closed,
+    the first holds 0), through `insights.reliability_bins`;
+  - `segments`: `segment_table` over `schema.VALIDATION_SEGMENTS` (Contract,
+    InternetService, SeniorCitizen, gender), with Wilson bounds,
+    within-segment ROC-AUC and `unscanned`.
+  - `None` when validation outcomes are withheld or hold one outcome only
+    (no ranking metric is defined; never a 500).
+- **One small-group rule for segments:** `insights.small_group` nulls every
+  key in `SEGMENT_OUTCOMES` below `MIN_CELL` (20): counts, rates, the four
+  Wilson bounds, within-segment ROC-AUC, and `unscanned` (with nobody
+  flagged, "not scanned" says whether anyone churned). The recorded test
+  segments go through the same helper. Reliability bins under 20 lose
+  `churned` and `rate`. `_OUTCOME_KEYS` in the leak scan gained the bounds,
+  `roc_auc` and `unscanned`; the scan caught the `unscanned` leak in the
+  fixture before the fix.
+- **`ValidationCurve.points` are `ValidationCut`s:** a `SweepPoint` plus
+  `true_negatives` (stayers less false positives), added in the API layer,
+  so `/threshold/sweep`, the simulator and `threshold_sweep.csv` are
+  unchanged.
+- **`Selection.leader_name`** (`DISPLAY_NAMES`, the key itself if unknown),
+  so the page never takes an argmax. **`PerformanceResponse.model_sha256`**,
+  so the page can tell when the two responses describe different artifacts.
+- **`HoldoutEvaluation.churn_rate`** (positives over n of the record);
+  `HoldoutSegment` gains optional Wilson bounds and `roc_auc`, read with
+  `.get`, so a record written before them still loads.
+- **`reliability_table(with_edges=False)`**: the default output is
+  unchanged (the test record and Streamlit use it).
+  **`VALIDATION_SEGMENTS`** moved from `models/train.py` to `data/schema.py`;
+  train and Streamlit import it.
+- **Tests** cross-check independent paths, not a function against itself:
+  - the book's validation rows reproduce training's `validation_metrics`
+    at 0.50;
+  - the counts at the cut equal the sweep point labelled with the served
+    threshold, `tn = n − positives − fp`;
+  - `churn_rate` equals the sweep's threshold-0 precision;
+  - the live ECE is within ε of training's;
+  - bins add to n; segments add to n and to the flagged count per
+    dimension;
+  - a group of exactly 20 keeps its figures and 19 loses them, for segments
+    and bins;
+  - a one-class or withheld book gives `null`, not a 500;
+  - the segment rules name only fields both tables have;
+  - an unknown leader key and an old-format record still load.
+
+## Phase 3.6 — Model performance (2026-11-01)
+
+The page answers how well the served model ranks churners, which errors a
+cut makes, whether its probabilities hold up, where one cut fails a segment,
+and what each figure rests on. It renders `/api/performance` and
+`/api/model-info` and works out no metric.
+
+**The evidence there is.** `reports/final_evaluation.json` does not exist,
+so `test` is null with its reason; the archival `final_evaluation.md` is
+linked, never quoted (its numbers would be typed copy). Validation is the
+only measured evidence, and the page says it is somewhat optimistic:
+model choice and tuning used cross-validation on train, validation set the
+cut and decided whether to keep calibration. A recorded test evaluation, when
+`make evaluate CONFIRM=yes` writes one, appears as its own column and tab,
+labelled a re-used holdout, "a re-checked estimate, not an independent one".
+
+**Layout.** Provenance strip (train · CV, validation, test, artifact and
+whether the data and split match) → scorecard → errors at a cut beside
+precision against recall → segments → calibration beside model selection →
+footer ("This page computes nothing from the test partition…").
+
+**Decisions.**
+- **Scorecard, not tiles.** One table, row groups Ranking (PR-AUC primary,
+  with its no-skill tick at the churn rate; ROC-AUC), At the cut (recall,
+  precision, F1, each with its counts), Probabilities (Brier, ECE), and
+  Context (accuracy, quiet, beside "flagging nobody scores …"). A test
+  column exists only beside a record, at the record's own cut; validation
+  is never shown under a test label.
+- **Undefined is not zero.** The API writes 0.0 for an empty denominator;
+  the page writes "—" from the counts (precision iff nothing flagged,
+  recall iff nobody churned, F1 iff either), in the scorecard, the strip,
+  the tables, the tooltip and the chart's accessible name. A genuine 0.0
+  (three flagged, none churned) stays 0.000.
+- **The cut** is an index slider over the served points (the keyboard
+  control; `aria-valuetext` "threshold 0.36", the summary is the live
+  region), found by label, kept in `?cut=` (replace; a chart click pushes),
+  empty at the served cut, and a cut the curve lacks falls back without
+  rewriting the address. Picking on the chart from the test tab goes back
+  to validation. `threshold_source` is quoted with "one cut under one set of
+  assumptions, not a universal optimum" and a link to the simulator.
+- **Precision against recall**, both axes 0–1, every cut that flags someone
+  (the sweep stays exempt from the small-group rule, as decided in Phase 1);
+  no-skill at the threshold-0 precision as served; F1 contours are geometry.
+  No ROC curve: at a 26 % churn rate the PR curve is the informative one, and
+  ROC-AUC stays a number.
+- **Calibration** is a validation reliability diagram from served bins, with
+  the bins too small to draw listed under it, the served ECE, the 0.50
+  uncalibrated-vs-served table ("Brier is the comparable figure"), and a
+  sentence for each of kept / tried and not kept / not calibrated.
+- **Model selection**: CV PR-AUC ± SE for the candidates inside one SE, axis
+  from the whiskers and cutoff, leader and selected as served. The cutoff is
+  written "= leader − SE" only when the comparison report agrees with the
+  artifact's record to the digits shown. Candidates are labelled
+  uncalibrated.
+- **Model mismatch:** if the two responses name different artifacts, no
+  figure is shown until both are asked again ("Reload figures", focus to
+  `#main`); a response naming none is not a mismatch.
+- **Segments** use a performance-only name map (gender is never added to the
+  patterns page's dimensions); "No internet", not "None". The scroll region
+  takes focus (axe scrollable-region-focusable): the repository's one
+  `eslint-disable`, with its reason.
+
+**Deviations from the artboard** (`Performance.dc.html`):
+- Scorecard table instead of test tiles; the artboard's figures are test
+  figures this artifact has no record of.
+- Validation reliability diagram instead of the band strip: the band rates
+  mix train rows, which are in-sample for the calibrator (`bands` is still
+  served, unused here).
+- Validation-first segments (the artboard's are test).
+- PR curve: every cut that flags someone, not "15+ flagged"; y from 0, not
+  0.2.
+- Dropped unsourced copy: "roughly 10:1", "hundreds of dollars", "two model
+  versions", "2.4× the no-skill line", "sampling noise", and the summed "34
+  churners" (segments overlap).
+- The 1-SE axis comes from the data; the artboard's RF whisker was off.
+
+**Checks.** Backend 899 passed (the wording scan of the built bundle included) and
+`make lint`; front end 854 vitest twice with no act warning, lint, typecheck,
+prettier, build (Performance chunk 11.01 kB gzip JS), `npm audit --omit=dev`
+0. Chromium on the built app (:8001, under the CSP) against the real API:
+every figure equals `curl /api/performance` and `/api/model-info` (at 0.36:
+260 reached, 188 offers to stayers, 114 missed, 847 left alone, as the sweep;
+PR-AUC 0.644, ROC-AUC 0.838, precision 0.580, recall 0.695, F1 0.633, Brier
+0.138, ECE 0.027; cutoff 0.6646 = 0.6714 − 0.0068); "Test evaluation not
+recorded"; Two year and No internet NOT SCANNED; 0.9–1.0 not drawn (14
+customers); the slider's arrows write `?cut=0.38` and keep the focus; a chart
+click loads 0.46; `?cut=1.00` reads precision "—" in the strip and the
+chart's name; 0 console messages; no element past the right edge at
+375/768/1024/1440. `artifacts/` and `reports/` are byte-identical before and
+after (sha256 of all 23 files).
+
+### Performance review (code-reviewer and qa-expert, 2026-11-01)
+
+- **code-reviewer:** 0 critical/high, 2 medium, 7 low, nits. All fixed
+  test-first except where noted:
+  - M1 `unscanned` revealed whether anyone churned in a group under 20
+    (nulled; scan key added; the scan found it in the fixture);
+  - M2 the chart's accessible name read the API's 0.0 as a precision;
+  - L1 focus after "Reload figures"; L2 a chart pick from the test tab;
+    L3 wording assumed calibration was kept; L4 `scope="rowgroup"`;
+    L5 hidden bins and the y-axis title shown; L6 the PR-AUC meaning;
+    L7 the cutoff sum only when the figures agree;
+  - nits: "within one standard error", the empty-segment guard, a test
+    pinning the segment fields, "is/are", the double announcement, distinct
+    "Partition" names.
+- **qa-expert** ran 69 frontend and 15 backend mutants against the first
+  version: 60 frontend survived, mostly because the fixture's rates equalled
+  their counts' quotients at three digits and the record shared the served
+  cut. The fixture now has rates that are not their quotients, a record at
+  0.40, a stayer count no formula gives, a cut that flags three and reaches
+  none, and segment rows that tell the rules apart; the tests were rewritten
+  around them (every test-column figure, the test tab, the PR table by
+  column, history and address behaviour, model-info loading and failure,
+  null artifacts, unavailable and withheld everywhere, null calibration
+  blocks, leader cases). Backend gaps (recorded small segments, the bin and
+  segment boundary at 20, an unknown leader) got tests.
+- **Mutants after the fixes:** front end 49 plus an identity control, on a copy with a
+cache-free Vitest config: 47 caught, the control survived, and 2 are
+equivalent under the server's contract (precision "—" by null alone: the
+server nulls it exactly when nothing is flagged; a null churn rate read as
+0 %: the server nulls it only with the churners). The first pass's four other
+survivors got tests: the null-artifact case was vacuous (in one
+`server.use`, the first handler answers, and the default came first),
+model-info still pending once the evaluation is in, a click on the first cut,
+and a record whose cut reached nobody. Backend 23 plus a control: all caught,
+the control survived (a first run with every mutant "caught" was the copy
+missing `churnsense.data`: the control said so).
+
+### Follow-ups and limitations found in this phase
+
+- **Live validation ROC-AUC and PR-AUC differ from training's record by
+  about 1e-6** (0.8375378 vs 0.8375365): the probabilities agree (Brier to
+  1e-17), but a ULP-level difference breaks one exact tie
+  (0.5 / (374 × 1,035) = 1.29e-6). Shown to three digits they are equal.
+- **No test evaluation is recorded** for the served artifact; the test
+  column, tab and segments are built and tested on fixtures only. Running
+  `make evaluate CONFIRM=yes` is the maintainer's decision (one more read of
+  a re-used holdout).
+- **`model_comparison.csv` is not tied to the artifact's sha**; the page
+  guards the cutoff sum, not the whole table.
+- Pointer-only chart reading (hover); the keyboard path is the slider and the
+  tables. Playwright/axe and a frontend CI job are still Phase 4.

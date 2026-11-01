@@ -27,9 +27,6 @@ from churnsense.evaluation.metrics import (
     segment_table,
 )
 
-#: Who the segment table is shown for; the same breakdown `make train` publishes.
-SEGMENTS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen", "gender")
-
 
 def _comparison_chart(table: pd.DataFrame) -> go.Figure:
     """CV score with one standard error either side: the quantities the rule used."""
@@ -335,7 +332,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     st.divider()
     st.subheader("Who the threshold reaches")
     ui.question("Does one global threshold serve every segment?")
-    segments = segment_table(y_val, proba, validation, SEGMENTS, model.threshold)
+    segments = segment_table(y_val, proba, validation, schema.VALIDATION_SEGMENTS, model.threshold)
     st.dataframe(_segment_frame(segments), hide_index=True, width="stretch")
     unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
     if not unscanned.empty:
