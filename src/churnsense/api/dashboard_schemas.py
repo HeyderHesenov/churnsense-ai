@@ -278,11 +278,47 @@ class Explanation(_Model):
 
 
 class ExplainResponse(_Model):
+    #: The artifact these attributions describe, to compare with ``/api/model-info``.
+    model_sha256: str | None
     permutations: int
     seed: int
     background_customers: int
     explanations: list[Explanation]
     caveat: str
+
+
+class DependenceBin(_Model):
+    """Explained customers whose value lies in ``(low, high]``; the first group also holds ``low``."""
+
+    low: float
+    high: float
+    customers: int
+    #: Mean contribution, as a fraction; null below ``dependence_min_customers``.
+    mean: float | None
+
+
+class DependenceLevel(_Model):
+    """Explained customers with one category; every category of the contract is listed."""
+
+    category: str
+    customers: int
+    mean: float | None
+
+
+class NumericDependence(_Model):
+    kind: Literal["numeric"]
+    feature: str
+    #: Equal-width groups over the observed range; groups with no customer are left out.
+    bins: list[DependenceBin]
+
+
+class CategoricalDependence(_Model):
+    kind: Literal["categorical"]
+    feature: str
+    levels: list[DependenceLevel]
+
+
+Dependence = Annotated[NumericDependence | CategoricalDependence, Field(discriminator="kind")]
 
 
 class GlobalExplanation(_Model):
@@ -303,6 +339,10 @@ class GlobalExplanation(_Model):
     values: list[list[float]]
     x: list[dict[str, str | float]]
     association_rank: dict[str, int] | None
+    #: Each feature's mean contribution by value, in ``features`` order.
+    dependence: list[Dependence]
+    #: The fewest customers a group needs for its mean to be given.
+    dependence_min_customers: int
     #: Pearson r of TotalCharges against tenure x MonthlyCharges, training partition.
     total_charges_r: float | None
     caveat: str

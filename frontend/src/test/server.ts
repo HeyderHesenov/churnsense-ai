@@ -49,10 +49,16 @@ export function respond<P extends ApiPath, M extends Method>(
   );
 }
 
-/** ``method path`` refused with ``status``, in the API's error shape. */
-export function refuse(method: Method, path: ApiPath, status: number, error: string) {
-  const body: Schemas['ErrorResponse'] = { error, detail: 'Refused by a test.', problems: [] };
-  return http[method](route(path), () => HttpResponse.json(body, { status }));
+/** ``method path`` refused with ``status``, in the API's error shape (``Retry-After`` in ``headers``). */
+export function refuse(
+  method: Method,
+  path: ApiPath,
+  status: number,
+  error: string,
+  { problems = [], headers = {} }: { problems?: string[]; headers?: Record<string, string> } = {},
+) {
+  const body: Schemas['ErrorResponse'] = { error, detail: 'Refused by a test.', problems };
+  return http[method](route(path), () => HttpResponse.json(body, { status, headers }));
 }
 
 export const server = setupServer(

@@ -1,0 +1,494 @@
+/* Explainability, after Explain.dc.html's measurements; deviations are in PLAN.md "Phase 3.7". */
+
+/* --- layout ------------------------------------------------------------------- */
+.pair {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .pair {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  }
+}
+.card {
+  min-width: 0;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.mismatch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--raises-line);
+  border-radius: var(--radius-12);
+  background: var(--raises-soft);
+  color: var(--raises-text);
+}
+.mismatch p {
+  margin: 0;
+  font-size: 13.5px;
+}
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.footer p {
+  margin: 0;
+}
+
+/* --- the method strip ---------------------------------------------------------- */
+.method {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+/* --- one customer -------------------------------------------------------------- */
+.placer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+.picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pick {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-8);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+a.pick:hover {
+  border-color: var(--line-hover);
+  color: var(--ink);
+}
+a.pick[aria-current='page'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.pickP {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+.idForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.idLabel {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.idInput {
+  width: 160px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-8);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.idInput:disabled {
+  color: var(--disabled);
+}
+.failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.failed p {
+  margin: 0;
+}
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+.figures div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.figures dt {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.figures dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+.contributions {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-8);
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.table th,
+.table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line-row);
+  text-align: left;
+  font-weight: 400;
+}
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.table tbody th {
+  color: var(--ink-2);
+}
+.num {
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.table td.num,
+.table thead th:last-child {
+  text-align: right;
+}
+.link {
+  color: var(--link);
+}
+.link:hover {
+  color: var(--link-hover);
+}
+
+/* --- the swarm ------------------------------------------------------------------ */
+.swarmScroll {
+  overflow-x: auto;
+}
+.swarmFrame {
+  min-width: 540px;
+}
+.swarmHead,
+.swarmPlot,
+.swarmRow {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 64px;
+  gap: 10px;
+}
+.swarmHead {
+  height: 18px;
+  margin-bottom: 4px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.axisLabels {
+  position: relative;
+}
+.axisLabels > span {
+  position: absolute;
+  left: calc(var(--at) * 100%);
+  transform: translateX(-50%);
+  text-transform: none;
+  white-space: nowrap;
+}
+.headMean {
+  text-align: right;
+}
+.swarmPlot {
+  padding: 0 6px;
+}
+.swarmArea {
+  position: relative;
+}
+.swarmPlot .swarmSvg {
+  display: block;
+  width: 100%;
+  height: calc(var(--rows) * 26px);
+}
+.swarmRing {
+  position: absolute;
+  left: calc(var(--at) * 100%);
+  top: calc(var(--row) * 26px + 13px);
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.selectedBand {
+  fill: var(--selected);
+}
+.swarmRows {
+  position: absolute;
+  inset: 22px 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.swarmRow {
+  align-items: center;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.swarmRow:hover .rowLabel {
+  color: var(--ink);
+}
+.swarmRowOn {
+  box-shadow: inset 2px 0 0 var(--accent);
+  color: var(--ink);
+}
+.swarmRow:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
+.rowLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowMean {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--ink-2);
+}
+
+/* --- marks ---------------------------------------------------------------------- */
+.grid {
+  stroke: var(--line-soft);
+}
+.zero {
+  stroke: var(--line-axis);
+}
+.tick {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--muted);
+}
+.tickSub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.low {
+  fill: var(--value-low);
+}
+.mid {
+  fill: var(--value-mid);
+}
+.high {
+  fill: var(--value-high);
+}
+.category {
+  fill: var(--muted);
+  background: var(--muted);
+}
+.raises {
+  fill: var(--raises);
+  fill-opacity: 0.78;
+}
+.lowers {
+  fill: var(--lowers);
+  fill-opacity: 0.78;
+}
+.none {
+  fill: var(--muted);
+  fill-opacity: 0.78;
+}
+.mean {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+.meanMarker {
+  fill: var(--ink);
+}
+.groupMark {
+  fill: none;
+  stroke: var(--accent-text);
+  stroke-width: 1.5;
+}
+.ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+/* --- legends -------------------------------------------------------------------- */
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.gradientKey {
+  width: 64px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--value-low), var(--value-mid), var(--value-high));
+}
+.dotKey {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.raisesKey {
+  background: var(--raises);
+}
+.lowersKey {
+  background: var(--lowers);
+}
+.noneKey {
+  background: var(--muted);
+}
+.ringKey {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+}
+
+/* --- the dependence chart -------------------------------------------------------- */
+.groupField {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.groupLabel {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.slider {
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* --- the two rankings ------------------------------------------------------------- */
+.rankings {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .rankings {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+}
+.slopeFrame {
+  min-width: 0;
+}
+.slopeHead {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  fill: var(--muted);
+}
+.slope {
+  fill: none;
+  stroke: var(--line-strong);
+}
+.slopeOn {
+  fill: none;
+  stroke: var(--accent-text);
+  stroke-width: 2.5;
+}
+.slopeLabel {
+  font-size: 11.5px;
+  fill: var(--ink);
+}
+.chips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.chip:hover {
+  border-color: var(--line-hover);
+}
+.chipOn {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.chipRanks {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}

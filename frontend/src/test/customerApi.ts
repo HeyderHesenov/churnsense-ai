@@ -126,6 +126,7 @@ export function explained(
 
 export function explainResponse(explanations: Schemas['Explanation'][]): ExplainResponse {
   return {
+    model_sha256: 'a'.repeat(64),
     background_customers: 100,
     permutations: 10,
     seed: 42,

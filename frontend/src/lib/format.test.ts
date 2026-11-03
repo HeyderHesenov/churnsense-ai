@@ -12,6 +12,7 @@ import {
   probability,
   probabilityPct,
   signedMoney,
+  shownSign,
   signedPoints,
   times,
 } from './format';
@@ -59,6 +60,14 @@ describe('format', () => {
   it('writes signed percentage points and other small figures', () => {
     expect(signedPoints(0.317)).toBe('+31.7');
     expect(signedPoints(-0.209)).toBe('−20.9');
+    // The sign a reader sees: one that rounds to nothing has none.
+    expect(shownSign(0.317)).toBe(1);
+    expect(shownSign(-0.209)).toBe(-1);
+    expect(shownSign(0.0004)).toBe(0);
+    expect(shownSign(-0.0004)).toBe(0);
+    expect(shownSign(0.0005)).toBe(1);
+    expect(shownSign(-0.0005)).toBe(-1);
+    expect(shownSign(0)).toBe(0);
     expect(cut(0.36)).toBe('0.36');
     expect(times(2.358)).toBe('2.36×');
     expect(months(1)).toBe('1 month');

@@ -447,6 +447,120 @@ def test_the_global_explanation_is_served_from_the_cache(served, environment):
     assert -1 <= body["total_charges_r"] <= 1
 
 
+def test_the_global_explanation_summarises_each_feature_in_feature_order(served):
+    body = _ok(served.get("/api/explain/global"))
+    assert body["dependence_min_customers"] == 5
+    assert [d["feature"] for d in body["dependence"]] == body["features"]
+    for summary in body["dependence"]:
+        if summary["feature"] in schema.NUMERIC_COLUMNS:
+            assert summary["kind"] == "numeric"
+            assert summary["bins"]
+        else:
+            assert summary["kind"] == "categorical"
+            assert [lv["category"] for lv in summary["levels"]] == list(
+                schema.ALLOWED_CATEGORIES[summary["feature"]]
+            )
+
+
+def test_the_dependence_summaries_match_the_served_matrix(served):
+    """Recomputed here from the served (rounded) values: each mean within rounding."""
+    body = _ok(served.get("/api/explain/global"))
+    floor = body["dependence_min_customers"]
+
+    def expected(members: list[float]) -> float | None:
+        return sum(members) / len(members) if len(members) >= floor else None
+
+    def check(group: dict, members: list[float]) -> None:
+        assert group["customers"] == len(members)
+        mean = expected(members)
+        if mean is None:
+            assert group["mean"] is None
+        else:
+            assert group["mean"] == pytest.approx(mean, abs=1.5e-6)
+
+    for j, summary in enumerate(body["dependence"]):
+        f = summary["feature"]
+        pairs = [(row[f], values[j]) for row, values in zip(body["x"], body["values"], strict=True)]
+        if summary["kind"] == "categorical":
+            for level in summary["levels"]:
+                check(level, [c for v, c in pairs if v == level["category"]])
+            continue
+        lowest = min(v for v, _ in pairs)
+        for b in summary["bins"]:
+            inside = [c for v, c in pairs if b["low"] < v <= b["high"] or v == lowest == b["low"]]
+            check(b, inside)
+        assert sum(b["customers"] for b in summary["bins"]) == len(pairs)
+
+
+def test_the_dependence_means_come_from_the_unrounded_cache(served, environment):
+    """The served values are rounded for the dots; the group means are not built from them."""
+    from churnsense.explainability.shap_explain import dependence
+
+    artifacts, _ = environment
+    cached = json.loads((artifacts / "shap_global.json").read_text())
+    body = _ok(served.get("/api/explain/global"))
+
+    def means(summary) -> list[float | None]:
+        groups = summary.bins if hasattr(summary, "bins") else summary.levels
+        return [group.mean for group in groups]
+
+    expected = [means(s) for s in dependence(cached["features"], cached["values"], cached["x"])]
+    served_means = [
+        [group["mean"] for group in s.get("bins", s.get("levels"))] for s in body["dependence"]
+    ]
+    assert any(mean is not None for group in expected for mean in group)
+    assert served_means == expected
+
+
+def test_one_customer_and_the_cached_figures_share_a_baseline(served, ids):
+    """The page rings one customer on the cached dots only when both read the same baseline."""
+    glob = _ok(served.get("/api/explain/global"))
+    one = _ok(served.post("/api/explain", json={"customer_ids": [sorted(ids["validation"])[0]]}))
+    assert one["explanations"][0]["base_value"] == pytest.approx(glob["base_value"], abs=1e-9)
+    assert one["background_customers"] == glob["n_background"]
+
+
+def test_an_explanation_names_the_artifact_it_describes(served, model):
+    sha = model.meta["model_sha256"]
+    one = _ok(served.post("/api/explain", json={"record": dict(schema.EXAMPLE_HIGH_RISK)}))
+    assert one["model_sha256"] == sha
+    assert _ok(served.get("/api/explain/global"))["model_sha256"] == sha
+
+
+def test_the_overview_shows_no_ranking_from_attributions_that_do_not_add_up(served, environment):
+    artifacts, _ = environment
+    path = artifacts / "shap_global.json"
+    original = path.read_text()
+    try:
+        cache = json.loads(original)
+        cache["max_additivity_gap"] = 1e-6
+        path.write_text(json.dumps(cache))
+        overview = _ok(served.get("/api/overview"))
+        assert overview["importance"] is None
+        assert overview["importance_basis"] is None
+    finally:
+        path.write_text(original)
+
+
+@pytest.mark.parametrize("gap", [1e-6, None, "0", -1e-12, True, False, float("nan")])
+def test_a_cache_that_does_not_add_up_is_not_served(served, environment, gap):
+    artifacts, _ = environment
+    path = artifacts / "shap_global.json"
+    original = path.read_text()
+    try:
+        cache = json.loads(original)
+        if gap is None:
+            del cache["max_additivity_gap"]
+        else:
+            cache["max_additivity_gap"] = gap
+        path.write_text(json.dumps(cache))
+        response = served.get("/api/explain/global")
+        assert response.status_code == 503
+        assert response.json()["error"] == "explanations_not_cached"
+    finally:
+        path.write_text(original)
+
+
 # --- patterns -----------------------------------------------------------------------------
 
 
@@ -1374,20 +1488,31 @@ def test_a_malformed_evaluation_record_reads_as_not_recorded(served, environment
         path.unlink(missing_ok=True)
 
 
-@pytest.mark.parametrize("damage", ["not json", "[1, 2]", "mismatch"])
+@pytest.mark.parametrize(
+    "damage",
+    ["not json", "[1, 2]", "mismatch", "missing value", "unknown category", "importance extra key"],
+)
 def test_a_damaged_shap_cache_is_ignored_not_fatal(served, environment, damage):
     artifacts, _ = environment
     path = artifacts / "shap_global.json"
     original = path.read_text()
+    matrix_damage = {"mismatch", "missing value", "unknown category", "importance extra key"}
     try:
-        if damage == "mismatch":
+        if damage in matrix_damage:
             cache = json.loads(original)
-            cache["values"] = [row[:-1] for row in cache["values"]]
+            if damage == "mismatch":
+                cache["values"] = [row[:-1] for row in cache["values"]]
+            elif damage == "missing value":
+                del cache["x"][0]["tenure"]
+            elif damage == "importance extra key":
+                cache["importance"][0]["note"] = "x"
+            else:
+                cache["x"][0]["Contract"] = "Weekly"
             path.write_text(json.dumps(cache))
         else:
             path.write_text(damage)
         overview = _ok(served.get("/api/overview"))
-        if damage != "mismatch":
+        if damage not in matrix_damage:
             assert overview["importance"] is None
             assert overview["importance_basis"] is None
         response = served.get("/api/explain/global")

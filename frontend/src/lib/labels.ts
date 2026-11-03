@@ -6,6 +6,7 @@
  * fuller ones where there is room. These tables are copy, not data: every
  * value they describe comes from the API.
  */
+import { cents, months } from './format';
 
 export type Feature =
   | 'SeniorCitizen'
@@ -26,6 +27,28 @@ export type Feature =
   | 'PaymentMethod'
   | 'MonthlyCharges'
   | 'TotalCharges';
+
+/** Every feature, in the column contract's order (the order the API lists them in). */
+export const FEATURES: readonly Feature[] = [
+  'SeniorCitizen',
+  'Partner',
+  'Dependents',
+  'tenure',
+  'PhoneService',
+  'MultipleLines',
+  'InternetService',
+  'OnlineSecurity',
+  'OnlineBackup',
+  'DeviceProtection',
+  'TechSupport',
+  'StreamingTV',
+  'StreamingMovies',
+  'Contract',
+  'PaperlessBilling',
+  'PaymentMethod',
+  'MonthlyCharges',
+  'TotalCharges',
+];
 
 /** Feature names where there is room: charts, rankings, the explainability page. */
 export const FEATURE: Record<Feature, string> = {
@@ -132,6 +155,14 @@ export const PARTITION_OPTIONS = [
 /** A category value as the profile tables write it: "(automatic)" becomes "(auto)". */
 export function categoryValue(value: string): string {
   return value.replace(' (automatic)', ' (auto)');
+}
+
+/** A feature's value as the API sends it (a number or a word), written for a reader. */
+export function valueText(feature: string, value: string | number): string {
+  if (feature === 'tenure') return months(Number(value));
+  if (feature === 'MonthlyCharges' || feature === 'TotalCharges') return cents(Number(value));
+  if (feature === 'SeniorCitizen') return String(value) === '1' ? 'Yes' : 'No';
+  return categoryValue(String(value));
 }
 
 /** How a breakdown names its levels on the churn-patterns page. */

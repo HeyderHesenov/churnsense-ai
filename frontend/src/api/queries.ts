@@ -266,10 +266,21 @@ export function useSegments(rows: string, cols: string | null): UseQueryResult<S
   });
 }
 
+/**
+ * The cached attributions are asked for again once when the server or the
+ * network failed; never when none are cached, which stays so until a
+ * maintainer runs ``make explain``.
+ */
+export function retryGlobal(failures: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.code === 'explanations_not_cached') return false;
+  return shouldRetry(failures, error);
+}
+
 export function useGlobalExplanation(): UseQueryResult<GlobalExplanation> {
   return useQuery({
     queryKey: ['explain', 'global'],
     queryFn: ({ signal }) => request<GlobalExplanation>('/explain/global', { signal }),
+    retry: (failures, error: Error) => retryGlobal(failures, error),
   });
 }
 

@@ -5,9 +5,8 @@
  */
 import type { Contribution, CustomerDetail, ExplainResponse } from '../../api/queries';
 import { cents, cut, int, probabilityPct } from '../../lib/format';
-import { sentenceLabel } from '../../lib/labels';
+import { sentenceLabel, valueText } from '../../lib/labels';
 import type { AmountProblem } from './customer';
-import { formatValue } from './customer';
 
 export const LEDE =
   "Each customer is scored by the same Predictor the API serves. The waterfall shows each attribute's signed contribution against an average training customer, and the contributions add up exactly to the served probability.";
@@ -106,7 +105,7 @@ export function sentence(contribution: Contribution): {
       : `${contribution.shap_value > 0 ? 'raises' : 'lowers'} the estimated risk by ${points} pp, relative to an average customer.`;
   return {
     label: sentenceLabel(contribution.label),
-    value: formatValue(contribution.feature, contribution.value),
+    value: valueText(contribution.feature, contribution.value),
     text,
   };
 }

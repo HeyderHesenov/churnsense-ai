@@ -75,9 +75,13 @@ function hold(response: Schemas['BatchScoreResponse'] = batchScore()) {
   return { handler, requests, release: () => release() };
 }
 
-function refusal(status: number, error: string, problems: string[] = [], headers = {}) {
-  const body: Schemas['ErrorResponse'] = { error, detail: 'Refused by a test.', problems };
-  return http.post(PATH, () => HttpResponse.json(body, { status, headers }));
+function refusal(
+  status: number,
+  error: string,
+  problems: string[] = [],
+  headers: Record<string, string> = {},
+) {
+  return refuse('post', PATH, status, error, { problems, headers });
 }
 
 const input = () => screen.getByLabelText('Choose a CSV file to score');

@@ -12,8 +12,7 @@
  */
 import type { CustomerFeatures, Explanation, ModelInfo } from '../../api/queries';
 import { param, type Values } from '../../app/params';
-import { cents, months } from '../../lib/format';
-import { categoryValue } from '../../lib/labels';
+import { valueText } from '../../lib/labels';
 import { MAX_CUSTOMER_ID } from '../../lib/customerId';
 
 export const CUSTOMER_PARAMS = {
@@ -216,15 +215,8 @@ export const GROUPS: readonly { title: string; features: readonly Feature[] }[] 
 ];
 
 /** One input's value as the profile writes it: "3 months", "$95.00", "Credit card (auto)". */
-export function formatValue(feature: string, value: string | number): string {
-  if (feature === 'tenure') return months(Number(value));
-  if (feature === 'MonthlyCharges' || feature === 'TotalCharges') return cents(Number(value));
-  if (feature === 'SeniorCitizen') return String(value) === '1' ? 'Yes' : 'No';
-  return categoryValue(String(value));
-}
-
 export function featureValue(feature: Feature, features: CustomerFeatures): string {
-  return formatValue(feature, features[feature]);
+  return valueText(feature, features[feature]);
 }
 
 /** The inputs behind the strongest attributions, which the profile highlights. */

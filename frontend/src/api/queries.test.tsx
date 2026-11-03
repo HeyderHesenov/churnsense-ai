@@ -11,6 +11,7 @@ import {
   customersQuery,
   retryDelay,
   retryExplanation,
+  retryGlobal,
   retrySweep,
   scoreBatch,
   shouldRetry,
@@ -18,6 +19,7 @@ import {
   useCustomerCount,
   useCustomers,
   useExplanations,
+  useGlobalExplanation,
   useSelection,
   useSweep,
   type CustomerQuery,
@@ -209,6 +211,23 @@ describe('retries', () => {
     expect(retryExplanation(0, new ApiError(503, 'explanations_unavailable'))).toBe(false);
     expect(retryExplanation(0, new ApiError(422, 'validation_error'))).toBe(false);
     expect(retryExplanation(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for the cached attributions again once after a failure, never while none are cached', () => {
+    expect(retryGlobal(0, new ApiError(503, 'model_unavailable'))).toBe(true);
+    expect(retryGlobal(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(retryGlobal(1, new ApiError(503, 'model_unavailable'))).toBe(false);
+    expect(retryGlobal(0, new ApiError(503, 'explanations_not_cached'))).toBe(false);
+    expect(retryGlobal(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryGlobal(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for the cached attributions again once after a server failure', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/explain/global', 500, 'internal_error'));
+    const { result } = renderHook(() => useGlobalExplanation(), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/explain/global')).toHaveLength(2);
   });
 
   it('asks for a sweep again once after a failure, never while outcomes are withheld', () => {

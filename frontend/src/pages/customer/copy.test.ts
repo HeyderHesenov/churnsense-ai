@@ -20,6 +20,7 @@ import {
   statusLine,
   waterfallNote,
 } from './copy';
+import { CAUSAL } from '../../test/wording';
 
 describe('the prediction', () => {
   it('says how far the estimate sits from the threshold, and what the operating point does', () => {
@@ -134,7 +135,14 @@ describe('the attributions', () => {
   it('says how the server computed them, with its own figures', () => {
     expect(
       waterfallNote(
-        { background_customers: 100, permutations: 10, seed: 42, caveat: '', explanations: [] },
+        {
+          model_sha256: null,
+          background_customers: 100,
+          permutations: 10,
+          seed: 42,
+          caveat: '',
+          explanations: [],
+        },
         0.36,
       ),
     ).toBe(
@@ -179,10 +187,6 @@ describe('the live form', () => {
 });
 
 describe('every sentence', () => {
-  // tests/test_wording.py's CAUSAL, which reads the built bundle too.
-  const CAUSAL =
-    /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantees?|guaranteed)\b/i;
-
   it('makes no causal claim, and claims no scoring in the browser', () => {
     const sentences = [
       LEDE,
@@ -197,7 +201,14 @@ describe('every sentence', () => {
       sentence({ feature: 'tenure', label: 'Tenure (months)', value: 3, shap_value: 0.3 }).text,
       sentence({ feature: 'tenure', label: 'Tenure (months)', value: 3, shap_value: -0.3 }).text,
       waterfallNote(
-        { background_customers: 100, permutations: 10, seed: 42, caveat: '', explanations: [] },
+        {
+          model_sha256: null,
+          background_customers: 100,
+          permutations: 10,
+          seed: 42,
+          caveat: '',
+          explanations: [],
+        },
         0.36,
       ),
       notFound('A'),

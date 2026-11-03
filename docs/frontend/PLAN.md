@@ -24,7 +24,8 @@ The prototype computed everything in the browser from exported JSON. Production 
 
 **Facts that shaped the plan (verified):**
 - `model_meta.json` has no `test_metrics`: `make train` on 2026-10-13 rewrote it.
-- `shap_global.json` holds importance only.
+- `shap_global.json` holds importance only. (Since 1b it also holds the matrix, `x`,
+  the base value and the additivity gap; see "API additions for the explainability page".)
 - These live only in `app/`: book/provenance/outcome logic, CSV neutralisation, KPIs, `selection_table`.
 - SHAP takes about 0.3 s per row when warm, and 2.4 s on the first call (numba JIT). It uses numpy's **global** RNG (`shap/explainers/_permutation.py:66,182`).
 - `Mount("/")` matches everything with `Match.FULL` (`starlette/routing.py:426,694`).
@@ -89,7 +90,8 @@ Supporting changes:
 ### 1b. Caches and sidecar
 
 **SHAP:**
-- New `shap_matrix()` returns values plus the base value. `global_importance` is derived from it, and the `no_shap` fixture patches it.
+- New `shap_matrix()` returns values plus the base value. (Built as `_shap_values` and
+  `explanation_cache`; the cache is validated on read since 3.7.) `global_importance` is derived from it, and the `no_shap` fixture patches it.
 - `compute_and_cache` keeps `"importance"`, so `load_cached_importance` and Streamlit are unchanged. It adds `base_value`, `values` (300×18), `x`, `max_additivity_gap` and the feature order.
 - `load_cached_explanations()` refuses a cache whose `model_sha256` differs from the served artifact.
 - **A process-wide `threading.Lock` wraps `_shap_values`** (explainer construction and call), because of the global RNG.
@@ -121,7 +123,7 @@ Supporting changes:
 | `GET /api/customers/{id}` | Profile (18 inputs), probability, band, flag, partition, outcome. |
 | `POST /api/explain` | Body is `{customer_ids: [≤ 8]}` or `{record}`. Uses the verified train background (100), seed 42 and 10 permutations, under the lock. Returns all 18 contributions per customer. The LRU cache is keyed on the validated, coerced record. Additivity is asserted (≤ 1e-9, else 500). 503 `explanations_unavailable` if partitions are unverified. |
 | `GET /api/segments?rows=&cols=` | Train cross-tab. A cell with n < 20 becomes `{"suppressed": true, "n": n}`. Returns marginals, base rate, the top 7 combinations and the association list (`association_ranking.csv`). |
-| `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. |
+| `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. Since 3.7: `dependence` summaries and `dependence_min_customers`; a damaged cache or one that does not add up is a 503 (see "API additions for the explainability page"); `/api/explain` names its `model_sha256`. |
 | `GET /api/threshold/sweep` | Inputs: `cost` (0–10,000), `success`, `margin` (0–1), `horizon` (1–120). Returns the validation sweep (101 points), peak, recommendation (`recommend_threshold_from`), indifference band and sensitivity at 10–50 %. |
 | `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. Since 3.6: the served model measured on validation (`validation_evaluation`), true negatives per cut, `leader_name`, `model_sha256` (see "API additions for the performance page"). |
 | `POST /api/batch/score` | Multipart, same body limit and `validate_upload` (on the served model's columns). Returns rows (validated inputs as scored, id, label, prediction), a summary, notes and `csv`, the rows as a spreadsheet-safe file without a label. **Label P/R excludes rows whose `customerID` is in the book's test or unknown partition**, reports how many were excluded, gives no rate under 20 labelled rows, and says why a rate is missing. `/predict/batch` shares the reader: a file-level 422 now names its reason in `problems` there too (see "API additions for the batch page"). |
@@ -286,11 +288,13 @@ Supporting changes:
    - Validation reliability diagram and the uncalibrated-vs-shipped table.
    - Segment table with Wilson intervals (NOT SCANNED rows), validation or
      recorded test.
-7. **Explainability**
+7. **Explainability** (built in 3.7)
    - Method tiles.
    - Selectable swarm rows.
-   - Dependence plot, numeric or categorical, with hover.
+   - Dependence plot, numeric or categorical, with a group slider
+     (instead of hover; see "Phase 3.7").
    - Slope chart with the rank chips.
+   - One customer placed on the figures (`?id=`).
 8. **Patterns**
    - Rows × cols selects, swap, measure, suggested views.
    - Focus line.
@@ -1699,3 +1703,235 @@ missing `churnsense.data`: the control said so).
   guards the cutoff sum, not the whole table.
 - Pointer-only chart reading (hover); the keyboard path is the slider and the
   tables. Playwright/axe and a frontend CI job are still Phase 4.
+
+### API additions for the explainability page (2026-11-02)
+
+All additive; the cache file's format is unchanged (`make explain` already
+wrote the matrix, `x` and the additivity gap).
+
+- **`GlobalExplanation.dependence`**: one summary per feature, in `features`
+  order, a union discriminated by `kind`, computed by
+  `shap_explain.dependence(features, values, x)` from the cache's
+  **unrounded** values (the served `values` are rounded to 6 dp for the dots;
+  the means are rounded only after averaging):
+  - `numeric` (`schema.NUMERIC_COLUMNS`): 12 equal-width groups over the
+    observed range, right-closed, the first holding the minimum (the
+    reliability table's `np.digitize(..., right=True)` idiom over the inner
+    edges); empty groups are left out; a constant column is one group
+    `low == high`;
+  - `categorical`: every level of `schema.ALLOWED_CATEGORIES[f]` in contract
+    order, absent ones with `customers 0`, so any customer's category has a
+    place;
+  - `mean` is null below **`dependence_min_customers` (5)**, also served. It is
+    a stability rule for a mean of model outputs, not the `MIN_CELL` outcome
+    rule: no outcome is in these groups, and the field is never called a rate.
+- **`ExplainResponse.model_sha256`**, so the page can tell a customer
+  explained by another artifact than the cached figures (precedent:
+  `PerformanceResponse.model_sha256`).
+- **A damaged cache reads as "not cached" (503 `explanations_not_cached`),
+  never a 500 or a half-drawn page.** `load_cached_explanations` checks:
+  features known, unique and text; `values` and `x` the same non-zero length;
+  every `x` row exactly the features, categories from the contract, numbers
+  finite (JSON integers past a float's range included); every contribution
+  finite and within **[−1, 1]** (a permutation SHAP value of a probability is
+  a mean of differences of two probabilities; a larger one would overflow a
+  group mean); and the description the page states (partition text,
+  `n_explained == len(x)`, counts, seed, base value in [0, 1], an importance
+  list, a recorded gap). A malformed importance row is refused in the route.
+- **Attributions that do not add up are never served:** `read_cache` refuses
+  a recorded `max_additivity_gap` that is not a number in
+  [0, `ADDITIVITY_TOLERANCE`] (1e-9), so the overview's ranking goes too;
+  `ADDITIVITY_TOLERANCE` moved from `dashboard.py` to `shap_explain`.
+- **Tests:** dependence groups account for every customer; category and bin
+  means are the means of unrounded contributions (a case where rounding first
+  gives 0.0 instead of 1e-6, and the API's means equal `dependence()` on the
+  raw cache file exactly); bins right-closed, on one grid, the minimum in the
+  first; every level listed; 5 customers carry a mean and 4 do not; a constant
+  column; no explained customers; 24 kinds of damaged cache; a contribution of
+  exactly ±1 is served; the dependence recomputed independently from the
+  served values; one customer and the cached figures share a baseline (≤ 1e-9)
+  and a background; both responses name the served sha; seven kinds of
+  recorded gap refused (1e-6, missing, text, negative, true, false, NaN).
+
+## Phase 3.7 — Explainability (2026-11-02)
+
+The page shows how the shipped model uses each attribute, from `make
+explain`'s cached attributions for a validation sample, and lets a reader
+place one book customer on those figures from the customer's own
+explanation. It renders `/api/explain/global`, `/api/model-info`,
+`/api/customers/examples` and `/api/explain`; it averages, sums or ranks
+nothing itself.
+
+**What the figures are (verified on the shipped artifact).** shap 0.54.1's
+`PermutationExplainer` on `ProbabilityClamp.predict_proba(...)[:, 1]`
+(preprocessing, isotonic calibration and the clamp inside; column 1 is churn),
+over the 18 raw attributes, on the probability scale (×100 = percentage
+points). The base value is the mean served probability over 100 training
+background rows (seed 42, 10 orderings). The API's background and the cache's
+are the same rows. The cache explains its sample in one call and
+`/api/explain` explains each customer alone, so a sampled customer's ring can
+sit about 0.3 pp per attribute from their own dot: the copy never calls the
+ring one of the dots.
+
+**Layout.** Method strip (partition and seed, sample, background, orderings,
+additivity gap) → one customer → swarm beside dependence → two rankings →
+footer (masking caveat and the server's caveat).
+
+**Decisions.**
+- **State ladder:** loading → not cached (an empty state naming `make
+  explain` as the maintainer's step; "Check again" asks once more, focus to
+  `#main`) → failed (model-info or the figures; retry, focus `#main`) → the
+  two responses name different artifacts (every figure hidden, "Reload
+  figures" refetches model-info and invalidates every `['explain']` query,
+  focus `#main`) → the page. A model-info without a sha still shows the
+  figures, as on Performance.
+- **The studied attribute** is `?f=` (replace; the top of the served ranking
+  is the clean address); an attribute the cache does not explain falls back.
+  Swarm rows and ranking chips pick it.
+- **One customer** is `?id=` (a push): example links show ID and served
+  probability, never an outcome, `aria-current` on the placed one; the ID
+  field is submit-only and drops what no ID holds. A customer is asked for
+  only once the figures are in, the model's description agrees with them, the
+  training data is verified, and the server has not said it can explain no
+  one (a latch for the session, across later addresses). The query has no
+  placeholder and the answer is picked by `customer_id`, so another
+  customer's explanation is never shown under a new one. 404 is a status
+  line; 429/busy is asked again once (`retryExplanation`), then "Ask for the
+  attributions again" (focus the card heading).
+- **Ringed only when comparable** (`comparability`): same artifact, base value
+  within 1e-9, same background size; seed and orderings are deliberately not
+  compared (they change how credit is split, not the baseline). Another
+  artifact hides the customer's table behind "Reload figures"; another
+  baseline or background shows the table without rings, with the reason.
+- **The customer's summary** gives the base value, the served probability,
+  the three strongest raises and lowers by the sign a reader sees
+  (`shownSign`: a contribution that rounds to 0.0 neither raises nor
+  lowers), and all 18 contributions; never a summed contribution (rounding)
+  and never a reconstructed probability. The waterfall stays on the single
+  customer page (linked).
+- **Swarm:** one SVG, one path per colour class per row; numeric dots
+  coloured by the third of the observed range (three classes and tokens, not
+  a gradient), categories grey; dots within one bucket stack alternately and a
+  dense stack saturates at the row's edges (the table carries the numbers).
+  Row buttons are in the chart frame's overlay, never inside `role="img"`.
+  Rings are HTML spans so they stay round however the SVG stretches.
+- **Dependence:** dots by shown sign; the server's group means as a line that
+  breaks at a group without a mean and between groups that are not
+  neighbours, or a bar per category with its n; a slider steps through the
+  groups (its value text is what the tooltip says; a group without a mean is
+  pointed at from the top, never at a mean of zero). Questions are worded as
+  what SHAP measures ("How does the monthly charge's contribution vary with
+  its value?"), not conditional effects. TotalCharges carries the served
+  collinearity note.
+- **Two rankings:** association rank on training outcomes against rank
+  inside the model, a line only for attributes ranked both ways; no
+  Cramér's V figure (the association ranking mixes measures).
+- **Shared pieces:** `lib/labels` `valueText` and `FEATURES` (moved from the
+  customer page), `lib/format` `shownSign` (the waterfall uses it too),
+  `--value-low/mid/high` tokens, `queries` `retryGlobal` (never
+  `explanations_not_cached`), `test/server` `refuse(..., {problems,
+  headers})`, and `test/wording.ts` CAUSAL, which every copy test imports and
+  which equals `tests/test_wording.py`'s (now also bare "drive", "prevent"
+  and "leads to"; bare "cause" stays out because the pages say "nothing here
+  identifies a cause").
+
+**Deviations from the artboard** (`Explain.dc.html`):
+- The ring is the customer explained on their own, not one of the dots.
+- Three colour classes instead of a gradient; rings as HTML.
+- The mean line has gaps instead of bridging small or empty groups.
+- A group slider instead of per-dot hover; no reconstructed "customer
+  probability".
+- No outcome on the example picks; no Cramér's V figure.
+- Unsourced notes dropped ("front-loaded", "not a discount working",
+  "unique contribution is smaller"); conditional questions reworded.
+
+**Checks.** Backend 952 passed (the wording scan of the built bundle included) and
+`make lint`; front end 936 vitest twice with no act warning, lint, typecheck,
+prettier, build (Explainability chunk 9.86 kB gzip JS, vendor unchanged at
+85.61 kB), `npm audit --omit=dev` 0. Chromium on the built app (:8001, under
+the CSP) against the real cache (300 validation customers, base 25.76 %, gap
+1.9e-15; every contribution inside [−1, 1]): 18 rows in the served order;
+Total charges' 12 groups each with a mean, stepped by ArrowRight with the
+mark on each, and its collinearity note; a sampled validation customer ringed 19 times. The
+review fixes, with responses altered in the browser only (`page.route`): a
+group without a mean has no mark; a model-info naming another artifact hides
+every figure and asks for no customer, and "Reload figures" brings them back
+with the focus on `#main`; "Check again" after a 503 keeps the focus on
+`#main`; a customer explained by another artifact gets the card alert, no
+table and no rings, and its "Reload figures" restores all 19. No page
+scroll at 375/768/1024/1440 (at 375 the swarm scrolls inside its own region,
+as designed); 0 console messages in normal use. `artifacts/` and `reports/`
+are byte-identical before and after (sha256 of all 23 files).
+
+### Explainability review (code-reviewer and qa-expert, 2026-11-02)
+
+- **code-reviewer:** 0 critical/high, 4 medium, 5 low, 5 nits; all fixed
+  test-first:
+  - M1 a damaged cache could still give a 500 (an unhashable feature, an
+    integer past a float's range, unguarded scalars): kinds are checked before
+    the set, `_finite` catches the overflow, the description is checked, a
+    malformed importance or an empty matrix is a 503;
+  - M2 two chart questions claimed conditional effects SHAP does not measure:
+    reworded;
+  - M3 the A→B test did not hold A's answer back: two page tests added (they
+    passed at once; the mutants below show they guard the placeholder and the
+    pick by ID);
+  - M4 "Check again" dropped the focus: it goes to `#main`;
+  - low: a group without a mean was marked at y(0); a null sha read as
+    comparable; a customer from another artifact now gets "Reload figures"
+    and no table; the overview refuses a cache past tolerance; the mismatch
+    test asserts no customer request;
+  - nits: notes without counts, "exactly" dropped, component strings moved to
+    `copy.ts`, an exact-edge comment, the gap cases −1e-12, true and NaN.
+- **qa-expert** (on the tree after those fixes): front end 53/81 and backend
+  27/34 mutants killed. One real defect, **D1**: a contribution of 1e308 was
+  accepted, its group mean overflowed to infinity, was served as null, and the
+  page said "too few for a mean" for a group of five or more. Fixed test-first
+  by the [−1, 1] bound. Two equivalent branches were removed (the `np.clip`,
+  since `digitize` over the inner edges never leaves 0..11, and the
+  `low == high` branch, since equal edges put every value in the first group),
+  and the unreachable-from-the-route empty guard is kept and pinned by a direct
+  test, since `dependence()` is public. Its test gaps were closed: the
+  unrounded means, the row count, a gap of `false`, model-info failing, the
+  latch across addresses, the `retryGlobal` wiring, stacking at row 3, colour
+  by shown sign, ring and row placement, a categorical ring, both axes
+  widened for the customer, the TotalCharges note, the served floor, the
+  slider's max and a shrinking group list, the tooltip anchor, a lone mean
+  drawn without a line, runs that start or end at a null group, the third's
+  edge, the bucket, a 32-character ID, the strongest three, value text in the
+  table, `aria-current`, a junk-only ID, the customer's own base value, and
+  the highlighted slope drawn once.
+- **Mutants after the fixes** (a copy with a cache-free Vitest config; the
+  qa-expert's first list was not kept, so it was rebuilt from the code):
+  front end 37 plus an identity control, all caught, the control survived;
+  backend 10 plus a control, all caught (including three on the [−1, 1]
+  bound, the right-closed bins, the five-customer floor, rounding before
+  the mean and rounded values passed to `dependence()`), the control
+  survived. The first pass had three survivors, each a weak test: a junk ID
+  typed with no customer placed changes nothing either way (the test now
+  starts with one placed); the colour test used a category, so the numeric
+  branch's colouring was untested (it now runs on both, with rounding traps);
+  and the slope-line filter had no test (`importance` in the cache is not
+  checked to name every feature, so an attribute can have an association rank
+  and no model rank).
+
+### Follow-ups and limitations found in this phase
+
+- Every figure on the page is a model attribution: how the shipped model's
+  output moves with an attribute's value for these customers, not what
+  changing that value would do to anyone. The server's caveat ("These are
+  model attributions, not causal effects.") closes the page, and the CAUSAL
+  scan covers the copy, the API text and the built bundle.
+- A dense swarm stack saturates at its row's edges; the table carries the
+  numbers.
+- Equal-width groups put few customers in the tails (Total charges' top groups
+  hold 6–9 of the 300); on the shipped cache every group still has a mean,
+  but a smaller sample would break the line there.
+- The association ranking mixes Cramér's V and |point-biserial r| and has
+  near-ties; the page shows ranks, not values.
+- The global payload (about 150–200 kB) is cached for the session.
+- `FeatureContribution.direction` (Streamlit only) still reads an exact 0 as
+  "lowers".
+- jsdom cannot measure layout: geometry is tested in `explain.ts` and the
+  component tests read the drawn coordinates; Chromium covers the rest.
+  Playwright/axe and a frontend CI job are still Phase 4.

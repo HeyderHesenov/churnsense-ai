@@ -13,6 +13,7 @@ import {
   selectionStatus,
 } from './copy';
 import { FILTER_DEFAULTS, type Filters } from './explorer';
+import { CAUSAL } from '../../test/wording';
 
 type Summary = CustomerPage['summary'];
 
@@ -224,6 +225,7 @@ describe('short labels', () => {
 
 describe('an explanation', () => {
   const response: ExplainResponse = {
+    model_sha256: 'a'.repeat(64),
     background_customers: 100,
     permutations: 10,
     seed: 42,
@@ -252,9 +254,6 @@ describe('an explanation', () => {
 });
 
 describe('every sentence', () => {
-  // tests/test_wording.py's CAUSAL, which reads the built bundle too.
-  const CAUSAL =
-    /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantees?|guaranteed)\b/i;
   const info: ModelInfo = modelInfo();
 
   it('makes no causal claim', () => {
@@ -272,6 +271,7 @@ describe('every sentence', () => {
       hint({ part: 'test' }, { withheld: 'Retrain.' }),
       hint({}),
       explanationNote({
+        model_sha256: 'a'.repeat(64),
         background_customers: 100,
         permutations: 10,
         seed: 42,

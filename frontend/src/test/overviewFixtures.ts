@@ -243,6 +243,7 @@ export function customerPage(
 /** Explanations for ``ids``: tenure raises the score, monthly charges lower it. */
 export function explanations(ids: readonly string[]): ExplainResponse {
   return {
+    model_sha256: 'a'.repeat(64),
     background_customers: 100,
     permutations: 10,
     seed: 42,

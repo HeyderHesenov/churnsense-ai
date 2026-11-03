@@ -699,6 +699,18 @@ export interface components {
       /** Within One Se */
       within_one_se: boolean;
     };
+    /** CategoricalDependence */
+    CategoricalDependence: {
+      /** Feature */
+      feature: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'categorical';
+      /** Levels */
+      levels: components['schemas']['DependenceLevel'][];
+    };
     /** Contribution */
     Contribution: {
       /** Feature */
@@ -905,6 +917,32 @@ export interface components {
       /** Tenure */
       tenure: number;
     };
+    /**
+     * DependenceBin
+     * @description Explained customers whose value lies in ``(low, high]``; the first group also holds ``low``.
+     */
+    DependenceBin: {
+      /** Customers */
+      customers: number;
+      /** High */
+      high: number;
+      /** Low */
+      low: number;
+      /** Mean */
+      mean: number | null;
+    };
+    /**
+     * DependenceLevel
+     * @description Explained customers with one category; every category of the contract is listed.
+     */
+    DependenceLevel: {
+      /** Category */
+      category: string;
+      /** Customers */
+      customers: number;
+      /** Mean */
+      mean: number | null;
+    };
     /** ErrorResponse */
     ErrorResponse: {
       /** Detail */
@@ -937,6 +975,8 @@ export interface components {
       caveat: string;
       /** Explanations */
       explanations: components['schemas']['Explanation'][];
+      /** Model Sha256 */
+      model_sha256: string | null;
       /** Permutations */
       permutations: number;
       /** Seed */
@@ -966,6 +1006,12 @@ export interface components {
       base_value: number;
       /** Caveat */
       caveat: string;
+      /** Dependence */
+      dependence: (
+        components['schemas']['NumericDependence'] | components['schemas']['CategoricalDependence']
+      )[];
+      /** Dependence Min Customers */
+      dependence_min_customers: number;
       /** Features */
       features: string[];
       /** Importance */
@@ -1252,6 +1298,18 @@ export interface components {
       MonthlyCharges: components['schemas']['NumericRange'];
       TotalCharges: components['schemas']['NumericRange'];
       tenure: components['schemas']['NumericRange'];
+    };
+    /** NumericDependence */
+    NumericDependence: {
+      /** Bins */
+      bins: components['schemas']['DependenceBin'][];
+      /** Feature */
+      feature: string;
+      /**
+       * @description discriminator enum property added by openapi-typescript
+       * @enum {string}
+       */
+      kind: 'numeric';
     };
     /** NumericRange */
     NumericRange: {

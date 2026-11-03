@@ -1,5 +1,6 @@
 import { curve, performance } from '../../test/performanceApi';
 import * as copy from './copy';
+import { CAUSAL } from '../../test/wording';
 
 const calibration = performance().calibration;
 const candidates = performance().candidates ?? [];
@@ -99,8 +100,6 @@ describe('figures in sentences', () => {
 });
 
 describe('the words', () => {
-  const CAUSAL =
-    /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantees?|guaranteed)\b/i;
   const CERTAIN = /\b(saved?|saves|rescued?|prevented|optimal model|excellent|best-in-class)\b/i;
   const points = curve().points;
   const sentences = [

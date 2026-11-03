@@ -15,6 +15,7 @@ import {
   uploadLimits,
   validation,
 } from './copy';
+import { CAUSAL } from '../../test/wording';
 
 const FILE = new File(['x'.repeat(2048)], 'crm.csv');
 const SERVED = { model: 'Logistic Regression', threshold: 0.36, maxBytes: 5_242_880 };
@@ -250,10 +251,6 @@ describe('the scored rows', () => {
 });
 
 describe('the words', () => {
-  // tests/test_wording.py's CAUSAL, which reads the built bundle too.
-  const CAUSAL =
-    /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantees?|guaranteed)\b/i;
-
   it('make no causal claim, and claim no scoring in the browser', () => {
     const kinds: Stage[] = [
       { kind: 'idle' },

@@ -9,8 +9,8 @@ import type { Explanation, ExplainResponse } from '../../api/queries';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/States';
 import { Segmented, type Option } from '../../components/ui/Toggle';
-import { pct, probabilityPct, signedPoints } from '../../lib/format';
-import { contributionLabel } from '../../lib/labels';
+import { pct, probabilityPct, shownSign, signedPoints } from '../../lib/format';
+import { contributionLabel, valueText } from '../../lib/labels';
 import { cssVars } from '../../lib/style';
 import {
   EXPLAIN_BLOCKED,
@@ -22,7 +22,7 @@ import {
   showAll,
   waterfallNote,
 } from './copy';
-import { bar, formatValue, waterfall } from './customer';
+import { bar, waterfall } from './customer';
 import styles from './Customer.module.css';
 
 /**
@@ -130,8 +130,8 @@ export function Waterfall({
 
 /** "+30.8" raises, "−16.1" lowers; one that rounds to nothing is coloured as neither. */
 function direction(fraction: number): 'raises' | 'lowers' | 'none' {
-  const shown = signedPoints(fraction);
-  return shown.startsWith('+') ? 'raises' : shown.startsWith('−') ? 'lowers' : 'none';
+  const sign = shownSign(fraction);
+  return sign > 0 ? 'raises' : sign < 0 ? 'lowers' : 'none';
 }
 
 function Rows({
@@ -182,7 +182,7 @@ function Rows({
         <li key={step.feature} className={styles.wfRow}>
           <span className={styles.wfLabel}>
             {contributionLabel(step.label)}{' '}
-            <span className={styles.wfMuted}>· {formatValue(step.feature, step.value)}</span>
+            <span className={styles.wfMuted}>· {valueText(step.feature, step.value)}</span>
           </span>
           {track(step.start, step.end, direction(step.shap))}
           <span className={styles.wfValue} data-direction={direction(step.shap)}>

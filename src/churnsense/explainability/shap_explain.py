@@ -33,10 +33,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import numpy as np
 import pandas as pd
@@ -60,6 +61,18 @@ DEFAULT_BACKGROUND = 100
 DEFAULT_SAMPLE = 300
 #: Antithetic feature orderings sampled per explained customer.
 PERMUTATIONS = 10
+
+#: The largest gap between base value + contributions and the served
+#: probability an attribution may show. SHAP's efficiency makes it exact up to
+#: floating point; anything bigger means the attributions are of something else.
+ADDITIVITY_TOLERANCE = 1e-9
+
+#: Equal-width groups a numeric feature's contributions are summarised in.
+DEPENDENCE_BINS = 12
+#: Fewer explained customers than this in a group and its mean contribution is
+#: not given. A stability rule for an average of model outputs - not the
+#: outcome-privacy rule (no outcome is involved), so it is deliberately smaller.
+DEPENDENCE_MIN_CUSTOMERS = 5
 
 #: shap's permutation explainer seeds and shuffles numpy's *global* random
 #: state, so two explanations running at once in a server's thread pool would
@@ -93,6 +106,108 @@ class CustomerExplanation:
     probability: float
     base_value: float
     contributions: list[FeatureContribution]
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceBin:
+    """Explained customers whose value is in ``(low, high]`` (the first bin also holds ``low``)."""
+
+    low: float
+    high: float
+    customers: int
+    #: Mean contribution, as a fraction; ``None`` below ``DEPENDENCE_MIN_CUSTOMERS``.
+    mean: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceLevel:
+    """Explained customers with one category of a feature."""
+
+    category: str
+    customers: int
+    mean: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class NumericDependence:
+    feature: str
+    bins: tuple[DependenceBin, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CategoricalDependence:
+    feature: str
+    #: Every level of the column contract, in its order, present or not.
+    levels: tuple[DependenceLevel, ...]
+
+
+def _group_mean(contributions: np.ndarray) -> float | None:
+    """Rounded like the served matrix; withheld where too few customers make it unstable."""
+    if contributions.size < DEPENDENCE_MIN_CUSTOMERS:
+        return None
+    return round(float(contributions.mean()), 6)
+
+
+def _numeric_dependence(
+    feature: str, numbers: np.ndarray, contributions: np.ndarray
+) -> NumericDependence:
+    if numbers.size == 0:
+        return NumericDependence(feature, ())
+    edges = np.linspace(numbers.min(), numbers.max(), DEPENDENCE_BINS + 1)
+    # Right-closed like the reliability table. Only the inner edges are cut points, so the
+    # minimum lands in the first group, the maximum in the last, and a constant column
+    # (every edge equal) in one group from its value to itself.
+    index = np.digitize(numbers, edges[1:-1], right=True)
+    return NumericDependence(
+        feature,
+        tuple(
+            DependenceBin(
+                float(edges[i]),
+                float(edges[i + 1]),
+                int((index == i).sum()),
+                _group_mean(contributions[index == i]),
+            )
+            for i in np.unique(index)
+        ),
+    )
+
+
+def dependence(
+    features: list[str], values: list[list[float]], x: list[dict[str, Any]]
+) -> list[NumericDependence | CategoricalDependence]:
+    """How each feature's contribution varies with its value, over the explained customers.
+
+    One summary per feature, in ``features`` order, from the unrounded cached
+    matrix: the mean contribution per category (every category of the
+    contract, so any customer's category has a place) or per equal-width group
+    of a numeric value. It describes the model's output for these customers,
+    not what would happen to anyone if a value changed.
+    """
+    matrix = np.asarray(values, dtype=float).reshape(len(x), len(features))
+    summary: list[NumericDependence | CategoricalDependence] = []
+    for j, feature in enumerate(features):
+        contributions = matrix[:, j]
+        if feature in schema.ALLOWED_CATEGORIES:
+            observed = np.array([row[feature] for row in x], dtype=object)
+            summary.append(
+                CategoricalDependence(
+                    feature,
+                    tuple(
+                        DependenceLevel(
+                            category,
+                            int((observed == category).sum()),
+                            _group_mean(contributions[observed == category]),
+                        )
+                        for category in schema.ALLOWED_CATEGORIES[feature]
+                    ),
+                )
+            )
+        elif feature in schema.NUMERIC_COLUMNS:
+            numbers = np.array([row[feature] for row in x], dtype=float)
+            summary.append(_numeric_dependence(feature, numbers, contributions))
+        else:
+            raise ValueError(f"{feature!r} is neither a numeric nor a categorical feature")
+    return summary
 
 
 def _as_codes(X: pd.DataFrame) -> np.ndarray:
@@ -344,7 +459,19 @@ def read_cache(path: Path, model_sha256: str) -> dict[str, Any] | None:
     if not isinstance(cached, dict):
         logger.warning("the SHAP cache is not a JSON object")
         return None
-    return cached if cached.get("model_sha256") == model_sha256 else None
+    if cached.get("model_sha256") != model_sha256:
+        return None
+    # A cache written before the gap was recorded has none; one that records a
+    # gap past tolerance describes attributions that do not add up, anywhere.
+    if "max_additivity_gap" in cached and not adds_up(cached["max_additivity_gap"]):
+        logger.warning("the cached attributions do not add up to the served probability")
+        return None
+    return cached
+
+
+def adds_up(gap: object) -> bool:
+    """A recorded additivity gap that is a number within tolerance."""
+    return _finite(gap) and 0 <= gap <= ADDITIVITY_TOLERANCE
 
 
 def load_cached_explanations(path: Path, model_sha256: str) -> dict[str, Any] | None:
@@ -356,18 +483,88 @@ def load_cached_explanations(path: Path, model_sha256: str) -> dict[str, Any] | 
     cached = read_cache(path, model_sha256)
     if cached is None or "values" not in cached:
         return None
-    features, values, x = cached.get("features"), cached.get("values"), cached.get("x")
-    consistent = (
-        isinstance(features, list)
-        and isinstance(values, list)
-        and isinstance(x, list)
-        and len(values) == len(x)
-        and all(isinstance(row, list) and len(row) == len(features) for row in values)
-    )
-    if not consistent:
+    if not _matrix_fits(cached.get("features"), cached.get("values"), cached.get("x")):
         logger.warning("the cached SHAP matrix does not match its feature list; ignoring it")
         return None
+    if not _description_fits(cached):
+        logger.warning("the cached SHAP matrix is described inconsistently; ignoring it")
+        return None
     return cached
+
+
+def _count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _description_fits(cached: dict[str, Any]) -> bool:
+    """What the page states about the matrix is there, of the right kind, and agrees with it."""
+    seed = cached.get("seed")
+    base = cached.get("base_value")
+    return (
+        isinstance(cached.get("partition"), str)
+        and cached.get("n_explained") == len(cached["x"])
+        and _count(cached.get("n_background"))
+        and _count(cached.get("permutations"))
+        and (seed is None or (isinstance(seed, int) and not isinstance(seed, bool)))
+        and _finite(base)
+        and 0 <= base <= 1
+        and isinstance(cached.get("importance"), list)
+        and "max_additivity_gap" in cached
+    )
+
+
+def _finite(value: object) -> TypeGuard[int | float]:
+    """A JSON number that is a real number: not text, not a boolean, not NaN or infinite.
+
+    JSON allows an integer of any length; one past a float's range is not a
+    number any figure here could be.
+    """
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _contribution(value: object) -> bool:
+    return _finite(value) and -1 <= value <= 1
+
+
+def _matrix_fits(features: object, values: object, x: object) -> bool:
+    """Every row of ``values`` and ``x`` describes exactly ``features``, with values the contract allows.
+
+    A damaged cache must read as "not cached", never reach the page half-drawn
+    or fail the request. A contribution lies in [-1, 1]: a permutation SHAP
+    value is a mean of differences between two probabilities.
+    """
+    if not (isinstance(features, list) and isinstance(values, list) and isinstance(x, list)):
+        return False
+    known = set(schema.ALLOWED_CATEGORIES) | set(schema.NUMERIC_COLUMNS)
+    # Kinds first: a set of the features needs them hashable.
+    if not all(isinstance(f, str) and f in known for f in features):
+        return False
+    if len(set(features)) != len(features):
+        return False
+    if len(values) != len(x) or len(x) == 0:
+        return False
+    if not all(
+        isinstance(row, list) and len(row) == len(features) and all(_contribution(v) for v in row)
+        for row in values
+    ):
+        return False
+
+    def allowed(feature: str, value: object) -> bool:
+        if feature in schema.ALLOWED_CATEGORIES:
+            return value in schema.ALLOWED_CATEGORIES[feature]
+        return _finite(value)
+
+    return all(
+        isinstance(row, dict)
+        and row.keys() == set(features)
+        and all(allowed(f, row[f]) for f in features)
+        for row in x
+    )
 
 
 def load_cached_importance(cfg: Config | None = None) -> pd.DataFrame | None:

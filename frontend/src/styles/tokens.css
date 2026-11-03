@@ -97,6 +97,11 @@
   --lowers-soft: rgba(91, 141, 239, 0.12);
   --lowers-line: #23395a;
 
+  /* A feature's value on the explainability swarm: low, middle, high third */
+  --value-low: #5b8def;
+  --value-mid: #8e8fb0;
+  --value-high: #e8578f;
+
   /* Status */
   --ok: #3fa655;
   --ok-text: #8fd99a;

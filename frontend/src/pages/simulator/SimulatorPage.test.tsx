@@ -1,14 +1,13 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw/http';
-import type { Schemas } from '../../api/client';
 import type { Sweep } from '../../api/queries';
 import { App } from '../../app/App';
 import { modelInfo } from '../../test/fixtures';
 import { entriesAdded } from '../../test/history';
 import { press } from '../../test/keyboard';
 import { renderAt } from '../../test/render';
-import { answer, server } from '../../test/server';
+import { answer, refuse, server } from '../../test/server';
 import { DEFAULTS, echoOf, gridAt, sweepApi, sweepFor } from '../../test/simulatorApi';
 import { RESULTS_ID } from './Results';
 
@@ -83,9 +82,13 @@ function holdAfter(free: number) {
   return { handler, release: () => release() };
 }
 
-function refusal(status: number, error: string, problems: string[] = [], headers = {}) {
-  const body: Schemas['ErrorResponse'] = { error, detail: 'Refused by a test.', problems };
-  return http.get(PATH, () => HttpResponse.json(body, { status, headers }));
+function refusal(
+  status: number,
+  error: string,
+  problems: string[] = [],
+  headers: Record<string, string> = {},
+) {
+  return refuse('get', PATH, status, error, { problems, headers });
 }
 
 /**

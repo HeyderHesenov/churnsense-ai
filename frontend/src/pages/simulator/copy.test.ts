@@ -14,6 +14,7 @@ import {
   whyNotPeak,
 } from './copy';
 import { FIELDS, type FieldKey, type FieldProblem, type Status } from './simulator';
+import { CAUSAL } from '../../test/wording';
 
 function spec(key: FieldKey) {
   const found = FIELDS.find((field) => field.key === key);
@@ -229,9 +230,6 @@ describe('if the success rate were…', () => {
 });
 
 describe('the words', () => {
-  // tests/test_wording.py's CAUSAL, which reads the built bundle too.
-  const CAUSAL =
-    /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantees?|guaranteed)\b/i;
   /** A simulated retention is never told as customers kept for certain. */
   const CERTAIN = /\b(saved?|saves|rescued?|prevented)\b/i;
 

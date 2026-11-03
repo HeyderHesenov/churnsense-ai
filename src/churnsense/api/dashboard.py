@@ -54,8 +54,13 @@ from churnsense.data import schema
 from churnsense.evaluation.threshold import DISCLAIMER, ThresholdScenario, scenario_at
 from churnsense.exceptions import DataError
 from churnsense.explainability.shap_explain import (
+    ADDITIVITY_TOLERANCE,
     CAVEAT,
+    DEPENDENCE_MIN_CUSTOMERS,
     PERMUTATIONS,
+    CategoricalDependence,
+    NumericDependence,
+    dependence,
     load_cached_explanations,
     read_cache,
 )
@@ -67,10 +72,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dashboard"])
 
-#: The largest gap between base value + contributions and the served
-#: probability an explanation may show. SHAP's efficiency makes it exact up to
-#: floating point; anything bigger means the explanation is of something else.
-ADDITIVITY_TOLERANCE = 1e-9
 
 _ERRORS: dict[int | str, dict[str, Any]] = {
     status: {"model": ErrorResponse} for status in (400, 403, 422, 500, 503)
@@ -526,11 +527,34 @@ def explain(
             served = float(d.model.predict_frame(record)["churn_probability"].iloc[0])
             explanations = [_explanation(d, d.model.model_inputs(record), served, None)]
     return out.ExplainResponse(
+        model_sha256=d.model.meta.get("model_sha256"),
         permutations=PERMUTATIONS,
         seed=d.config.random_seed,
         background_customers=len(d.background) if d.background is not None else 0,
         explanations=explanations,
         caveat=CAVEAT,
+    )
+
+
+def _dependence_out(
+    summary: NumericDependence | CategoricalDependence,
+) -> out.NumericDependence | out.CategoricalDependence:
+    if isinstance(summary, NumericDependence):
+        return out.NumericDependence(
+            kind="numeric",
+            feature=summary.feature,
+            bins=[
+                out.DependenceBin(low=b.low, high=b.high, customers=b.customers, mean=b.mean)
+                for b in summary.bins
+            ],
+        )
+    return out.CategoricalDependence(
+        kind="categorical",
+        feature=summary.feature,
+        levels=[
+            out.DependenceLevel(category=lv.category, customers=lv.customers, mean=lv.mean)
+            for lv in summary.levels
+        ],
     )
 
 
@@ -542,12 +566,19 @@ def explain(
 def global_explanation(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.GlobalExplanation:
     """``make explain``'s attributions for a validation sample, as the explainability page draws them."""
     sha = d.model.meta.get("model_sha256", "")
+    not_cached = Unavailable(
+        "explanations_not_cached",
+        "No attributions are cached for the served model. Run `make explain`.",
+    )
     cached = load_cached_explanations(d.shap_cache, sha)
     if cached is None:
-        raise Unavailable(
-            "explanations_not_cached",
-            "No attributions are cached for the served model. Run `make explain`.",
-        )
+        raise not_cached
+    try:
+        importance = [out.Importance(**row) for row in cached["importance"]]
+    except (TypeError, ValidationError):
+        # A damaged ranking reads as "not cached", never as a server error.
+        logger.warning("the SHAP cache's importance ranking is malformed; ignoring it")
+        raise not_cached from None
     ranking = _report(reports.association_ranking, d.reports_dir)
     rank = None
     if ranking is not None:
@@ -564,10 +595,15 @@ def global_explanation(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.G
         max_additivity_gap=cached["max_additivity_gap"],
         features=cached["features"],
         labels={f: schema.FEATURE_LABELS.get(f, f) for f in cached["features"]},
-        importance=[out.Importance(**row) for row in cached["importance"]],
+        importance=importance,
         values=[[round(v, 6) for v in row] for row in cached["values"]],
         x=cached["x"],
         association_rank=rank,
+        dependence=[
+            _dependence_out(summary)
+            for summary in dependence(cached["features"], cached["values"], cached["x"])
+        ],
+        dependence_min_customers=DEPENDENCE_MIN_CUSTOMERS,
         total_charges_r=insights.collinearity(d.book),
         caveat=CAVEAT,
     )

@@ -9,7 +9,6 @@ import {
   draftOf,
   estimatedTotal,
   featureValue,
-  formatValue,
   GROUPS,
   noTenure,
   amountProblems,
@@ -225,11 +224,6 @@ describe('the profile', () => {
     expect(featureValue('PaymentMethod', features)).toBe('Credit card (auto)');
     expect(featureValue('SeniorCitizen', features)).toBe('Yes');
     expect(featureValue('InternetService', features)).toBe('Fiber optic');
-    // An attribution's value comes as the API sends it, a number or a word.
-    expect(formatValue('tenure', 65)).toBe('65 months');
-    expect(formatValue('SeniorCitizen', '0')).toBe('No');
-    expect(formatValue('SeniorCitizen', 1)).toBe('Yes');
-    expect(formatValue('Contract', 'Two year')).toBe('Two year');
   });
 
   it('names the four strongest attributions, in the API’s order', () => {

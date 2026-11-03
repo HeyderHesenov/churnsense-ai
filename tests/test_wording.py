@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 #: Phrases that assert causation or certainty. Word-bounded and case-blind.
 CAUSAL = re.compile(
-    r"\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|"
+    r"\b(causes|caused by|causing|drives?|driven by|driving|will prevent|prevents?|leads? to|"
     r"guarantees?|guaranteed)\b",
     re.IGNORECASE,
 )
@@ -52,7 +52,14 @@ def _string_literals(path: Path) -> list[str]:
 
 def test_the_patterns_catch_what_they_are_for():
     assert _offending("Tenure drives churn and guarantees retention") == ["drives", "guarantees"]
+    assert _offending("Which attributes drive the output, and what leads to churn") == [
+        "drive",
+        "leads to",
+    ]
+    assert _offending("Contracts prevent churn") == ["prevent"]
+    # A cause is named only to say none is identified; "preventDefault" is code, not a claim.
     assert not _offending("Tenure raises the estimate; nothing here identifies a cause")
+    assert not _offending("event.preventDefault()")
 
 
 def test_the_openapi_text_makes_no_causal_claim():

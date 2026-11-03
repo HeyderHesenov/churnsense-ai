@@ -148,6 +148,12 @@ export function signedPoints(fraction: number, digits = 1): string {
   return (shown > 0 ? '+' : minus(shown)) + Math.abs(shown).toFixed(digits);
 }
 
+/** The sign ``signedPoints`` shows: 1, −1, or 0 for a contribution that rounds to nothing. */
+export function shownSign(fraction: number, digits = 1): -1 | 0 | 1 {
+  const shown = Number((fraction * 100).toFixed(digits));
+  return shown > 0 ? 1 : shown < 0 ? -1 : 0;
+}
+
 /** A ratio to a baseline: 2.36 -> "2.36×". */
 export function times(value: number, digits = 2): string {
   return `${value.toFixed(digits)}×`;
