@@ -14,6 +14,7 @@ import type { Overview } from '../../api/queries';
 import { Card, CardHeader, Tag } from '../../components/ui/Surface';
 import { Segmented } from '../../components/ui/Toggle';
 import { Tabs } from '../../components/ui/Tabs';
+import { hiddenText, MIN_CUSTOMERS } from '../../lib/cells';
 import { int, pct } from '../../lib/format';
 import { isFeature, level, overviewLevel, RANKING } from '../../lib/labels';
 import { cssVars, cx } from '../../lib/style';
@@ -120,7 +121,7 @@ function LevelBar({
       <div className={styles.levelHead}>
         <span className={styles.levelName}>{overviewLevel(dimension, cell.row)}</span>
         {cell.suppressed ? (
-          <span className={styles.detail}>fewer than 20 customers</span>
+          <span className={styles.detail}>{hiddenText(cell, MIN_CUSTOMERS)}</span>
         ) : (
           <span className={styles.nowrap}>
             <span className={styles.detail}>
@@ -200,7 +201,7 @@ function Lifecycle({
                 style={cssVars({ '--step': i, '--h': cell.suppressed ? 0 : cell.rate / top })}
                 aria-label={
                   cell.suppressed
-                    ? `${months(cell)}: fewer than 20 customers`
+                    ? `${months(cell)}: ${hiddenText(cell, MIN_CUSTOMERS)}`
                     : `${months(cell)}: ${int(cell.churned)} of ${int(cell.n)} churned, ${pct(cell.rate)}`
                 }
                 onPointerEnter={() => setActive(i)}
@@ -224,7 +225,7 @@ function Lifecycle({
                 <>
                   <b>{months(shown)}</b> ·{' '}
                   {shown.suppressed
-                    ? 'fewer than 20 customers'
+                    ? hiddenText(shown, MIN_CUSTOMERS)
                     : `${int(shown.churned)} of ${int(shown.n)} churned`}
                 </>
               )}

@@ -303,7 +303,10 @@ export interface paths {
     };
     /**
      * Segments
-     * @description A one- or two-way breakdown of the training partition, small cells suppressed.
+     * @description Observed churn of the training partition, one- or two-way; small groups' hidden.
+     *
+     *     A group of fewer than 20 customers keeps only its size, and so does every
+     *     group that would let one's churn be worked out from the rest.
      */
     get: operations['segments_api_segments_get'];
     put?: never;
@@ -1441,7 +1444,7 @@ export interface components {
     };
     /**
      * ReportedCell
-     * @description A level (or pair of levels) with enough customers to report a rate.
+     * @description A level (or pair of levels) whose churn is reported.
      */
     ReportedCell: {
       /** Churned */
@@ -1454,6 +1457,10 @@ export interface components {
       n: number;
       /** Rate */
       rate: number;
+      /** Rate High */
+      rate_high: number;
+      /** Rate Low */
+      rate_low: number;
       /** Row */
       row: string;
       /**
@@ -1518,12 +1525,17 @@ export interface components {
       /** Spread */
       spread: number | null;
     };
-    /** SegmentsResponse */
+    /**
+     * SegmentsResponse
+     * @description A breakdown of the training partition's observed churn; no model output.
+     */
     SegmentsResponse: {
       /** Association */
       association: components['schemas']['Association'][] | null;
       /** Base Rate */
       base_rate: number | null;
+      /** Book Customers */
+      book_customers: number;
       /** Cells */
       cells: (components['schemas']['ReportedCell'] | components['schemas']['SuppressedCell'])[];
       /** Column Totals */
@@ -1532,6 +1544,8 @@ export interface components {
       )[];
       /** Columns */
       columns: string | null;
+      /** Min Customers */
+      min_customers: number;
       /** Partition Churned */
       partition_churned: number;
       /** Partition Customers */
@@ -1603,13 +1617,21 @@ export interface components {
     };
     /**
      * SuppressedCell
-     * @description Fewer than 20 customers: the count only, never a rate or a churn count.
+     * @description A group whose churn is hidden: its size only, never a rate or a churn count.
+     *
+     *     ``too_few``: fewer than 20 customers. ``complementary``: enough customers,
+     *     but showing its churn would let a smaller group's be worked out.
      */
     SuppressedCell: {
       /** Column */
       column: string | null;
       /** N */
       n: number;
+      /**
+       * Reason
+       * @enum {string}
+       */
+      reason: 'too_few' | 'complementary';
       /** Row */
       row: string;
       /**

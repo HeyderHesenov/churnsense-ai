@@ -122,7 +122,7 @@ Supporting changes:
 | `GET /api/customers/examples` | `example_customers()`. |
 | `GET /api/customers/{id}` | Profile (18 inputs), probability, band, flag, partition, outcome. |
 | `POST /api/explain` | Body is `{customer_ids: [≤ 8]}` or `{record}`. Uses the verified train background (100), seed 42 and 10 permutations, under the lock. Returns all 18 contributions per customer. The LRU cache is keyed on the validated, coerced record. Additivity is asserted (≤ 1e-9, else 500). 503 `explanations_unavailable` if partitions are unverified. |
-| `GET /api/segments?rows=&cols=` | Train cross-tab. A cell with n < 20 becomes `{"suppressed": true, "n": n}`. Returns marginals, base rate, the top 7 combinations and the association list (`association_ranking.csv`). |
+| `GET /api/segments?rows=&cols=` | Train cross-tab. A cell with n < 20 becomes `{"suppressed": true, "n": n}`. Returns marginals, base rate, the top 7 combinations and the association list (`association_ranking.csv`). Since 3.8: bound-safe suppression (a hidden cell carries `reason` `too_few` or `complementary`), each reported rate's Wilson `rate_low`/`rate_high`, `book_customers` and `min_customers` (see "API additions for the patterns page"). |
 | `GET /api/explain/global` | The cached matrix, metadata and importance; association ranks; the TotalCharges collinearity r, computed on train features. Since 3.7: `dependence` summaries and `dependence_min_customers`; a damaged cache or one that does not add up is a 503 (see "API additions for the explainability page"); `/api/explain` names its `model_sha256`. |
 | `GET /api/threshold/sweep` | Inputs: `cost` (0–10,000), `success`, `margin` (0–1), `horizon` (1–120). Returns the validation sweep (101 points), peak, recommendation (`recommend_threshold_from`), indifference band and sensitivity at 10–50 %. |
 | `GET /api/performance` | `model_comparison.csv`; selection (meta); calibrated vs uncalibrated at 0.50 (meta); ECE before/after; ε; calibration by band; recorded test block. Since 3.6: the served model measured on validation (`validation_evaluation`), true negatives per cut, `leader_name`, `model_sha256` (see "API additions for the performance page"). |
@@ -295,11 +295,11 @@ Supporting changes:
      (instead of hover; see "Phase 3.7").
    - Slope chart with the rank chips.
    - One customer placed on the figures (`?id=`).
-8. **Patterns**
+8. **Patterns** (built in 3.8; see "Phase 3.8" for what changed and why)
    - Rows × cols selects, swap, measure, suggested views.
-   - Focus line.
-   - Grid: hover, pin, suppressed hatch, marginals.
-   - Ranked combinations.
+   - Focus line, with the pinned group's link into the explorer.
+   - Grid as a table: hover, pin, suppressed hatch, marginals.
+   - Ranked combinations with 95% intervals against the overall rate.
    - Association list.
 
 ### Deliberate deviations from the artboards (correctness over copy)
@@ -389,9 +389,14 @@ rules above. Each was fixed or decided explicitly; none is left implicit.
   margins, band and histogram observations, an explorer selection's summary,
   and the recorded test segments. `insights._observed` is the single place
   observed churn is counted. Two clarifications:
-  - **Reliability, not disclosure control.** This is a threshold on what a
-    page presents. Training and validation customers' own outcomes are listed
-    one by one, and a suppressed cell can be recovered from its margins.
+  - **Reliability first, and since 3.8 no subtraction either.** The threshold
+    is on what a page presents. Breakdowns (`/api/segments`, the overview's
+    tabs and lifecycle) also hide every further count that would let a small
+    group's churn, alone or summed with other hidden groups, be worked out
+    from the published counts and `0 ≤ churned ≤ n` (`churnsense.suppression`;
+    see "API additions for the patterns page"). This is not disclosure control
+    for the whole app: training and validation customers' own outcomes are
+    still listed one by one in the explorer, by design.
   - **The threshold sweep is exempt.** Its precision and recall are
     operating-point metrics of the whole validation partition, always shown
     beside their denominator (the flagged count).
@@ -1935,3 +1940,190 @@ are byte-identical before and after (sha256 of all 23 files).
 - jsdom cannot measure layout: geometry is tested in `explain.ts` and the
   component tests read the drawn coordinates; Chromium covers the rest.
   Playwright/axe and a frontend CI job are still Phase 4.
+
+### API additions for the patterns page (2026-11-03)
+
+All additive; `/api/segments` keeps its shape and its 14 dimensions.
+
+- **Bound-safe suppression** (`churnsense.suppression`, used by
+  `insights.breakdown`, so the overview's tabs and lifecycle follow it too):
+  no group of fewer than 20 customers, alone or summed with other hidden
+  groups, has a churn count that the published counts and `0 ≤ churned ≤ n`
+  fix. Before, a hidden cell could be recovered from its margin (real data:
+  tenure 4–6 × $95+, n = 15; < $35 × Streaming TV Yes, n = 4), and the bounds
+  gave away Contract × tenure's small cells: their 0–3 column held no
+  churner outside Month-to-month.
+  - **Model.** A table is a flow on a small graph (cells, margins and the
+    partition are edges; totals are nodes). A per-edge pair of linear programs
+    finds the counts every completion agrees on; a group's sum is fixed exactly
+    when no fundamental cycle of the still-moving hidden edges changes it, so
+    "is any small group fixed?" is one small integer program (`scipy.optimize`
+    `linprog`/`milp`, already a dependency), never an enumeration of groups.
+  - **Repair.** The cheapest cycle of hidden edges through a pinned edge (fewest
+    groups, then fewest customers), or, when the bounds pin it, a hideable edge
+    on a line through it with a cycle of its own. Margins are never hidden in a
+    two-way table: each is its own one-way breakdown's, so responses sharing
+    one agree; grids are protected in `DIMENSIONS` order and transposed, so
+    A×B and B×A hide the same cells.
+  - **What it cannot protect** is set aside first and logged once: a total that
+    holds no churner (or only churners) gives each of its groups away, and no
+    hiding changes that.
+  - **A solver failure** hides every count the table may hide (logged), so a
+    numerical problem never takes `/api/overview` down with it.
+  - **Real data cost** (91 pairs, 2.5 s, memoised per dashboard): Contract ×
+    tenure also hides Month-to-month × 0–3 and × 4–6, One year × 25–48 and Two
+    year × 25–48 (Two year's low-tenure cells all have 0 churners, so only a
+    cell with churners protects them); tenure × monthly hides 3 more cells and
+    monthly × Streaming TV 3 more. The margins still show every level. No
+    one-way level is hidden.
+  - **Scope: one response at a time.** Two two-way tables sharing a margin
+    that its one-way breakdown hid could together narrow it; on the pinned
+    dataset no margin is hidden, so responses add nothing to each other.
+- **`ReportedCell.rate_low` / `rate_high`**: the rate's 95% Wilson interval
+  (`evaluation.metrics.wilson_interval`). Hidden cells have none.
+- **`SuppressedCell.reason`**: `too_few` (under 20) or `complementary`
+  (enough customers, held back so a smaller group cannot be worked out).
+- **`SegmentsResponse.book_customers`** (every customer, for "4,225 of 7,043")
+  and **`min_customers`** (20, so the page types no threshold).
+- **Tests:** an independent oracle (`tests/disclosure.py`: the table as
+  equations, an LP per group) checks hand-built tables, 40 seeded random
+  tables (800 more in a one-off run, none failing) and, from the JSON alone,
+  every one of the 196 views of the synthetic book (all groups while a view
+  has at most 8 small ones, otherwise singles and pairs); A×B equals B×A
+  transposed; a two-way response's margins equal its one-way responses and
+  the overview's tabs; every customer lands in exactly one cell; a reported
+  group's n and churn equal the explorer's training summary for the same
+  filters; Wilson bounds; 20 reported and 19 not; a lift against a
+  partition with no churner is null; a solver failure; `lift`, `rate_low` and
+  `rate_high` joined the leak scan's outcome keys.
+
+## Phase 3.8 — Churn patterns (2026-11-03)
+
+Observed churn of the training partition by one attribute or two crossed.
+Validation and test outcomes are not read; no model output appears on the
+page, and the lede says so.
+
+- **Population strip**: "Training partition · 4,225 of 7,043 customers ·
+  1,121 churned · 26.5% observed churn", from the response.
+- **Controls**: rows and columns (a dimension is never offered against
+  itself; an address that crosses one with itself reads as one dimension, so
+  the 422 is never asked for), swap (which keeps the pin, turned), the
+  measure (churn rate, customers, lift; replace, not push), and the four
+  suggested views. Views push a history entry; pins and the measure replace.
+- **Table**: a real `<table>` with row and column headers carrying their
+  margins and an "All" corner with the overall rate. Each cell is a button
+  whose name is the focus line's sentence; pointing or focusing describes it,
+  pressing pins it (`?pr=&pc=`), Escape lets go (from the ranking too). A
+  hidden cell shows "—" and `n<20`, `held back` or `none`, hatched; on the
+  customers measure it shows its size like any other.
+- **Shades**: rate on a single cyan ramp from 0 to the highest reported rate
+  rounded up to a tenth; lift diverging on a log scale centred on 1× (slate
+  below, cyan above, at least 1.5× either way so near-equal groups do not look
+  far apart; a group where nobody churned sits at the bottom); customers on a
+  neutral ramp. New tokens `--observed`, `--observed-below`, `--count`,
+  `--hatch`: never a risk or attribution hue.
+- **Focus line**: the pointed group, else the pinned one, else the partition;
+  the pinned group's link into the explorer, or why there is none.
+- **Explorer link**: only for a reported group whose dimensions the explorer
+  filters exactly (contract, internet, payment, tenure bucket → `tenure_min`/
+  `tenure_max` read off the label), always `part=train`, written by the
+  explorer's own `EXPLORER_PARAMS` (`app/params.hrefTo`); a value the explorer
+  would not read back gives no link rather than a dropped filter. The
+  explorer's summary then repeats the group's n, churn and rate (tested at the
+  API).
+- **Ranking**: the highest reported rates with their 95% intervals and sizes
+  on an axis from 0, a line at the overall rate; the subtitle says they are
+  chosen for being highest (so more likely overstated) and that each interval
+  covers one group alone.
+- **Associations**: `make eda`'s ranking as served, the measure named per
+  row; an attribute with a breakdown opens it alone, the others are listed
+  only; gender is never named.
+- **States**: skeleton; error with a retry that keeps focus on `#main`; 503
+  `outcomes_withheld` → its own message and no further request
+  (`retryOutcomes`, renamed from `retrySweep`, which the sweep shares); while
+  the next view loads the last one stays, labelled as it is, `inert` and
+  `aria-busy`, and one live region outside the busy one says "Showing … while
+  … loads", "Pinned: …" and "Showing …" again on release. The pointed group
+  belongs to one response, without remounting, so focus stays where the reader
+  left it (an association button keeps it as its view arrives).
+- **Overview**: a hidden level's text now says why (`lib/cells.hiddenText`).
+
+### Deliberate deviations from the artboard
+
+- Observed rates are not painted with the predicted-risk palette, and lift is
+  centred on 1× instead of sharing the rate ramp.
+- A `<table>` of buttons instead of `role="grid"` without arrow keys.
+- Hidden cells say why; the ranking shows intervals and an axis from 0.
+- The association list is served (no typed values) and drops gender and the
+  artboard's "0.000" note.
+- A link into the explorer for exactly filterable groups; none in the
+  artboard.
+- The population strip replaces the hard-coded "TRAIN PARTITION · 4,225 ·
+  CHURN 26.5%" pill.
+
+**Checks (2026-11-03):** backend 1,493 passed and `make lint` (after `npm
+run build`, so the wording scan read the bundle); frontend 1,017 vitest twice
+with no act warnings, lint, typecheck and Prettier clean, build with a
+Patterns chunk of 6.29 kB gzip JS and vendor unchanged at 85.61 kB, `npm audit
+--omit=dev` 0. Mutants in a scratchpad copy (`cache: false`, `fsModuleCache:
+false`, `PYTHONPATH` at the copy): backend 28/28 caught, frontend 39/39, each
+no-op control survived. `artifacts/` and `reports/` unchanged (23 files, sha256
+before and after).
+
+**Chromium** (built app on :8001, the real local API): every cell of Contract
+× tenure equals `/api/segments` (18 of 18; the hidden ones show no rate in the
+cell, its name, the focus line or the ranking); the pinned Month-to-month ×
+7–12 opens the explorer at `contract=Month-to-month&tenure_min=7&tenure_max=12
+&part=train`, whose summary reads 345 customers, 145 churned, 42.0%, as the
+cell does; Back restores the pin; lift shades with `color-mix`; swap keeps
+the pin, turned; Escape from a cell lets go and keeps focus; an association
+keeps focus as its view arrives; responses held and failed in the browser
+(`page.route`): the last view stays, `inert` and `aria-busy`, and the status
+says so; a retry lands on `#main`; `outcomes_withheld` asks once; no page
+scrolls sideways at 375, 768, 1024 or 1440 (the table scrolls in its box);
+no console message but the 503 the test forced. `.playwright-mcp/` deleted.
+
+### Patterns review (code-reviewer and qa-expert, 2026-11-03)
+
+- **code-reviewer** (0 critical, 0 high, 3 medium, 4 low, nits), all
+  verified and fixed test-first unless noted:
+  - a group its published totals fix by themselves (a total with no churner)
+    made the repair hide the whole table and list every fixed subset: such
+    counts are now set aside first, logged once, and cost no cell;
+  - combining responses can narrow a hidden margin: the guarantee is stated as
+    per response, with why the pinned data has no hidden margin;
+  - choosing an association remounted the page body and dropped focus: the
+    pointed group is now kept per response without a remount;
+  - the busy region could swallow the loading announcement, and a release was
+    never said: one live region outside it;
+  - the integer program's tie-break could prefer more customers; a solver
+    failure would have taken the overview down (now: hide the table, log);
+    duplicate repair options; the threshold literal; Escape from the ranking;
+    a swap now keeps the pin.
+  - Not taken: the rate scale's `Math.ceil(r * 10)` overshoot. No churned/n rate
+    that is exactly a tenth overshoots (checked for n < 400), so a test of it
+    would pass without the code.
+- **qa-expert** (69 mutants on an earlier snapshot, 43 survived): a group where
+  nobody churned was painted as average on the lift scale (now the bottom of
+  it); the hidden-margin path and the grid's orientation had no test; the
+  JSON oracle checked only single groups in wide views (now pairs too, and
+  column margins count). Every surviving mutant that was not equivalent got a
+  test; the four the final pass still let through (minimality of the repair:
+  bound options, checking an option frees its group, setting aside what the
+  totals fix; the empty-rate floor; the per-response pointer; the
+  association's pressed state while loading) now each fail a test.
+
+### Follow-ups and limitations found in this phase
+
+- Suppression holds per response (see the API section); the explorer lists
+  training outcomes one by one by design, so the rule is about what the
+  breakdowns present, not disclosure control for the whole app.
+- The validation and recorded test segment tables (`small_group`) still
+  null small rows without complementary suppression.
+- The explorer filters 4 of the 14 dimensions; other groups get no link.
+- `docs/frontend/PLAN.md` named a real customer in the Phase 3.7 browser
+  notes (`a94b220`); the working tree now says "a sampled validation
+  customer", and the governance test that caught it runs only with the
+  dataset present. The local, unpushed commit still holds the old line.
+- Intervals are per group and unadjusted for the many comparisons a reader
+  can make; the copy says so.

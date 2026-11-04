@@ -102,6 +102,14 @@
   --value-mid: #8e8fb0;
   --value-high: #e8578f;
 
+  /* Observed churn on the patterns page: one hue, the overview's observed-rate cyan,
+     never a risk or attribution hue. Lift runs from slate (below the partition's rate)
+     through the ground to cyan (above). */
+  --observed: #1fa3bb;
+  --observed-below: #6f84a0;
+  --count: #8b949e;
+  --hatch: rgba(139, 148, 158, 0.16);
+
   /* Status */
   --ok: #3fa655;
   --ok-text: #8fd99a;

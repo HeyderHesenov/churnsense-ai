@@ -1,5 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { param, useParams } from './params';
+import { hrefTo, param, useParams } from './params';
 
 const BANDS = ['Low', 'Moderate', 'High', 'Critical'] as const;
 
@@ -233,5 +233,25 @@ describe('a number kept as it was typed', () => {
     expect(result.current[0].cost).toBe('');
     act(() => result.current[1]({ cost: null }));
     expect(window.location.search).toBe('');
+  });
+});
+
+describe('hrefTo', () => {
+  const schema = {
+    kind: param.optional(['a', 'b'] as const),
+    low: param.optionalInt({ min: 0, max: 9 }),
+    sort: param.choice(['up', 'down'] as const, 'up'),
+  };
+
+  it("writes another page's address with that page's own schema", () => {
+    window.history.replaceState(null, '', '/here?mine=1');
+    expect(hrefTo('/there', schema, { kind: 'b', low: 0, sort: 'down' })).toBe(
+      '/there?kind=b&low=0&sort=down',
+    );
+  });
+
+  it("leaves that page's defaults and the current page's keys out", () => {
+    window.history.replaceState(null, '', '/here?mine=1');
+    expect(hrefTo('/there', schema, { kind: null, sort: 'up' })).toBe('/there');
   });
 });

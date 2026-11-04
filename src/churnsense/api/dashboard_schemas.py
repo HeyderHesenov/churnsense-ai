@@ -59,7 +59,7 @@ class BandSummary(_Model):
 
 
 class ReportedCell(_Model):
-    """A level (or pair of levels) with enough customers to report a rate."""
+    """A level (or pair of levels) whose churn is reported."""
 
     row: str
     column: str | None
@@ -67,16 +67,25 @@ class ReportedCell(_Model):
     n: int
     churned: int
     rate: Share
+    #: ``rate`` over the partition's overall rate, this group included.
     lift: float | None
+    #: ``rate``'s 95 % Wilson interval.
+    rate_low: Share
+    rate_high: Share
 
 
 class SuppressedCell(_Model):
-    """Fewer than 20 customers: the count only, never a rate or a churn count."""
+    """A group whose churn is hidden: its size only, never a rate or a churn count.
+
+    ``too_few``: fewer than 20 customers. ``complementary``: enough customers,
+    but showing its churn would let a smaller group's be worked out.
+    """
 
     row: str
     column: str | None
     suppressed: Literal[True] = True
     n: int
+    reason: Literal["too_few", "complementary"]
 
 
 #: Told apart by ``suppressed`` (a boolean, so not an OpenAPI discriminator,
@@ -352,10 +361,16 @@ class GlobalExplanation(_Model):
 
 
 class SegmentsResponse(_Model):
+    """A breakdown of the training partition's observed churn; no model output."""
+
     rows: str
     columns: str | None
+    #: Every customer in the book; the breakdown reads the training partition alone.
+    book_customers: int
     partition_customers: int
     partition_churned: int
+    #: The fewest customers a group needs for its churn to be reported.
+    min_customers: int
     base_rate: Share | None
     #: One cell per level of ``rows``; ``row`` holds the level.
     row_totals: list[Cell]

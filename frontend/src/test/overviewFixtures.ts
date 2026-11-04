@@ -8,8 +8,20 @@ import type { Schemas } from '../api/client';
 
 type Cell = Schemas['ReportedCell'] | Schemas['SuppressedCell'];
 
+/** A reported level; its interval is a stand-in a test never reads. */
 function reported(row: string, n: number, churned: number): Cell {
-  return { row, column: null, n, churned, rate: churned / n, lift: null, suppressed: false };
+  const rate = churned / n;
+  return {
+    row,
+    column: null,
+    n,
+    churned,
+    rate,
+    lift: null,
+    rate_low: Math.max(0, rate - 0.02),
+    rate_high: Math.min(1, rate + 0.02),
+    suppressed: false,
+  };
 }
 
 /** 101 thresholds, 0.00 to 1.00, with net benefit peaking at 0.30. */
@@ -107,8 +119,21 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         levels: [
           reported('Electronic check', 1400, 630),
           reported('Mailed check', 980, 190),
-          reported('Bank transfer (automatic)', 920, 150),
-          { row: 'Credit card (automatic)', column: null, n: 12, suppressed: true },
+          // The small level, and the one held back so it cannot be worked out.
+          {
+            row: 'Bank transfer (automatic)',
+            column: null,
+            n: 920,
+            suppressed: true,
+            reason: 'complementary',
+          },
+          {
+            row: 'Credit card (automatic)',
+            column: null,
+            n: 12,
+            suppressed: true,
+            reason: 'too_few',
+          },
         ],
       },
       {

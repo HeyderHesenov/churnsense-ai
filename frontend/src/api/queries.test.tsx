@@ -12,7 +12,7 @@ import {
   retryDelay,
   retryExplanation,
   retryGlobal,
-  retrySweep,
+  retryOutcomes,
   scoreBatch,
   shouldRetry,
   useCustomer,
@@ -20,6 +20,7 @@ import {
   useCustomers,
   useExplanations,
   useGlobalExplanation,
+  useSegments,
   useSelection,
   useSweep,
   type CustomerQuery,
@@ -230,14 +231,30 @@ describe('retries', () => {
     expect(seen.filter((u) => u.pathname === '/api/explain/global')).toHaveLength(2);
   });
 
-  it('asks for a sweep again once after a failure, never while outcomes are withheld', () => {
-    expect(retrySweep(0, new ApiError(503, 'dataset_unavailable'))).toBe(true);
-    expect(retrySweep(0, new ApiError(0, 'network_error'))).toBe(true);
-    expect(retrySweep(1, new ApiError(503, 'dataset_unavailable'))).toBe(false);
-    expect(retrySweep(0, new ApiError(503, 'outcomes_withheld'))).toBe(false);
-    expect(retrySweep(0, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
-    expect(retrySweep(0, new ApiError(422, 'validation_error'))).toBe(false);
-    expect(retrySweep(0, new Error('not from the API'))).toBe(false);
+  it('asks for a breakdown again once after a server failure', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/segments', 500, 'internal_error'));
+    const { result } = renderHook(() => useSegments('Contract', 'tenure'), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/segments')).toHaveLength(2);
+  });
+
+  it('never asks for a breakdown again while outcomes are withheld', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/segments', 503, 'outcomes_withheld'));
+    const { result } = renderHook(() => useSegments('Contract', null), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/segments')).toHaveLength(1);
+  });
+
+  it('asks for figures resting on outcomes again once after a failure, never while they are withheld', () => {
+    expect(retryOutcomes(0, new ApiError(503, 'dataset_unavailable'))).toBe(true);
+    expect(retryOutcomes(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(retryOutcomes(1, new ApiError(503, 'dataset_unavailable'))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(503, 'outcomes_withheld'))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryOutcomes(0, new Error('not from the API'))).toBe(false);
   });
 
   it('waits as long as the server asks, up to ten seconds', () => {

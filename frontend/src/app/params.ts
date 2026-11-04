@@ -200,3 +200,16 @@ export function useParams<S extends Schema>(
 
   return [values, set, href];
 }
+
+/**
+ * Another page's address, its query written by that page's own schema: a link
+ * that lands with exactly the state the target page reads. Keys left out of
+ * ``changes`` (and defaults) are left out of the address.
+ */
+export function hrefTo<S extends Schema>(
+  pathname: string,
+  schema: S,
+  changes: Partial<Values<S>>,
+): string {
+  return withParams({ pathname, search: new URLSearchParams() }, written(schema, changes));
+}

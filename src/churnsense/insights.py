@@ -19,13 +19,14 @@ which every customer has.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
 from churnsense import analysis as an
 from churnsense import book as books
+from churnsense import suppression
 from churnsense.data import schema
 from churnsense.evaluation.metrics import (
     ClassificationMetrics,
@@ -33,6 +34,7 @@ from churnsense.evaluation.metrics import (
     expected_calibration_error,
     reliability_table,
     segment_table,
+    wilson_interval,
 )
 from churnsense.evaluation.threshold import (
     ThresholdScenario,
@@ -50,8 +52,9 @@ if TYPE_CHECKING:
 HISTOGRAM_BINS = 20
 #: Fewer customers than this, and no churn rate or churn count is reported for
 #: the group: a rate over a handful of people is noise, not a finding. A
-#: reliability threshold for what a page presents - not disclosure control:
-#: training and validation customers' own outcomes are listed one by one.
+#: breakdown also hides the further counts that would give a small group's
+#: away (``churnsense.suppression``). Not disclosure control for the whole
+#: app: training and validation customers' own outcomes are listed one by one.
 MIN_CELL = 20
 #: A segment row's fields that state an outcome, or rest on one: a segment of
 #: fewer than ``MIN_CELL`` customers shows none of them. A 95 % interval is a
@@ -198,17 +201,27 @@ class HistogramBin:
     observed: Observed | None
 
 
+#: Why a cell's churn is hidden: it has fewer than ``MIN_CELL`` customers, or
+#: showing it would let a smaller group's count be worked out.
+HiddenReason = Literal["too_few", "complementary"]
+
+
 @dataclass(frozen=True, slots=True)
 class Cell:
-    """One level (or pair of levels) of a breakdown. Small cells carry no rate."""
+    """One level (or pair of levels) of a breakdown. A hidden cell carries its size only."""
 
     row: str
     column: str | None
     customers: int
     churned: int | None
     rate: float | None
-    #: ``rate`` relative to the partition's overall churn rate.
+    #: ``rate`` relative to the partition's overall churn rate, this cell included.
     lift: float | None
+    #: Why the churn is hidden, or ``None`` when it is reported.
+    reason: HiddenReason | None = None
+    #: ``rate``'s 95 % Wilson interval.
+    low: float | None = None
+    high: float | None = None
 
     @property
     def suppressed(self) -> bool:
@@ -366,11 +379,19 @@ def observed_overall(book: books.Book) -> Observed | None:
 def breakdown(
     book: books.Book, rows: str, columns: str | None = None, *, top: int = 7
 ) -> Breakdown | None:
-    """A one- or two-way breakdown of the training partition, small cells suppressed.
+    """A one- or two-way breakdown of the training partition, small groups' churn hidden.
 
     ``None`` when no outcome may be shown. ``rows`` and ``columns`` are keys of
     ``DIMENSIONS``; anything else raises ``KeyError``. Every combination of
-    levels is returned, an empty one with zero customers.
+    levels is returned, an empty one with zero customers. A group of fewer than
+    ``MIN_CELL`` customers keeps only its size, and so does every further group
+    that would let one's churn - alone or summed with others - be worked out
+    (``churnsense.suppression``).
+
+    The margins are each dimension's own one-way breakdown, and a grid is
+    protected in ``DIMENSIONS`` order whichever way round it is asked for, so
+    responses agree on what they hide. The guarantee is per response; see
+    ``churnsense.suppression`` for where combining them could narrow a count.
     """
     row_dim = DIMENSIONS[rows]
     col_dim = DIMENSIONS[columns] if columns is not None else None
@@ -378,21 +399,12 @@ def breakdown(
     if train.empty:
         return None
     base = _rate(train[schema.TARGET].sum(), len(train))
-
-    def cells(dim_a: Dimension, dim_b: Dimension | None) -> list[Cell]:
-        table = an.cross_tab(
-            train, dim_a.column, dim_b.column if dim_b else None, min_cell=MIN_CELL
-        )
-        keys = [dim_a.column] if dim_b is None else [dim_a.column, dim_b.column]
-        found = {tuple(str(v) for v in row[keys]): row for _, row in table.iterrows()}
-        combos = (
-            [(a,) for a in dim_a.levels]
-            if dim_b is None
-            else [(a, b) for a in dim_a.levels for b in dim_b.levels]
-        )
-        return [_cell(combo, found.get(combo), base) for combo in combos]
-
-    grid = cells(row_dim, col_dim)
+    row_totals = _one_way(train, row_dim, base)
+    if col_dim is None:
+        column_totals, grid = [], row_totals
+    else:
+        column_totals = _one_way(train, col_dim, base)
+        grid = _two_way(train, (row_dim, row_totals), (col_dim, column_totals), base)
     ranked = sorted((c for c in grid if c.rate is not None), key=lambda c: -c.rate)[:top]
     return Breakdown(
         rows=rows,
@@ -400,24 +412,90 @@ def breakdown(
         partition_customers=len(train),
         partition_churned=int(train[schema.TARGET].sum()),
         base_rate=base,
-        row_totals=cells(row_dim, None),
-        column_totals=cells(col_dim, None) if col_dim else [],
+        row_totals=row_totals,
+        column_totals=column_totals,
         cells=grid,
         ranked=ranked,
     )
 
 
-def _cell(combo: tuple[str, ...], found: pd.Series | None, base: float | None) -> Cell:
-    customers = 0 if found is None else int(found["customers"])
-    reported = found is not None and customers >= MIN_CELL
-    rate = float(found["churn_rate"]) if reported else None
+#: Where each dimension stands in ``DIMENSIONS``: a grid is protected rows-first in this order.
+_ORDER = {key: i for i, key in enumerate(DIMENSIONS)}
+
+
+def _counts(train: pd.DataFrame, *dims: Dimension) -> tuple[np.ndarray, np.ndarray]:
+    """Customers and churners per level (or pair of levels), in the dimensions' level order."""
+    table = an.cross_tab(
+        train, dims[0].column, dims[1].column if len(dims) > 1 else None, min_cell=0
+    )
+    shape = tuple(len(d.levels) for d in dims)
+    customers, churned = np.zeros(shape, dtype=int), np.zeros(shape, dtype=int)
+    positions = [{level: i for i, level in enumerate(d.levels)} for d in dims]
+    for _, found in table.iterrows():
+        # A level outside the dimension's list is a data error, never a dropped group.
+        at = tuple(p[str(found[d.column])] for p, d in zip(positions, dims, strict=True))
+        customers[at], churned[at] = int(found["customers"]), int(found["churned"])
+    return customers, churned
+
+
+def _one_way(train: pd.DataFrame, dim: Dimension, base: float | None) -> list[Cell]:
+    customers, churned = _counts(train, dim)
+    hidden = suppression.one_way(customers.tolist(), churned.tolist(), MIN_CELL)
+    return [
+        _cell(level, None, int(customers[i]), int(churned[i]), i in hidden, base)
+        for i, level in enumerate(dim.levels)
+    ]
+
+
+def _two_way(
+    train: pd.DataFrame,
+    rows: tuple[Dimension, list[Cell]],
+    columns: tuple[Dimension, list[Cell]],
+    base: float | None,
+) -> list[Cell]:
+    """The grid of two dimensions, protected around their one-way margins in canonical order."""
+    flip = _ORDER[rows[0].key] > _ORDER[columns[0].key]
+    first, second = (columns, rows) if flip else (rows, columns)
+    customers, churned = _counts(train, first[0], second[0])
+    hidden = suppression.two_way(
+        customers,
+        churned,
+        hidden_rows=_hidden_levels(first[1]),
+        hidden_columns=_hidden_levels(second[1]),
+        minimum=MIN_CELL,
+    )
+    if flip:
+        customers, churned = customers.T, churned.T
+        hidden = frozenset((k, r) for r, k in hidden)
+    return [
+        _cell(a, b, int(customers[i, j]), int(churned[i, j]), (i, j) in hidden, base)
+        for i, a in enumerate(rows[0].levels)
+        for j, b in enumerate(columns[0].levels)
+    ]
+
+
+def _hidden_levels(margins: list[Cell]) -> set[int]:
+    """The positions of the non-empty margins whose churn is hidden."""
+    return {i for i, cell in enumerate(margins) if cell.rate is None and cell.customers}
+
+
+def _cell(
+    row: str, column: str | None, customers: int, churned: int, hidden: bool, base: float | None
+) -> Cell:
+    if customers < MIN_CELL or hidden:
+        reason: HiddenReason = "too_few" if customers < MIN_CELL else "complementary"
+        return Cell(row, column, customers, None, None, None, reason)
+    rate = churned / customers
+    low, high = wilson_interval(churned, customers)
     return Cell(
-        row=combo[0],
-        column=combo[1] if len(combo) > 1 else None,
+        row=row,
+        column=column,
         customers=customers,
-        churned=int(found["churned"]) if reported else None,
+        churned=churned,
         rate=rate,
-        lift=rate / base if rate is not None and base else None,
+        lift=rate / base if base else None,
+        low=low,
+        high=high,
     )
 
 

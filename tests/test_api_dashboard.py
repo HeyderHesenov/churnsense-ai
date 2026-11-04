@@ -15,6 +15,7 @@ every response the dashboard can get:
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import shutil
 from collections.abc import Iterator
@@ -30,8 +31,10 @@ from churnsense import insights
 from churnsense.book import score_book
 from churnsense.config import Config, RateLimit
 from churnsense.data import schema
+from churnsense.evaluation.metrics import wilson_interval
 from churnsense.evaluation.threshold import recommend_threshold
 from tests.conftest import SWEEP_ASSUMPTIONS, SYNTHETIC_SHA256
+from tests.disclosure import fixed_groups, grid_equations, line_equation
 
 LOCAL = "http://localhost"
 LOOPBACK = ("127.0.0.1", 50000)
@@ -571,19 +574,156 @@ def test_a_cross_tab_reports_every_combination_and_suppresses_small_cells(
     assert len(body["cells"]) == 3 * 6
     train = clean_frame.loc[dashboard_parts.X_train.index]
     assert body["partition_customers"] == len(train)
+    assert body["partition_churned"] == int(train[schema.TARGET].sum())
+    assert body["book_customers"] == len(clean_frame)
+    assert body["min_customers"] == insights.MIN_CELL == 20
     assert sum(c["n"] for c in body["cells"]) == len(train)
     for cell in body["cells"]:
-        if cell["n"] < 20:
+        if cell["suppressed"]:
             assert cell == {
                 "row": cell["row"],
                 "column": cell["column"],
                 "suppressed": True,
                 "n": cell["n"],
+                "reason": "too_few" if cell["n"] < 20 else "complementary",
             }
         else:
-            assert cell["suppressed"] is False and 0 <= cell["rate"] <= 1
+            assert cell["n"] >= 20 and 0 <= cell["rate"] <= 1
     rates = [c["rate"] for c in body["ranked"]]
     assert rates == sorted(rates, reverse=True) and len(rates) <= 7
+
+
+def _published(body: dict) -> tuple[dict, dict, set, list]:
+    """A segments response as the disclosure oracle reads it: published counts only."""
+    rows = [c["row"] for c in body["row_totals"]]
+    columns = [c["row"] for c in body["column_totals"]]
+    sizes, values, hidden = {"all": body["partition_customers"]}, {}, set()
+    values["all"] = body["partition_churned"]
+    keyed = [(("row", c["row"]), c) for c in body["row_totals"]]
+    if columns:
+        keyed += [(("col", c["row"]), c) for c in body["column_totals"]]
+        keyed += [((c["row"], c["column"]), c) for c in body["cells"]]
+    for key, cell in keyed:
+        sizes[key] = cell["n"]
+        if not cell["suppressed"]:
+            values[key] = cell["churned"]
+        elif cell["n"]:
+            hidden.add(key)
+        else:  # an empty group's count is a known zero
+            values[key] = 0
+    equations = (
+        grid_equations(rows, columns) if columns else line_equation([("row", r) for r in rows])
+    )
+    return sizes, values, hidden, equations
+
+
+def _leaks(body: dict, *, largest: int | None) -> tuple[set, set]:
+    """What a response gives away, and what it would give away with every cell hidden."""
+    sizes, values, hidden, equations = _published(body)
+    # The groups a table may hide: its levels, or with two dimensions its cells (never a margin).
+    if body["columns"] is None:
+        cells = [k for k in sizes if k != "all"]
+    else:
+        cells = [k for k in sizes if k != "all" and k[0] not in ("row", "col")]
+    everything = hidden | {k for k in cells if sizes[k]}
+    leaks = fixed_groups(sizes, values, hidden, equations, largest=largest)
+    return leaks, fixed_groups(sizes, values, everything, equations, largest=largest)
+
+
+_ORDERED_PAIRS = [
+    *((rows, None) for rows in insights.DIMENSIONS),
+    *itertools.permutations(insights.DIMENSIONS, 2),
+]
+
+
+@pytest.mark.parametrize(("rows", "cols"), _ORDERED_PAIRS)
+def test_no_segments_response_gives_away_a_small_groups_churn(served, rows, cols):
+    params = {"rows": rows} | ({"cols": cols} if cols else {})
+    body = _ok(served.get("/api/segments", params=params))
+    groups = [*body["cells"], *body["row_totals"], *body["column_totals"]]
+    small = [c for c in groups if c["suppressed"] and 0 < c["n"] < 20]
+    # Groups of every size when that stays cheap; otherwise singles and pairs.
+    leaks, unavoidable = _leaks(body, largest=None if len(small) <= 8 else 2)
+    assert leaks <= unavoidable, leaks - unavoidable
+
+
+def test_a_cross_tab_hides_the_same_cells_whichever_way_round_it_is_asked_for(served):
+    for rows, cols in (
+        ("Contract", "tenure"),
+        ("tenure", "monthly"),
+        ("PaymentMethod", "TechSupport"),
+    ):
+        across = _ok(served.get("/api/segments", params={"rows": rows, "cols": cols}))
+        down = _ok(served.get("/api/segments", params={"rows": cols, "cols": rows}))
+        hidden = {(c["row"], c["column"]) for c in across["cells"] if c["suppressed"]}
+        assert hidden == {(c["column"], c["row"]) for c in down["cells"] if c["suppressed"]}
+
+
+def test_a_cross_tabs_margins_are_the_one_way_breakdowns_the_overview_shows(served):
+    tabs = {t["key"]: t["levels"] for t in _ok(served.get("/api/overview"))["segments"]}
+    for rows, cols in (("Contract", "PaymentMethod"), ("monthly", "InternetService")):
+        crossed = _ok(served.get("/api/segments", params={"rows": rows, "cols": cols}))
+        assert (
+            crossed["row_totals"]
+            == tabs[rows]
+            == _ok(served.get("/api/segments", params={"rows": rows}))["row_totals"]
+        )
+        assert crossed["column_totals"] == tabs[cols]
+
+
+def test_a_reported_cells_interval_is_its_wilson_interval(served):
+    body = _ok(served.get("/api/segments", params={"rows": "Contract", "cols": "PaymentMethod"}))
+    reported = [c for c in [*body["cells"], *body["row_totals"]] if not c["suppressed"]]
+    assert reported
+    for cell in reported:
+        low, high = wilson_interval(cell["churned"], cell["n"])
+        assert (cell["rate_low"], cell["rate_high"]) == pytest.approx((low, high))
+        assert 0 <= cell["rate_low"] <= cell["rate"] <= cell["rate_high"] <= 1
+
+
+def test_each_tenure_level_names_the_months_it_holds():
+    """The page reads a tenure level's months off its label to open it in the explorer."""
+    months = pd.Series(range(0, 73))
+    buckets = an.tenure_bucket(months).astype(str)
+    for label in an.TENURE_LABELS:
+        low, high = (int(part) for part in label.split("-"))
+        assert ((months >= low) & (months <= high)).tolist() == (buckets == label).tolist()
+
+
+def _explorer_filter(dimension: str, level: str) -> dict[str, object]:
+    """The customer listing's filters that keep exactly one level of a dimension."""
+    if dimension == "tenure":
+        low, high = (int(part) for part in level.split("-"))
+        return {"tenure_min": low, "tenure_max": high}
+    return {
+        {"Contract": "contract", "InternetService": "internet"}.get(dimension, "payment"): level
+    }
+
+
+#: The dimensions the customer listing can filter one level of.
+_LISTED = ("Contract", "tenure", "InternetService", "PaymentMethod")
+
+
+def test_a_reported_group_counts_the_customers_the_explorer_lists_for_it(served):
+    compared = 0
+    views = [(rows, None) for rows in _LISTED] + list(itertools.combinations(_LISTED, 2))
+    for rows, cols in views:
+        params = {"rows": rows} | ({"cols": cols} if cols else {})
+        body = _ok(served.get("/api/segments", params=params))
+        for cell in body["cells"] if cols else body["row_totals"]:
+            if cell["suppressed"]:
+                continue
+            query = _explorer_filter(rows, cell["row"])
+            if cols:
+                query |= _explorer_filter(cols, cell["column"])
+            listing = _ok(
+                served.get("/api/customers", params=query | {"partition": "train", "page_size": 1})
+            )
+            observed = listing["summary"]["observed"]
+            assert (observed["customers"], observed["churned"]) == (cell["n"], cell["churned"])
+            assert observed["rate"] == pytest.approx(cell["rate"])
+            compared += cols is not None
+    assert compared, "no two-way cell was compared"
 
 
 @pytest.mark.parametrize(
@@ -1119,6 +1259,10 @@ _OUTCOME_KEYS = (
     # "Nobody flagged though someone churned" says whether anyone churned.
     "unscanned",
     *_INTERVALS,
+    # A rate over the partition's, and a rate's interval: the rate in disguise.
+    "lift",
+    "rate_low",
+    "rate_high",
 )
 
 

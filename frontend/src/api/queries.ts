@@ -258,11 +258,13 @@ export function usePrediction(record: CustomerFeatures | null): UseQueryResult<P
   });
 }
 
+/** A breakdown of the training partition's observed churn; the last one stays while the next loads. */
 export function useSegments(rows: string, cols: string | null): UseQueryResult<Segments> {
   return useQuery({
     queryKey: ['segments', rows, cols],
     queryFn: ({ signal }) => request<Segments>('/segments', { query: { rows, cols }, signal }),
     placeholderData: keepPreviousData,
+    retry: (failures, error: Error) => retryOutcomes(failures, error),
   });
 }
 
@@ -292,11 +294,11 @@ export interface Assumptions {
 }
 
 /**
- * A sweep is asked for again once when the server or the network failed; never
- * when the server withholds the validation outcomes it rests on, which it does
- * for as long as it runs.
+ * Figures that rest on observed outcomes (a sweep, a breakdown) are asked for
+ * again once when the server or the network failed; never when the server
+ * withholds the outcomes, which it does for as long as it runs.
  */
-export function retrySweep(failures: number, error: unknown): boolean {
+export function retryOutcomes(failures: number, error: unknown): boolean {
   if (error instanceof ApiError && error.code === 'outcomes_withheld') return false;
   return shouldRetry(failures, error);
 }
@@ -310,7 +312,7 @@ export function useSweep(assumptions: Assumptions | null): UseQueryResult<Sweep>
         ? skipToken
         : ({ signal }) => request<Sweep>('/threshold/sweep', { query: { ...assumptions }, signal }),
     placeholderData: keepPreviousData,
-    retry: (failures, error: Error) => retrySweep(failures, error),
+    retry: (failures, error: Error) => retryOutcomes(failures, error),
   });
 }
 

@@ -106,8 +106,10 @@ def _assumptions(business: Business) -> BusinessAssumptions:
 
 
 def _cell(cell: insights.Cell) -> out.ReportedCell | out.SuppressedCell:
-    if cell.suppressed:
-        return out.SuppressedCell(row=cell.row, column=cell.column, n=cell.customers)
+    if cell.reason is not None:
+        return out.SuppressedCell(
+            row=cell.row, column=cell.column, n=cell.customers, reason=cell.reason
+        )
     return out.ReportedCell(
         row=cell.row,
         column=cell.column,
@@ -115,7 +117,14 @@ def _cell(cell: insights.Cell) -> out.ReportedCell | out.SuppressedCell:
         churned=cell.churned,
         rate=cell.rate,
         lift=cell.lift,
+        rate_low=cell.low,
+        rate_high=cell.high,
     )
+
+
+def _breakdown(d: Dashboard, rows: str, columns: str | None = None) -> insights.Breakdown | None:
+    """``insights.breakdown``, once per dashboard: protecting a table is the costly part."""
+    return d.memo(f"breakdown:{rows}:{columns}", lambda: insights.breakdown(d.book, rows, columns))
 
 
 def _scenario(s: ThresholdScenario) -> out.Scenario:
@@ -227,7 +236,7 @@ def _detail(d: Dashboard, row: pd.Series) -> out.CustomerDetail:
 
 
 def _segment_tab(d: Dashboard, key: str) -> out.SegmentTab | None:
-    split = insights.breakdown(d.book, key)
+    split = _breakdown(d, key)
     if split is None:
         return None
     reported = [c for c in split.row_totals if c.rate is not None]
@@ -620,17 +629,23 @@ def segments(
     rows: DimensionKey = "Contract",
     cols: DimensionKey | None = None,
 ) -> out.SegmentsResponse:
-    """A one- or two-way breakdown of the training partition, small cells suppressed."""
+    """Observed churn of the training partition, one- or two-way; small groups' hidden.
+
+    A group of fewer than 20 customers keeps only its size, and so does every
+    group that would let one's churn be worked out from the rest.
+    """
     if cols == rows:
         raise _invalid("cols", "rows and cols must be different dimensions")
-    split = insights.breakdown(d.book, rows, cols)
+    split = _breakdown(d, rows, cols)
     if split is None:
         raise OutcomesWithheldError(d.book.withheld)
     return out.SegmentsResponse(
         rows=split.rows,
         columns=split.columns,
+        book_customers=len(d.book.frame),
         partition_customers=split.partition_customers,
         partition_churned=split.partition_churned,
+        min_customers=insights.MIN_CELL,
         base_rate=split.base_rate,
         row_totals=[_cell(c) for c in split.row_totals],
         column_totals=[_cell(c) for c in split.column_totals],
