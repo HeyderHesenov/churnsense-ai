@@ -64,10 +64,22 @@ test('the flagged count leads to an explorer holding exactly those customers', a
 test('paging keeps the population, and the address alone restores what is shown', async ({
   page,
 }) => {
+  // The selection's own one-row request, for every flagged match: its figures are
+  // what the summary must say, so it is waited on rather than read once.
+  const chosen = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === '/api/customers' &&
+      url.searchParams.get('page_size') === '1' &&
+      url.searchParams.get('flagged') === 'true'
+    );
+  });
   await page.goto('/explorer?flagged=true');
+  const figures = ((await (await chosen).json()) as CustomerPage).summary;
   await settled(page);
   const summary = page.getByRole('region', { name: 'Selection summary' }).getByRole('status');
-  const before = await summary.textContent();
+  const before = `${int(figures.customers)} customers match, ${int(figures.flagged)} flagged.`;
+  await expect(summary).toHaveText(before);
 
   const second = listing(page, (q) => q.get('flagged') === 'true' && q.get('page') === '2');
   await page.getByRole('button', { name: 'Next page' }).click();
@@ -77,7 +89,7 @@ test('paging keeps the population, and the address alone restores what is shown'
   await expect(page).toHaveURL(/page=2/);
   expect(body.page).toBe(2);
   await expect(page.getByText(showing(body))).toBeVisible();
-  await expect(summary).toHaveText(before ?? '');
+  await expect(summary).toHaveText(before);
   const ids = await page
     .getByRole('region', { name: 'Customers' })
     .getByRole('button', {
@@ -89,7 +101,7 @@ test('paging keeps the population, and the address alone restores what is shown'
   await page.reload();
   await settled(page);
   await expect(page.getByText(showing(body))).toBeVisible();
-  await expect(summary).toHaveText(before ?? '');
+  await expect(summary).toHaveText(before);
 });
 
 test('a key figure opens the overview queue on its bands alone', async ({ page }) => {
