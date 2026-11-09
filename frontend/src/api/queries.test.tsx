@@ -85,12 +85,13 @@ describe('customer listings', () => {
     });
     await waitFor(() => expect(one.result.current.isSuccess).toBe(true));
     await waitFor(() => expect(open.result.current.isSuccess).toBe(true));
-    expect(
-      seen.map((url) => [url.searchParams.get('tenure_min'), url.searchParams.get('tenure_max')]),
-    ).toEqual([
-      ['6', '6'],
-      ['0', null],
-    ]);
+    // The two listings fetch at the same time, so the order their requests start
+    // in is not fixed. Compared as a sorted whole: each request exactly once, and
+    // nothing missing or extra.
+    const sent = seen.map((url) =>
+      JSON.stringify([url.searchParams.get('tenure_min'), url.searchParams.get('tenure_max')]),
+    );
+    expect(sent.sort()).toEqual([JSON.stringify(['0', null]), JSON.stringify(['6', '6'])].sort());
   });
 
   it('shares its cache with a listing fetched ahead of time', async () => {

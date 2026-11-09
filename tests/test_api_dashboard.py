@@ -2305,8 +2305,12 @@ def test_the_docs_policy_is_exactly_the_reviewed_one(served):
 
 
 def test_the_docs_pages_get_their_own_narrow_policy(served):
-    policy = served.get("/docs").headers["content-security-policy"]
-    assert "https://cdn.jsdelivr.net" in policy and "frame-ancestors 'none'" in policy
+    # Parsed, so the CDN has to be a whole source of the directives that load
+    # from it, not a substring found anywhere in the header.
+    docs = _directives(served.get("/docs").headers["content-security-policy"])
+    cdn = "https://cdn.jsdelivr.net"
+    assert cdn in docs["script-src"] and cdn in docs["style-src"]
+    assert docs["frame-ancestors"] == {"'none'"}
     assert "cdn.jsdelivr.net" not in served.get("/api/overview").headers["content-security-policy"]
 
 
