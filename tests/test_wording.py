@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 from pathlib import Path
 
@@ -107,7 +108,17 @@ def _bundle_files() -> list[Path]:
     return [p for p in sorted(assets.glob("*.js")) if not p.name.startswith("vendor")]
 
 
-@pytest.mark.skipif(not _bundle_files(), reason="the front end is not built (make frontend)")
+#: Set where a build has just been made (CI's e2e job): a missing bundle is
+#: then a failure, never a quiet skip.
+_BUILD_REQUIRED = os.environ.get("CHURNSENSE_REQUIRE_FRONTEND_BUILD") == "1"
+
+
+@pytest.mark.skipif(
+    not _BUILD_REQUIRED and not _bundle_files(),
+    reason="the front end is not built (make frontend)",
+)
 def test_the_built_front_end_makes_no_causal_claim():
-    offenders = {p.name: found for p in _bundle_files() if (found := _offending(p.read_text()))}
+    files = _bundle_files()
+    assert files, "frontend/dist/assets holds none of the app's own chunks"
+    offenders = {p.name: found for p in files if (found := _offending(p.read_text()))}
     assert not offenders, offenders

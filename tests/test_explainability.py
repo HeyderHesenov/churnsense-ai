@@ -299,6 +299,23 @@ def test_a_cache_for_another_artifact_or_without_the_matrix_is_not_served(tmp_pa
         assert read_cache(path, "a" * 64) is None
 
 
+@pytest.mark.parametrize(
+    "damaged",
+    [
+        pytest.param("[" * 100_000 + "]" * 100_000, id="nested-past-the-recursion-limit"),
+        pytest.param('{"model_sha256": 1' + "0" * 5000 + "}", id="integer-past-the-digit-limit"),
+    ],
+)
+def test_a_cache_json_cannot_parse_reads_as_not_cached(tmp_path, damaged):
+    """``RecursionError`` and the integer-digit ``ValueError`` are not ``JSONDecodeError``s."""
+    from churnsense.explainability.shap_explain import load_cached_explanations, read_cache
+
+    path = tmp_path / "shap_global.json"
+    path.write_text(damaged)
+    assert read_cache(path, "a" * 64) is None
+    assert load_cached_explanations(path, "a" * 64) is None
+
+
 # --- dependence summaries: what the page draws behind the dots ------------------------
 
 

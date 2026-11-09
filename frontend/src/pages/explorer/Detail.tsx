@@ -1,7 +1,8 @@
 /**
  * One customer beside the list: the served probability and band, ten of the
- * model's inputs, and, on request, what moved the score (the server's
- * attributions). Previous and next walk the filtered, sorted list.
+ * model's inputs, a link to the customer's own page, and, on request, what
+ * moved the score (the server's attributions). Previous and next walk the
+ * filtered, sorted list.
  */
 import { ApiError } from '../../api/client';
 import {
@@ -11,6 +12,8 @@ import {
   type CustomerFeatures,
   type ExplainResponse,
 } from '../../api/queries';
+import { hrefTo } from '../../app/params';
+import { Link } from '../../app/router';
 import { icons } from '../../components/icons';
 import { BandLabel, OutcomePill } from '../../components/ui/Badges';
 import { Button, IconButton } from '../../components/ui/Button';
@@ -18,6 +21,7 @@ import { ErrorState, Skeleton } from '../../components/ui/States';
 import { cents, cut, probabilityPct, signedPoints } from '../../lib/format';
 import { categoryValue, COMPACT, isFeature } from '../../lib/labels';
 import { cssVars } from '../../lib/style';
+import { CUSTOMER_PARAMS } from '../customer/customer';
 import { explanationMeta, explanationNote } from './copy';
 import { DETAIL_ID, DETAIL_TITLE_ID } from './explorer';
 import styles from './Detail.module.css';
@@ -176,6 +180,12 @@ function Profile({
           </div>
         ))}
       </dl>
+
+      <p className={styles.note}>
+        <Link to={hrefTo('/customer', CUSTOMER_PARAMS, { id: detail.id })} className={styles.link}>
+          Open {detail.id} on the Single customer page
+        </Link>
+      </p>
 
       <div className={styles.moved}>
         <h3 id={MOVED_ID} tabIndex={-1} className={styles.movedTitle}>

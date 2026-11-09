@@ -18,7 +18,7 @@ import { hiddenText, MIN_CUSTOMERS } from '../../lib/cells';
 import { int, pct } from '../../lib/format';
 import { isFeature, level, overviewLevel, RANKING } from '../../lib/labels';
 import { cssVars, cx } from '../../lib/style';
-import { importanceNote, lifecycleTitle, segmentNote } from './copy';
+import { importanceNote, segmentNote } from './copy';
 import styles from './Associations.module.css';
 
 type Cell = Schemas['ReportedCell'] | Schemas['SuppressedCell'];
@@ -162,13 +162,13 @@ function Lifecycle({
       <CardHeader
         id="lifecycle"
         level={3}
-        title={lifecycleTitle(lifecycle)}
+        title="Churn by tenure"
         subtitle="When in the relationship do customers leave?"
         aside={
           lifecycle && (
             <span className={styles.medians}>
               median tenure <b>{wholeMonths(lifecycle.median_tenure_churned)}</b> mo churned ·{' '}
-              <b>{wholeMonths(lifecycle.median_tenure_stayed)}</b> retained
+              <b>{wholeMonths(lifecycle.median_tenure_stayed)}</b> stayed
             </span>
           )
         }

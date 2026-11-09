@@ -70,8 +70,8 @@ describe('Shell on a wide screen', () => {
     expect(await screen.findByText('Loaded')).toBeInTheDocument();
     expect(screen.getByText('0.36')).toBeInTheDocument();
     expect(screen.getByText('isotonic-calibrated, clamped')).toBeInTheDocument();
-    const rocAuc = screen.getByText('Test ROC-AUC').nextElementSibling;
-    expect(rocAuc).toHaveTextContent('—');
+    const precision = screen.getByText('Test precision').nextElementSibling;
+    expect(precision).toHaveTextContent(/^—$/);
   });
 
   it('shows the recorded test figures once they exist', async () => {
@@ -82,9 +82,8 @@ describe('Shell on a wide screen', () => {
         modelInfo({
           test_evaluation: {
             evaluated_at: '2026-10-24',
-            roc_auc: 0.8412,
+            precision: 0.8412,
             recall: 0.7,
-            ece: 0.0271,
           },
         }),
       ),
@@ -92,7 +91,8 @@ describe('Shell on a wide screen', () => {
     renderShell();
     expect(await screen.findByText('0.841')).toBeInTheDocument();
     expect(screen.getByText('0.700')).toBeInTheDocument();
-    expect(screen.getByText('0.027')).toBeInTheDocument();
+    expect(screen.queryByText('Test ECE')).not.toBeInTheDocument();
+    expect(screen.queryByText('Test ROC-AUC')).not.toBeInTheDocument();
   });
 
   it('says the service cannot be reached when the health check fails', async () => {

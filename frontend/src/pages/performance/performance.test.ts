@@ -1,4 +1,4 @@
-import { curve, measured, performance, recorded } from '../../test/performanceApi';
+import { curve, measured, performance } from '../../test/performanceApi';
 import {
   charted,
   contour,
@@ -139,6 +139,5 @@ describe('segments', () => {
     expect(segmentName('InternetService', 'Fiber optic')).toBe('Fiber optic');
     // "None" would read as no risk, or no data: it is customers without internet.
     expect(segmentName('InternetService', 'No')).toBe('No internet');
-    expect(groups(recorded().segments).map((g) => g.dimension)).toEqual(['Contract']);
   });
 });

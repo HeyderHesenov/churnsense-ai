@@ -49,3 +49,7 @@ class ModelNotAvailableError(ChurnSenseError):
     The API maps this to HTTP 503 and the dashboard to a "run `make train`"
     state.
     """
+
+
+class ReleaseRefused(ChurnSenseError):
+    """The held-out partition's release cannot be made, or the ledger cannot be trusted."""

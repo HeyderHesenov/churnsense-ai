@@ -38,6 +38,7 @@ from app.sections import (  # noqa: E402
     performance,
     simulator,
 )
+from churnsense.evaluation.release import published_release  # noqa: E402
 from churnsense.exceptions import ConfigError  # noqa: E402
 from churnsense.logging_setup import configure_logging  # noqa: E402
 
@@ -72,11 +73,11 @@ def _sidebar() -> str:
             f"**Threshold**  \n{meta['threshold']:.2f}  \n"
             f"**Trained**  \n{meta['trained_at'][:10]}"
         )
-        if meta.get("test_metrics"):
-            test = meta["test_metrics"]
+        test, _ = published_release(meta.get("model_sha256"), meta["threshold"])
+        if test:
             st.sidebar.caption(
-                f"Test ROC-AUC {test['roc_auc']:.3f} · "
-                f"precision {test['precision']:.3f} · recall {test['recall']:.3f}"
+                f"Test precision {test.metrics['precision']:.3f} · "
+                f"recall {test.metrics['recall']:.3f}"
             )
 
     st.sidebar.divider()

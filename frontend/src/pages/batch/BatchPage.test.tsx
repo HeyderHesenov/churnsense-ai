@@ -127,6 +127,16 @@ describe('scoring a file', () => {
     expect(bodyRows()).toHaveLength(12);
   });
 
+  it('says what its at-risk figure assumes of each row', async () => {
+    await showBatch();
+    await scoreChosen();
+    expect(
+      await screen.findByText(
+        'Expected: Σ probability × monthly charges, assuming each row is a current customer',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('scores the synthetic demo file and says it is the demo', async () => {
     const sent = filesSent();
     await showBatch();

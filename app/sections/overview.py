@@ -138,7 +138,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             (
                 f"Flagged at threshold {model.threshold:.2f}",
                 f"{int(flagged.sum()):,}",
-                "would receive an offer",
+                "flagged by the model, whatever became of them",
                 "warn",
             ),
         ]
@@ -152,7 +152,9 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         ui.chart(_risk_distribution(frame), height=300, key="ov_bands")
     with right:
         st.subheader("Monthly charges by risk band")
-        ui.question("How much recurring revenue is attached to each band?")
+        ui.question(
+            "How much in monthly charges is attached to each band, recorded churners included?"
+        )
         ui.chart(_revenue_at_risk(frame, currency), height=300, key="ov_revenue")
 
     st.caption(
@@ -176,8 +178,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
         ui.chart(_churn_by_dimension(seen, "PaymentMethod", ""), height=240, key="ov_payment")
 
     ui.caveat(
-        "These are observed associations in one historical snapshot. Customers who "
-        "expect to stay are also the ones willing to sign long contracts, so part of "
-        "the contract gap is self-selection rather than an effect of the contract. "
-        "Nothing here identifies a cause."
+        "These are observed associations in one historical snapshot. It records neither "
+        "why a customer chose a contract nor what the contract itself did, so nothing "
+        "here identifies a cause."
     )

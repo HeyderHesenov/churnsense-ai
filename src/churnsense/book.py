@@ -55,6 +55,12 @@ SHOWN_PARTITIONS: tuple[str, ...] = ("train", "validation")
 CHURNED, STAYED, WITHHELD = "churned", "stayed", "withheld"
 OUTCOME_CODES: dict[int, str] = {1: CHURNED, 0: STAYED}
 
+#: What is known of a customer today. ``UNKNOWN`` is neither of the others: a test
+#: customer, or any customer while the partitions are unverified, may have left or may
+#: not, and nothing here may read which.
+ACTIVE, UNKNOWN = "active", "unknown"
+STATUS_CODES: dict[str, str] = {STAYED: ACTIVE, CHURNED: CHURNED, WITHHELD: UNKNOWN}
+
 #: Why the partitions could not be verified, one reason per state. Fixed text,
 #: never an exception's message, so no path or internal name reaches a page.
 WITHHELD_REASONS: dict[str, str] = {
@@ -222,6 +228,15 @@ def outcome_codes(frame: pd.DataFrame, shown: pd.Series) -> pd.Series:
     """
     codes = frame[schema.ID_COLUMN].map(shown).map(OUTCOME_CODES)
     return codes.fillna(WITHHELD).rename("outcome")
+
+
+def status_codes(frame: pd.DataFrame, shown: pd.Series) -> pd.Series:
+    """Each row's status as ``"active"``, ``"churned"`` or ``"unknown"``.
+
+    Read from ``outcome_codes``, so it depends only on what may be shown: every test
+    customer is ``"unknown"``, whatever became of them.
+    """
+    return outcome_codes(frame, shown).map(STATUS_CODES).rename("status")
 
 
 def training_features(book: Book, columns: list[str]) -> pd.DataFrame | None:

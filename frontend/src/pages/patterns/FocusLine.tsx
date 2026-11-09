@@ -8,7 +8,7 @@ import type { Cell, Segments } from '../../api/queries';
 import { Link } from '../../app/router';
 import { icons } from '../../components/icons';
 import { explorerText, focusText, showing } from './copy';
-import { explore, type View } from './patterns';
+import { explore, sameGroup, type View } from './patterns';
 import styles from './Patterns.module.css';
 
 interface Props {
@@ -22,7 +22,9 @@ interface Props {
 
 export function FocusLine({ view, data, active, pinned, next }: Props) {
   const shown = active ?? pinned;
-  const isPinned = active === null && pinned !== null;
+  // Pointing at the pinned group itself still reads as the pin: the line does
+  // not change, so the explorer link below it stays where the pointer is going.
+  const isPinned = pinned !== null && (active === null || sameGroup(active, pinned));
   const opens = pinned === null ? null : explore(view, pinned);
   return (
     <div className={styles.focus}>

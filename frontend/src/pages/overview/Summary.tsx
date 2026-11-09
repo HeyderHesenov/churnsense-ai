@@ -9,7 +9,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Card, StatTile } from '../../components/ui/Surface';
 import { cut, int, money, pct } from '../../lib/format';
 import { cssVars } from '../../lib/style';
-import { riskiestLink, scaleDescription, scaleLabel } from './copy';
+import { scaleDescription, scaleLabel, SHOW_IN_QUEUE } from './copy';
 import styles from './Overview.module.css';
 
 interface SummaryProps {
@@ -27,7 +27,7 @@ export function Summary({ book, info, links, onShowQueue }: SummaryProps) {
       <section className={styles.intro} aria-label="Overview">
         <PageHeader
           eyebrow="Executive overview"
-          title="Where retention risk sits in the book today"
+          title="Where retention risk sits in the book"
           className={styles.title}
         >
           {int(book.customers)} customers, scored by one {info?.calibrated ? 'calibrated ' : ''}
@@ -103,7 +103,7 @@ function KeyFigures({
 }: Pick<SummaryProps, 'book' | 'links' | 'onShowQueue'>) {
   const threshold = cut(book.threshold);
   const share = (segment: Overview['flagged']) =>
-    `${segment.share === null ? '—' : pct(segment.share)} · ${money(segment.monthly_charges)} / mo`;
+    `${int(segment.in_queue_active)} active, ${int(segment.in_queue_unknown)} status unknown · ${money(segment.in_queue_monthly)} / mo active`;
   const observed = book.observed;
   return (
     <section aria-label="Key figures" className={styles.figures}>
@@ -128,25 +128,29 @@ function KeyFigures({
       />
       <StatTile
         label="Monthly charges"
-        value={money(book.monthly_charges)}
-        sub="recurring, across the book"
+        value={
+          book.current_monthly_charges === null
+            ? 'Unavailable'
+            : money(book.current_monthly_charges)
+        }
+        sub={
+          book.unknown_customers === 0
+            ? 'customers recorded active'
+            : `customers recorded active; ${int(book.unknown_customers)} with unknown status (${money(book.unknown_monthly_charges)}) not counted`
+        }
       />
       <StatTile
-        label="High or Critical"
-        value={int(book.high_or_critical.customers)}
+        label="High or Critical, in the queue"
+        value={int(book.high_or_critical.in_queue)}
         sub={share(book.high_or_critical)}
-        link={{ to: links.riskiest, label: riskiestLink(book).label, onFollow: onShowQueue }}
+        link={{ to: links.riskiest, description: SHOW_IN_QUEUE, onFollow: onShowQueue }}
       />
       <StatTile
-        label={`Flagged at ${threshold}`}
-        value={int(book.flagged.customers)}
+        label={`Flagged at ${threshold}, in the queue`}
+        value={int(book.flagged.in_queue)}
         sub={share(book.flagged)}
         accent
-        link={{
-          to: links.flagged,
-          label: `Flagged at ${threshold}: ${int(book.flagged.customers)} customers. Show them in the retention queue`,
-          onFollow: onShowQueue,
-        }}
+        link={{ to: links.flagged, description: SHOW_IN_QUEUE, onFollow: onShowQueue }}
       />
     </section>
   );

@@ -30,6 +30,11 @@ a {
 a:hover {
   color: var(--link-hover);
 }
+/* A link within running text is told apart by more than its colour (WCAG 1.4.1). */
+p a {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
 
 button,
 input,

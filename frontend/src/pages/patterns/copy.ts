@@ -11,12 +11,15 @@ import type { Explore, Measure, Scale, View } from './patterns';
 
 export const TITLE = 'Where did churn concentrate, and in which combinations?';
 
-export function lede(minimum: number): string {
+export function lede(minimum: number, withheld = false): string {
   return (
     'Observed churn in the training partition, by one attribute or two crossed. ' +
     'Validation and test outcomes are not read here. No model output appears on this page. ' +
-    `A group of fewer than ${minimum} customers shows its size only, and so does any group ` +
-    "whose churn would let a smaller group's be worked out."
+    `A group of fewer than ${minimum} customers shows its size only on this page, and so does any group ` +
+    "whose churn would let a smaller group's be worked out from this table. " +
+    (withheld
+      ? 'This is a display rule, not privacy protection.'
+      : 'This is a display rule, not privacy protection: the Customer explorer lists training customers with their outcomes.')
   );
 }
 
@@ -104,8 +107,8 @@ export function focusText(view: View, cell: Cell | null, data: Segments): string
   if (cell.suppressed) {
     return cell.reason === 'too_few'
       ? `${named}: ${int(cell.n)} customers, fewer than ${data.min_customers}, so no churn rate is shown.`
-      : `${named}: ${int(cell.n)} customers. Its churn is held back: ` +
-          "with it, a smaller group's could be worked out from the totals.";
+      : `${named}: ${int(cell.n)} customers. Its churn is held back on this page: ` +
+          "with it, a smaller group's could be worked out from this table's totals.";
   }
   const against =
     cell.lift === null || data.base_rate === null
@@ -166,7 +169,7 @@ export function explorerText(explore: Explore, cell: Cell): string {
     return `Open these ${int(cell.n)} training customers in the customer explorer`;
   }
   if (explore.kind === 'hidden')
-    return 'A group whose churn is hidden does not open in the explorer.';
+    return "A group whose churn is hidden on this page has no link to the explorer from here. The explorer's own filters still list training customers with their outcomes.";
   return `The explorer cannot filter by ${name(explore.dimension)}.`;
 }
 

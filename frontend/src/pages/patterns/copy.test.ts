@@ -21,6 +21,15 @@ import {
 
 const VIEW = { rows: 'Contract', cols: 'tenure' };
 
+describe('the lede when outcomes are withheld', () => {
+  it('points to no list of outcomes the explorer is not showing', () => {
+    expect(lede(20)).toContain('the Customer explorer lists training customers');
+    const withheld = lede(20, true);
+    expect(withheld).toContain('This is a display rule, not privacy protection.');
+    expect(withheld).not.toContain('explorer');
+  });
+});
+
 describe('the words of the patterns page', () => {
   it('describes the population the figures come from, and what is left out', () => {
     expect(population(contractByTenure())).toBe(
@@ -60,14 +69,23 @@ describe('the words of the patterns page', () => {
     );
   });
 
+  it('calls hiding a display rule, and does not deny what the explorer lists', () => {
+    const text = lede(20);
+    expect(text).toContain('display rule, not privacy protection');
+    expect(text).toContain('the Customer explorer lists training customers with their outcomes');
+    expect(explorerText({ kind: 'hidden' }, hidden('a', 'b', 12))).not.toMatch(
+      /does not open|cannot be|not available|unavailable/i,
+    );
+  });
+
   it('says why a hidden group shows its size only', () => {
     const data = contractByTenure();
     expect(focusText(VIEW, hidden('One year', '0-3', 12, 'too_few'), data)).toBe(
       'Contract One year, tenure 0–3 months: 12 customers, fewer than 20, so no churn rate is shown.',
     );
     expect(focusText(VIEW, hidden('Month-to-month', '0-3', 960, 'complementary'), data)).toBe(
-      'Contract Month-to-month, tenure 0–3 months: 960 customers. Its churn is held back: ' +
-        "with it, a smaller group's could be worked out from the totals.",
+      'Contract Month-to-month, tenure 0–3 months: 960 customers. Its churn is held back on this page: ' +
+        "with it, a smaller group's could be worked out from this table's totals.",
     );
     expect(focusText(VIEW, hidden('Two year', '0-3', 0), data)).toBe(
       'Contract Two year, tenure 0–3 months: no customers.',
@@ -107,7 +125,7 @@ describe('the words of the patterns page', () => {
       'Open these 988 training customers in the customer explorer',
     );
     expect(explorerText({ kind: 'hidden' }, hidden('a', 'b', 12))).toBe(
-      'A group whose churn is hidden does not open in the explorer.',
+      "A group whose churn is hidden on this page has no link to the explorer from here. The explorer's own filters still list training customers with their outcomes.",
     );
     expect(
       explorerText({ kind: 'unfiltered', dimension: 'monthly' }, reported('a', 'b', 40, 1)),

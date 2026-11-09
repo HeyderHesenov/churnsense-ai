@@ -14,7 +14,7 @@ import type { Explanation, GlobalExplanation } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { ChartTooltip } from '../../components/charts/ChartTooltip';
 import { Card, CardHeader, Tag } from '../../components/ui/Surface';
-import { int, pct, shownSign, signedPoints } from '../../lib/format';
+import { int, pct, shownSign, signedPoints, tickLabels } from '../../lib/format';
 import { cx } from '../../lib/style';
 import {
   CARDS,
@@ -164,6 +164,7 @@ export function Dependence({ global, feature, ringed }: Props) {
   // A group without a mean is pointed at from the top, never at a mean of zero.
   const tipY = group?.mean != null ? y(group.mean) : D.top;
   const yTicks = y.ticks(4);
+  const yLabels = tickLabels(yTicks);
   const tableRows = groups.map((g) => [
     groupName(feature, g),
     int(g.customers),
@@ -218,7 +219,7 @@ export function Dependence({ global, feature, ringed }: Props) {
         }
       >
         <svg viewBox={`0 0 ${D.width} ${D.height}`}>
-          {yTicks.map((t) => (
+          {yTicks.map((t, i) => (
             <g key={t}>
               <line
                 className={t === 0 ? styles.zero : styles.grid}
@@ -228,7 +229,7 @@ export function Dependence({ global, feature, ringed }: Props) {
                 y2={y(t)}
               />
               <text className={styles.tick} x={D.left - 8} y={y(t) + 4} textAnchor="end">
-                {t === 0 ? '0' : signedPoints(t, 0)}
+                {yLabels[i]}
               </text>
             </g>
           ))}

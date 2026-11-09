@@ -62,7 +62,7 @@ export function Provenance({ model, figures }: Props) {
               </>
             ) : (
               <>
-                <span className={styles.partitionSize}>Not recorded</span>
+                <span className={styles.partitionSize}>Not shown</span>
                 <span className={styles.partitionRole}>
                   {figures.test_reason && <Coded text={figures.test_reason} />}
                 </span>

@@ -44,17 +44,19 @@ export function spread(value: number): string {
 
 type SegmentTab = Schemas['SegmentTab'];
 
+const NO_WHY = 'An association in one snapshot; it does not say why.';
+
 /** The note under a segment tab. */
 export function segmentNote(tab: SegmentTab): string {
   switch (tab.key) {
     case 'Contract':
       return tab.spread === null
-        ? 'People who expect to stay sign longer, so part of any gap is self-selection.'
-        : `A ${spread(tab.spread)} spread, partly self-selection: people who expect to stay sign longer.`;
+        ? `Observed churn differs across contract types. ${NO_WHY}`
+        : `A ${spread(tab.spread)} spread in observed churn across contract types. ${NO_WHY}`;
     case 'PaymentMethod':
-      return 'A useful flag, not a lever: it proxies for commitment and billing friction.';
+      return `Observed churn differs across payment methods. ${NO_WHY}`;
     case 'InternetService':
-      return 'Fiber is the premium tier; price and service expectations both fit, and the data separates neither.';
+      return `Observed churn differs across internet service types. ${NO_WHY}`;
     case 'monthly':
       return priceNote(tab);
     default:
@@ -106,16 +108,11 @@ export function importanceNote(
 
 type Campaign = Schemas['Campaign'];
 
-/** The gap between the peak and the shipped threshold: display arithmetic on two API figures. */
-function gap(campaign: Campaign): number {
-  return campaign.peak_net_benefit - campaign.net_benefit;
-}
-
 /** "0.36 shipped · 0.30 peak, $32 higher". */
 export function campaignCaption(campaign: Campaign): string {
   if (campaign.peak_threshold === campaign.threshold)
     return `${cut(campaign.threshold)} shipped, at the peak`;
-  return `${cut(campaign.threshold)} shipped · ${cut(campaign.peak_threshold)} peak, ${money(gap(campaign))} higher`;
+  return `${cut(campaign.threshold)} shipped · ${cut(campaign.peak_threshold)} peak, ${money(campaign.peak_gain)} higher`;
 }
 
 /**
@@ -132,19 +129,6 @@ export function campaignLabel(campaign: Campaign): string {
   );
 }
 
-/** "Risk is front-loaded" only when the first months churn above the average. */
-export function lifecycleTitle(lifecycle: Overview['lifecycle']): string {
-  const first = lifecycle?.buckets[0];
-  const base = lifecycle?.base_rate;
-  const frontLoaded =
-    first !== undefined &&
-    !first.suppressed &&
-    base !== null &&
-    base !== undefined &&
-    first.rate > base;
-  return frontLoaded ? 'Risk is front-loaded' : 'Churn by tenure';
-}
-
 /** Why a band holds nobody flagged: its top, when that is below the threshold. */
 export function unflaggedNote(
   band: Range & { name: string; customers: number },
@@ -159,21 +143,12 @@ export function unflaggedNote(
   return `None of the ${int(band.customers)} customers in ${band.name} reaches the ${cut(threshold)} threshold.`;
 }
 
-/**
- * The key figure that opens the queue on the two riskiest bands. The queue
- * lists flagged customers, so it promises the whole count only when the
- * threshold flags every customer in those bands.
- */
-export function riskiestLink(book: Overview): { bands: string[]; label: string } {
-  const riskiest = book.bands.slice(-2);
-  const names = riskiest.map((band) => band.name);
-  const all = riskiest.every((band) => band.min >= book.threshold);
-  return {
-    bands: names,
-    label:
-      `${names.join(' or ')}: ${int(book.high_or_critical.customers)} customers. ` +
-      (all ? 'Show them in the retention queue' : 'Show the flagged ones in the retention queue'),
-  };
+/** What following a key figure into the queue does. */
+export const SHOW_IN_QUEUE = 'Show them in the retention queue';
+
+/** The bands the key figure opens the queue on: the two riskiest. */
+export function riskiestBands(book: Overview): string[] {
+  return book.bands.slice(-2).map((band) => band.name);
 }
 
 /** Every assumption the simulated money rests on. */

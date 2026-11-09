@@ -44,21 +44,21 @@ describe('StatTile', () => {
     expect(screen.getByText('7,043')).toBeInTheDocument();
   });
 
-  it('as a link, goes where it says and reports the click', async () => {
+  it('as a link, is named by what it shows, says where it goes, and reports the click', async () => {
     window.history.replaceState(null, '', '/');
     const onFollow = vi.fn();
     render(
       <StatTile
         label="Flagged at 0.36"
         value="2,306"
-        link={{
-          to: '/?bands=High#queue',
-          label: 'Flagged at 0.36: 2,306 customers. Show them in the queue',
-          onFollow,
-        }}
+        sub="32.7% of the book"
+        link={{ to: '/?bands=High#queue', description: 'Show them in the queue', onFollow }}
       />,
     );
-    await userEvent.click(screen.getByRole('link', { name: /Show them in the queue/ }));
+    const link = screen.getByRole('link', { description: 'Show them in the queue' });
+    // Label in name (WCAG 2.5.3): every word the tile shows is in the link's name.
+    expect(link).toHaveAccessibleName(/^Flagged at 0\.36\s*2,306\s*32\.7% of the book$/);
+    await userEvent.click(link);
     expect(onFollow).toHaveBeenCalledTimes(1);
     expect(window.location.search).toBe('?bands=High');
   });

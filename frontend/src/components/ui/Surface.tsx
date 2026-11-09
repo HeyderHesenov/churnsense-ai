@@ -2,7 +2,7 @@
  * The surfaces figures sit on: a card (a named region with its heading), a
  * stat tile, and the small tags that qualify a figure.
  */
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Link } from '../../app/router';
 import { cx } from '../../lib/style';
 import { icons } from '../icons';
@@ -67,8 +67,12 @@ interface StatTileProps {
   label: ReactNode;
   value: ReactNode;
   sub?: ReactNode;
-  /** A tile that is also a way into the figure: where it goes, and what it says. */
-  link?: { to: string; label: string; onFollow?: () => void };
+  /**
+   * A tile that is also a way into the figure: where it goes, and what following
+   * it does. The tile's visible text is the link's name (WCAG 2.5.3, label in
+   * name); ``description`` is read after it.
+   */
+  link?: { to: string; description: string; onFollow?: () => void };
   /** The accent line along the top: the tile the page is about. */
   accent?: boolean;
   compact?: boolean;
@@ -82,6 +86,7 @@ export function StatTile({
   accent = false,
   compact = false,
 }: StatTileProps) {
+  const descriptionId = useId();
   const classes = cx(
     styles.tile,
     compact && styles.compact,
@@ -100,8 +105,11 @@ export function StatTile({
   );
   if (!link) return <div className={classes}>{body}</div>;
   return (
-    <Link to={link.to} aria-label={link.label} className={classes} onClick={link.onFollow}>
+    <Link to={link.to} aria-describedby={descriptionId} className={classes} onClick={link.onFollow}>
       {body}
+      <span id={descriptionId} hidden>
+        {link.description}
+      </span>
     </Link>
   );
 }

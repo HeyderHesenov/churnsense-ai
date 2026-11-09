@@ -62,6 +62,12 @@ interface BoundaryProps {
   children: ReactNode;
 }
 
+/** This address without its fragment: following a link to the same fragment only scrolls. */
+function reloadAddress(): string {
+  const { origin, pathname, search } = window.location;
+  return `${origin}${pathname}${search}`;
+}
+
 /**
  * Contains a page that throws while rendering; its message is never shown.
  * The way back is a full load of the same address: a page whose code failed
@@ -86,13 +92,7 @@ export class PageBoundary extends Component<BoundaryProps, { failed: boolean }> 
       <>
         <Header section={this.props.section} page={this.props.page} />
         <Page>
-          <ErrorState
-            action={
-              <ButtonLink href={window.location.pathname + window.location.search}>
-                Reload the page
-              </ButtonLink>
-            }
-          >
+          <ErrorState action={<ButtonLink href={reloadAddress()}>Reload the page</ButtonLink>}>
             This page could not be shown.
           </ErrorState>
         </Page>

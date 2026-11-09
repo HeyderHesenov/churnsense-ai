@@ -14,6 +14,7 @@ import {
   signedMoney,
   shownSign,
   signedPoints,
+  tickLabels,
   times,
 } from './format';
 
@@ -144,5 +145,54 @@ describe('format', () => {
     expect(price(10_000)).toBe('$10,000');
     expect(price(49.999)).toBe('$50');
     expect(price(7.5, 'EUR')).toBe('€7.50');
+  });
+});
+
+describe('axis labels in percentage points', () => {
+  it('keeps whole points on a wide axis', () => {
+    expect(tickLabels([-0.2, -0.1, 0, 0.1])).toEqual(['−20', '−10', '0', '+10']);
+    expect(tickLabels([-0.04, -0.02, 0, 0.02, 0.04, 0.06])).toEqual([
+      '−4',
+      '−2',
+      '0',
+      '+2',
+      '+4',
+      '+6',
+    ]);
+  });
+
+  it('never rounds a tick of a narrow axis into its neighbour', () => {
+    expect(tickLabels([-0.006, -0.004, -0.002, 0, 0.002, 0.004, 0.006])).toEqual([
+      '−0.6',
+      '−0.4',
+      '−0.2',
+      '0',
+      '+0.2',
+      '+0.4',
+      '+0.6',
+    ]);
+    expect(tickLabels([-0.002, 0, 0.002, 0.004, 0.006])).toEqual([
+      '−0.2',
+      '0',
+      '+0.2',
+      '+0.4',
+      '+0.6',
+    ]);
+    expect(tickLabels([-0.01, -0.005, 0])).toEqual(['−1.0', '−0.5', '0']);
+  });
+
+  it('shows a fine step without calling it zero', () => {
+    expect(tickLabels([0.0002, 0.0004, 0.0006])).toEqual(['+0.02', '+0.04', '+0.06']);
+  });
+
+  it('labels a single tick, and none', () => {
+    expect(tickLabels([0.03])).toEqual(['+3']);
+    expect(tickLabels([0])).toEqual(['0']);
+    expect(tickLabels([])).toEqual([]);
+  });
+
+  it('survives the rounding error of a computed step', () => {
+    expect(tickLabels([0.1 + 0.2, 0.4])).toEqual(['+30', '+40']);
+    expect(tickLabels([0.07, 0.08, 0.09])).toEqual(['+7', '+8', '+9']);
   });
 });

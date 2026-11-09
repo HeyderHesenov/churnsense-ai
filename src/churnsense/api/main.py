@@ -33,10 +33,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from churnsense.api import spa, state
+from churnsense.api import spa
 from churnsense.api.dashboard import recorded_evaluation
 from churnsense.api.dashboard import router as dashboard_router
 from churnsense.api.middleware import (
@@ -122,12 +122,15 @@ app.add_middleware(SecurityHeaders)
 
 
 @app.exception_handler(StarletteHTTPException)
-async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> Response:
     """413, 503 and the router's own 404/405 in the documented ErrorResponse shape.
 
     An exception that names its own ``error`` code (a 503 for missing data
-    rather than a missing model, say) keeps it.
+    rather than a missing model, say) keeps it. A browser navigating to a page
+    address the app does not have gets the app shell instead (``spa.not_found_page``).
     """
+    if (page := spa.not_found_page(request, exc)) is not None:
+        return page
     return error_response(
         exc.status_code, str(exc.detail), error=getattr(exc, "error", None), headers=exc.headers
     )
@@ -203,12 +206,7 @@ def model_info(
     """What is being served, where it came from, and what it should not be trusted to do."""
     predictor = require_predictor()
     meta, cfg = predictor.meta, predictor.config
-    reports_dir = (
-        dashboard.reports_dir
-        if dashboard is not None
-        else state.REPORTS_DIR or cfg.paths.reports_dir
-    )
-    record = recorded_evaluation(reports_dir, meta.get("model_sha256", ""))
+    record = recorded_evaluation(meta.get("model_sha256"), meta["threshold"])
     return ModelInfoResponse(
         model_key=meta["model_key"],
         display_name=meta["display_name"],
@@ -222,7 +220,7 @@ def model_info(
         n_train=meta["n_train"],
         n_validation=meta["n_validation"],
         validation_metrics=meta["validation_metrics"],
-        test_metrics=meta.get("test_metrics"),
+        test_metrics=None if record is None else record.metrics.model_dump(),
         sklearn_version=meta["sklearn_version"],
         limitations=LIMITATIONS,
         model_sha256=meta.get("model_sha256"),
@@ -251,9 +249,8 @@ def model_info(
         if record is None
         else HoldoutSummary(
             evaluated_at=record.evaluated_at,
-            roc_auc=record.metrics.roc_auc,
+            precision=record.metrics.precision,
             recall=record.metrics.recall,
-            ece=record.ece,
         ),
     )
 

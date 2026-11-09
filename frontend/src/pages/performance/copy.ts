@@ -21,8 +21,8 @@ export function lede(
     `training customers; the cut, and whether to keep calibration, were decided on ` +
     `${int(validation)} validation customers. ` +
     (recorded
-      ? 'Test figures are the recorded final evaluation, read on a re-used holdout.'
-      : 'No test evaluation is recorded for this model, so no figure here is a test result.')
+      ? "Test figures are the partition's one recorded release, counts and rates only, read on a re-used holdout."
+      : 'No test evaluation is shown for this model, so no figure here is a test result.')
   );
 }
 
@@ -41,6 +41,9 @@ export function shortSha(sha: string): string {
 export function evaluatedOn(iso: string): string {
   return iso.slice(0, 10);
 }
+
+/** Beside a test figure that does not exist: not a dash that might mean "not computed yet". */
+export const NOT_PUBLISHED = 'not published for test';
 
 export function withheld(reason: string): string {
   return `Validation outcomes are withheld: ${reason}`;
@@ -81,25 +84,24 @@ export function nobody(accuracy: number): string {
   return `flagging nobody scores ${score(accuracy)}`;
 }
 
-export function testOptimal(threshold: number): string {
-  return `The test-optimal cut (${cut(threshold)}) is reported in the record, then discarded: the served cut was fixed on validation first.`;
-}
+export const TEST_SCOPE =
+  "Test customers are listed with their flags and scores, so a figure about any group of them is read against known people. The test column holds the partition's own table only: no segment, bin, calibration error or second cut is published for it. A score metric reads “—” when the scores tie too much to publish it.";
 
 // --- errors at a cut --------------------------------------------------------------
 
 export const CELLS = {
-  tn: 'left alone',
-  fp: 'offer to a stayer',
-  fn: 'missed churner',
-  tp: 'reached',
+  tn: 'not flagged, stayed',
+  fp: 'flagged, stayed',
+  fn: 'not flagged, churned',
+  tp: 'flagged, churned',
 } as const;
 
 export function offerCost(cost: number, currency: string): string {
-  return `${money(cost, currency)} offer each, assumed`;
+  return `${money(cost, currency)} each if offered, assumed`;
 }
 
 export function errorsAt(threshold: number, flagged: number, fp: number, fn: number): string {
-  return `At ${cut(threshold)}: ${int(flagged)} flagged; ${int(fp)} offers to customers who stayed, ${int(fn)} churners not flagged.`;
+  return `At ${cut(threshold)}: ${int(flagged)} flagged; ${int(fp)} of them stayed, ${int(fn)} churners not flagged.`;
 }
 
 export const NOT_OPTIMAL = 'One cut under one set of assumptions, not a universal optimum.';
@@ -184,12 +186,14 @@ export function cutoffCaption(selection: Selection, leader: Candidate | undefine
 export function selectionNote(
   leader: Candidate | undefined,
   chosen: Candidate | undefined,
+  lead: number | null | undefined,
   name: (model: string) => string,
 ): string {
   if (!leader || !chosen) return 'The simplest model inside the cutoff is chosen.';
   if (leader === chosen)
     return `${name(chosen.model)} leads and is the simplest model inside the cutoff.`;
-  return `${name(leader.model)} leads ${name(chosen.model)} by ${cv(leader.cv_pr_auc - chosen.cv_pr_auc)}, inside one standard error, so the simpler model is chosen.`;
+  if (lead === null || lead === undefined) return 'The simplest model inside the cutoff is chosen.';
+  return `${name(leader.model)} leads ${name(chosen.model)} by ${cv(lead)}, inside one standard error, so the simpler model is chosen.`;
 }
 
 export const CANDIDATES_NOTE =
@@ -208,9 +212,6 @@ export const SMALL = 'fewer than 20 customers';
 
 export const GENDER =
   'Gender is not a model input; it is shown because leaving a column out does not show the groups are treated alike. A descriptive check, not a fairness certification.';
-
-export const TEST_SEGMENTS =
-  'The recorded test breakdown has no gender rows, and intervals only where the record kept them.';
 
 // --- footer -----------------------------------------------------------------------
 

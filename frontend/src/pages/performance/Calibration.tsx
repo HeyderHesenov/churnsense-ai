@@ -1,9 +1,8 @@
 /**
  * Does a probability mean what it says? The served model's validation
  * customers in tenths of probability, each bin's observed churn against its
- * mean stated probability, beside the diagonal a perfectly calibrated model
- * would sit on. A bin of fewer than 20 customers has no observed rate and is
- * not drawn. Below it, training's record: the uncalibrated candidate and the
+ * mean stated probability, beside the diagonal where the two are equal. A bin
+ * of fewer than 20 customers has no observed rate and is not drawn. Below it, training's record: the uncalibrated candidate and the
  * served model at a cut of 0.50, and why calibration was kept (or not).
  */
 import type { Performance } from '../../api/queries';

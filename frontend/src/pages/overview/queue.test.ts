@@ -59,6 +59,7 @@ describe('the queue’s request', () => {
       ),
     ).toEqual({
       flagged: true,
+      exclude_churned: true,
       bands: ['High'],
       partition: 'test',
       q: 'DEMO',
@@ -76,5 +77,29 @@ describe('the queue’s request', () => {
     );
     expect(query.bands).toEqual(['Moderate', 'High', 'Critical']);
     expect(query.partition).toBeNull();
+  });
+});
+
+describe('the queue’s request', () => {
+  const state = { bands: null, part: null, q: '', sort: 'at_risk', dir: 'desc', page: 1 } as const;
+
+  it('sends the same bands in one order, however they were chosen', () => {
+    const defaults = ['Moderate', 'High', 'Critical'] as const;
+    expect(queueQuery({ ...state, bands: ['Critical', 'Moderate'] }, defaults).bands).toEqual([
+      'Moderate',
+      'Critical',
+    ]);
+    expect(queueQuery(state, defaults).bands).toEqual(defaults);
+  });
+
+  it('keeps a band nobody is flagged in, last, when a link names it', () => {
+    expect(queueQuery({ ...state, bands: ['High', 'Critical'] }, ['High']).bands).toEqual([
+      'High',
+      'Critical',
+    ]);
+    expect(queueQuery({ ...state, bands: ['Critical', 'High'] }, ['High']).bands).toEqual([
+      'High',
+      'Critical',
+    ]);
   });
 });

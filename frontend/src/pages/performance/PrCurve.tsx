@@ -54,7 +54,7 @@ export function PrCurve({ figures, index, onPick }: Props) {
     <CardHeader
       id="pr-title"
       title="Precision against recall"
-      subtitle="What each extra churner reached costs in precision, at every validation cut."
+      subtitle="What each extra churner flagged costs in precision, at every validation cut."
       aside={<Tag>VALIDATION</Tag>}
     />
   );
@@ -137,7 +137,7 @@ export function PrCurve({ figures, index, onPick }: Props) {
                     {f1Of(shown.flagged, curve.churners, shown.f1)}
                   </TipLine>
                   <TipLine>
-                    {int(shown.flagged)} flagged · {int(shown.true_positives)} churners reached
+                    {int(shown.flagged)} flagged · {int(shown.true_positives)} of them churned
                   </TipLine>
                 </>
               )}

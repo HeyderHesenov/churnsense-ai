@@ -38,13 +38,14 @@ Totals - a breakdown's margins and the partition - are never hidden here: a
 margin is decided by its own one-way breakdown, so a two-way table hides only
 cells, and two responses that share a margin agree on it.
 
-**Scope: one response at a time.** Each table is protected on its own. Two
-two-way tables that share a margin the one-way breakdown hid can each narrow
-that margin's churn, and together pin it, and with it the small level it
-hides; no hidden count is shared otherwise, so responses whose margins are all
-published add nothing to each other. On the pinned dataset no one-way level is
-small, so no margin is hidden. Protecting every table of every dimension at
-once is not attempted.
+**Scope: one response at a time.** Each table is protected on its own, and this
+is a rule for what a report states, not privacy protection. Responses can add
+to each other: two two-way tables that share a margin the one-way breakdown hid
+can each narrow that margin's churn and together pin it, and two dimensions can
+name the same people (no internet service under ``InternetService`` and under an
+add-on), so a count hidden in one table may be published in the other. Protecting
+every table of every dimension at once is not attempted. Nor does this reach
+beyond breakdowns: the API lists training customers with their own outcomes.
 """
 
 from __future__ import annotations

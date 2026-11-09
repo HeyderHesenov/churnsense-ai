@@ -9,14 +9,14 @@
  * the accessibility tree. The table says what the picture shows.
  */
 import { scaleLinear } from 'd3-scale';
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import type { Explanation, GlobalExplanation } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { Card, CardHeader } from '../../components/ui/Surface';
-import { pct, signedPoints } from '../../lib/format';
+import { pct, signedPoints, tickLabels } from '../../lib/format';
 import { valueText } from '../../lib/labels';
 import { cssVars, cx } from '../../lib/style';
-import { CARDS, featureName, rowName, SCALE } from './copy';
+import { CARDS, featureName, rowDescription, SCALE } from './copy';
 import {
   contributionDomain,
   contributionOf,
@@ -64,7 +64,9 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
     [global, x],
   );
   const ranks = modelRanks(global);
+  const rowsId = useId();
   const ticks = x.ticks(5);
+  const tickNames = tickLabels(ticks);
   const height = rows.length * SWARM.row;
   const association = global.association_rank;
 
@@ -109,12 +111,15 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
                     type="button"
                     className={cx(styles.swarmRow, on && styles.swarmRowOn)}
                     aria-pressed={on}
-                    aria-label={rowName(row.label, row.mean_abs_shap, ranks[row.feature] ?? 0)}
+                    aria-describedby={`${rowsId}-${row.feature}`}
                     onClick={() => onPick(row.feature)}
                   >
                     <span className={styles.rowLabel}>{row.label}</span>
                     <span />
                     <span className={styles.rowMean}>{(row.mean_abs_shap * 100).toFixed(1)}</span>
+                    <span id={`${rowsId}-${row.feature}`} hidden>
+                      {rowDescription(row.mean_abs_shap, ranks[row.feature] ?? 0)}
+                    </span>
                   </button>
                 );
               })}
@@ -141,9 +146,9 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
           <div className={styles.swarmHead}>
             <span>Attribute</span>
             <span className={styles.axisLabels}>
-              {ticks.map((t) => (
+              {ticks.map((t, i) => (
                 <span key={t} style={cssVars({ '--at': x(t) / WIDTH })}>
-                  {t === 0 ? '0' : signedPoints(t, 0)}
+                  {tickNames[i]}
                 </span>
               ))}
             </span>

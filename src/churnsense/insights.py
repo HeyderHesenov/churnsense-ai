@@ -6,8 +6,9 @@ a figure on a page and a figure in a test come from the same code.
 
 Two partitions, two purposes, and every function says which it reads:
 
-* **train + validation** - the outcomes ``churnsense.book`` allows a page to
-  show, for "does a probability hold up against what happened";
+* **validation** - for setting a stated probability against what happened, on
+  customers the model was not fitted on (they did inform the cut);
+* **train + validation** - the outcomes ``churnsense.book`` allows a page to show;
 * **train only** - the descriptive patterns, read off the partition every
   modelling decision was taken on, exactly as ``make eda`` reads it.
 
@@ -18,7 +19,8 @@ which every customer has.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -28,6 +30,7 @@ from churnsense import analysis as an
 from churnsense import book as books
 from churnsense import suppression
 from churnsense.data import schema
+from churnsense.evaluation.disclosure import MIN_CELL
 from churnsense.evaluation.metrics import (
     ClassificationMetrics,
     evaluate,
@@ -50,12 +53,11 @@ if TYPE_CHECKING:
 
 #: The probability histogram's resolution: 20 bins of 0.05.
 HISTOGRAM_BINS = 20
-#: Fewer customers than this, and no churn rate or churn count is reported for
-#: the group: a rate over a handful of people is noise, not a finding. A
-#: breakdown also hides the further counts that would give a small group's
-#: away (``churnsense.suppression``). Not disclosure control for the whole
-#: app: training and validation customers' own outcomes are listed one by one.
-MIN_CELL = 20
+# ``MIN_CELL``: fewer customers than this, and no churn rate or churn count is
+# reported for the group. A breakdown also hides the further counts that would
+# give a small group's away (``churnsense.suppression``). Not disclosure control
+# for the whole app: training and validation customers' own outcomes are listed
+# one by one. The test partition's are not: ``evaluation.disclosure``.
 #: A segment row's fields that state an outcome, or rest on one: a segment of
 #: fewer than ``MIN_CELL`` customers shows none of them. A 95 % interval is a
 #: rate in disguise, a within-segment ROC-AUC is read off the outcomes, and
@@ -174,6 +176,14 @@ class Share:
     customers: int
     share: float | None
     monthly_charges: float
+    #: Of those, who the retention queue lists: flagged and not recorded as churned,
+    #: split into those recorded active and those whose status is unknown.
+    in_queue: int
+    in_queue_active: int
+    in_queue_unknown: int
+    in_queue_share: float | None
+    #: Of those recorded active only: an unknown customer may no longer be paying.
+    in_queue_monthly: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +196,8 @@ class BandSummary:
     monthly_charges: float
     monthly_share: float | None
     flagged: int
+    #: Of those, the customers not recorded as churned: withheld outcomes count.
+    flagged_not_churned: int
     #: Observed churn among this band's training and validation customers.
     observed: Observed | None
 
@@ -197,8 +209,10 @@ class HistogramBin:
     band: str
     customers: int
     monthly_charges: float
-    #: Training and validation customers in the bin, and how many churned.
+    #: Validation customers in the bin, and how many churned.
     observed: Observed | None
+    #: What those validation customers were told on average: where their rate is drawn.
+    observed_mean: float | None
 
 
 #: Why a cell's churn is hidden: it has fewer than ``MIN_CELL`` customers, or
@@ -295,6 +309,7 @@ def band_summaries(book: books.Book, cfg: Config) -> list[BandSummary]:
     frame = book.frame
     seen = books.labelled(frame, shown=book.outcomes)
     total, charges = len(frame), float(frame["MonthlyCharges"].sum())
+    can_leave = frame["flagged"] & (books.outcome_codes(frame, book.outcomes) != books.CHURNED)
     out = []
     for band in cfg.risk_bands:
         rows = frame[frame["risk_band"] == band.name]
@@ -310,6 +325,7 @@ def band_summaries(book: books.Book, cfg: Config) -> list[BandSummary]:
                 monthly_charges=monthly,
                 monthly_share=_rate(monthly, charges),
                 flagged=int(rows["flagged"].sum()),
+                flagged_not_churned=int(can_leave[rows.index].sum()),
                 observed=_observed(seen_rows) if len(seen) else None,
             )
         )
@@ -327,13 +343,13 @@ def _observed(rows: pd.DataFrame) -> Observed:
 def probability_histogram(book: books.Book, cfg: Config) -> list[HistogramBin]:
     """Customers and charges per 0.05 of probability, with observed churn per bin.
 
-    Observed churn counts training and validation customers only, so a bin's
-    observed rate can be read against its probability range: the calibration
-    check, bin by bin.
+    Observed churn counts validation customers only, which the model was not
+    fitted on, so a bin's rate can be read against its probability range. They
+    did inform the cut and the choice to calibrate, so it is no independent test.
     """
     frame = book.frame
     bins = histogram_bins(frame["churn_probability"])
-    seen = books.labelled(frame, shown=book.outcomes)
+    seen = books.labelled(frame, "validation", shown=book.outcomes)
     seen_bins = histogram_bins(seen["churn_probability"])
     names = _band_names(cfg)
     edges = [band.min for band in cfg.risk_bands]
@@ -349,22 +365,62 @@ def probability_histogram(book: books.Book, cfg: Config) -> list[HistogramBin]:
                 band=band,
                 customers=len(rows),
                 monthly_charges=float(rows["MonthlyCharges"].sum()),
-                observed=_observed(seen[seen_bins == i]) if len(seen) else None,
+                observed=(observed := _observed(seen[seen_bins == i]) if len(seen) else None),
+                observed_mean=None
+                if observed is None or observed.rate is None
+                else float(seen.loc[seen_bins == i, "churn_probability"].mean()),
             )
         )
     return out
 
 
+def _status(book: books.Book) -> pd.Series:
+    return books.status_codes(book.frame, book.outcomes)
+
+
+def _share(book: books.Book, rows: pd.Series) -> Share:
+    """``rows`` of the book, and the part of them the retention queue lists."""
+    total = len(book.frame)
+    charges = book.frame["MonthlyCharges"]
+    status = _status(book)
+    active = rows & book.frame["flagged"] & (status == books.ACTIVE)
+    unknown = rows & book.frame["flagged"] & (status == books.UNKNOWN)
+    in_queue = int(active.sum() + unknown.sum())
+    return Share(
+        int(rows.sum()),
+        _rate(int(rows.sum()), total),
+        float(charges[rows].sum()),
+        in_queue,
+        int(active.sum()),
+        int(unknown.sum()),
+        _rate(in_queue, total),
+        float(charges[active].sum()),
+    )
+
+
 def high_or_critical(book: books.Book, cfg: Config) -> Share:
     """Customers in the two highest bands, and their monthly charges."""
-    top = _band_names(cfg)[-2:]
-    rows = book.frame[book.frame["risk_band"].isin(top)]
-    return Share(len(rows), _rate(len(rows), len(book.frame)), float(rows["MonthlyCharges"].sum()))
+    return _share(book, book.frame["risk_band"].isin(_band_names(cfg)[-2:]))
 
 
 def flagged_share(book: books.Book) -> Share:
-    rows = book.frame[book.frame["flagged"]]
-    return Share(len(rows), _rate(len(rows), len(book.frame)), float(rows["MonthlyCharges"].sum()))
+    return _share(book, book.frame["flagged"])
+
+
+def current_monthly_charges(book: books.Book) -> float | None:
+    """Monthly charges of customers recorded active; ``None`` when nobody is known to be."""
+    active = _status(book) == books.ACTIVE
+    return float(book.frame.loc[active, "MonthlyCharges"].sum()) if active.any() else None
+
+
+def unknown_customers(book: books.Book) -> int:
+    """Customers whose status is unknown: counted as neither active nor churned."""
+    return int((_status(book) == books.UNKNOWN).sum())
+
+
+def unknown_monthly_charges(book: books.Book) -> float:
+    """What those customers were charged, for saying what ``current`` leaves out."""
+    return float(book.frame.loc[_status(book) == books.UNKNOWN, "MonthlyCharges"].sum())
 
 
 def observed_overall(book: books.Book) -> Observed | None:
@@ -632,14 +688,24 @@ class CustomerFilter:
     flagged: bool | None = None
     partition: str | None = None
     ids: tuple[str, ...] | None = None
+    #: Leave out customers recorded as churned. An unknown status is not one of them.
+    exclude_churned: bool = False
 
 
 def with_outcomes(book: books.Book) -> pd.DataFrame:
-    """The book's frame plus each row's outcome code and its monthly revenue at risk."""
+    """The book's frame plus each row's outcome, status and monthly revenue at risk.
+
+    Revenue at risk is probability x monthly charges for a customer recorded active.
+    One recorded as churned has none, and for one whose status is unknown it cannot be
+    established: nothing here may read whether they still pay. Both are NaN, so no sum
+    counts them and they sort last.
+    """
     frame = book.frame
+    outcome = books.outcome_codes(frame, book.outcomes)
+    status = books.status_codes(frame, book.outcomes)
+    at_risk = frame["churn_probability"] * frame["MonthlyCharges"]
     return frame.assign(
-        outcome=books.outcome_codes(frame, book.outcomes),
-        at_risk=frame["churn_probability"] * frame["MonthlyCharges"],
+        outcome=outcome, status=status, at_risk=at_risk.where(status == books.ACTIVE)
     )
 
 
@@ -666,7 +732,27 @@ def select(frame: pd.DataFrame, f: CustomerFilter) -> pd.DataFrame:
         mask &= frame["flagged"] == f.flagged
     if f.ids is not None:
         mask &= frame[schema.ID_COLUMN].isin(f.ids)
+    if f.exclude_churned:
+        mask &= frame["outcome"] != books.CHURNED
     return frame[mask]
+
+
+def band_counts(frame: pd.DataFrame, f: CustomerFilter, names: Sequence[str]) -> dict[str, int]:
+    """How many customers ``f`` keeps in each band, whichever bands it asks for.
+
+    A band's own chip must say what choosing it would list, so its count does not
+    depend on the bands chosen now. Every band is named, an empty one with 0.
+    """
+    bands = select(frame, replace(f, bands=None))["risk_band"]
+    return {name: int((bands == name).sum()) for name in names}
+
+
+def status_counts(selection: pd.DataFrame) -> dict[str, int]:
+    """How many of ``selection`` are active, churned and unknown; they add up to its size."""
+    return {
+        status: int((selection["status"] == status).sum())
+        for status in (books.ACTIVE, books.CHURNED, books.UNKNOWN)
+    }
 
 
 def ordered(frame: pd.DataFrame, sort: str, descending: bool) -> pd.DataFrame:
@@ -692,6 +778,8 @@ class SelectionSummary:
     #: Observed churn among the selection's training and validation customers.
     observed: Observed | None
     monthly_charges: float
+    #: Of those recorded active: an unknown status is not counted as a paying customer.
+    active_monthly_charges: float
     at_risk: float
     histogram: list[int]
 
@@ -712,6 +800,9 @@ def summarise(selection: pd.DataFrame, book_size: int, shown: pd.Series) -> Sele
         expected_churners=float(selection["churn_probability"].sum()),
         observed=_observed(seen) if len(seen) else None,
         monthly_charges=float(selection["MonthlyCharges"].sum()),
+        active_monthly_charges=float(
+            selection.loc[selection["status"] == books.ACTIVE, "MonthlyCharges"].sum()
+        ),
         at_risk=float(selection["at_risk"].sum()),
         histogram=counts,
     )
@@ -725,6 +816,7 @@ EXPORT_COLUMNS: tuple[str, ...] = (
     "flagged",
     "partition",
     "outcome",
+    "status",
 )
 
 

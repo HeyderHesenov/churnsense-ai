@@ -21,8 +21,9 @@ async function showPatterns(path = '/patterns', handlers: Parameters<typeof serv
 
 const user = () => userEvent.setup({ delay: null });
 const table = () => screen.getByRole('table');
+/** A cell by the start of its sentence, which describes it; its figures are its name. */
 const cell = (name: string) =>
-  within(table()).getByRole('button', { name: (label) => label.startsWith(name) });
+  within(table()).getByRole('button', { description: (text) => text.startsWith(name) });
 const segmentRequests = (seen: URL[]) =>
   seen.filter((u) => u.pathname === '/api/segments').map((u) => u.search);
 const ranked = () => screen.getByRole('region', { name: RANKED.title });
@@ -65,7 +66,9 @@ describe('Patterns: the breakdown', () => {
     await showPatterns();
     const reported = cell('Contract One year, tenure 4–72 months');
     expect(reported).toHaveTextContent('15.0%n 988');
-    expect(reported).toHaveAccessibleName(
+    // Label in name (WCAG 2.5.3): the figures shown name the cell; its sentence describes it.
+    expect(reported).toHaveAccessibleName('15.0%n 988');
+    expect(reported).toHaveAccessibleDescription(
       'Contract One year, tenure 4–72 months: 988 customers, 148 churned. 15.0% observed churn ' +
         '(95% interval 11.9–17.9%), 0.60× the 25.0% of all 4,000 training customers, these included.',
     );
@@ -76,11 +79,12 @@ describe('Patterns: the breakdown', () => {
     expect(cell('Contract One year, tenure 0–3 months')).toHaveTextContent('—n<20');
     expect(cell('Contract Month-to-month, tenure 0–3 months')).toHaveTextContent('—held back');
     expect(cell('Contract Two year, tenure 0–3 months')).toHaveTextContent('—none');
-    // The hidden groups' churn appears nowhere on the page: not in a cell, the ranking or a name.
+    // The hidden groups' churn appears nowhere on the page: not in a cell, the ranking or a description.
     const main = screen.getByRole('main');
     for (const name of ['Month-to-month, tenure 0–3', 'One year, tenure 0–3']) {
       expect(within(ranked()).queryByText((text) => text.includes(name))).toBeNull();
-      expect(cell(`Contract ${name}`).getAttribute('aria-label')).not.toMatch(/churned|%/);
+      expect(cell(`Contract ${name}`)).not.toHaveAccessibleDescription(/churned|%/);
+      expect(cell(`Contract ${name}`)).not.toHaveAccessibleName(/churned|%/);
     }
     expect(main).not.toHaveTextContent(/probabilit|risk band|predicted/i);
   });
@@ -203,10 +207,12 @@ describe('Patterns: pinning a group', () => {
     expect(screen.queryByRole('link', { name: /Open these/ })).toBeNull();
   });
 
-  it('says why a hidden group does not open in the explorer', async () => {
+  it('says a hidden group has no link from here, and that the explorer still lists customers', async () => {
     await showPatterns('/patterns?pr=Month-to-month&pc=0-3');
     expect(
-      screen.getByText('A group whose churn is hidden does not open in the explorer.'),
+      screen.getByText(
+        "A group whose churn is hidden on this page has no link to the explorer from here. The explorer's own filters still list training customers with their outcomes.",
+      ),
     ).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Open these/ })).toBeNull();
   });
@@ -353,6 +359,10 @@ describe('Patterns: the states of the page', () => {
     expect(await screen.findByText(WITHHELD.title)).toBeInTheDocument();
     expect(screen.getByText(WITHHELD.body)).toBeInTheDocument();
     expect(segmentRequests(seen)).toHaveLength(1);
+    // The explorer is showing no outcome either, so the page must not point to one.
+    expect(
+      screen.getByText(/This is a display rule, not privacy protection\.$/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -413,6 +423,20 @@ describe('Patterns: what each state of a group shows', () => {
     fireEvent.pointerLeave(cell('Contract Two year, tenure 4–72 months'));
     expect(line()).toMatch(/^Pinned · Contract One year/);
   });
+
+  it('keeps the pinned line while the pinned group itself is pointed at, so its link stays put', async () => {
+    await showPatterns('/patterns?pr=One+year&pc=4-72');
+    const line = () => screen.getByText(/^(Pinned · )?Contract /, { selector: 'p' }).textContent;
+    const pinned = line();
+    expect(pinned).toMatch(/^Pinned · Contract One year/);
+    // Leaving the pinned cell for its explorer link must not reflow what sits above the link.
+    fireEvent.pointerEnter(cell('Contract One year, tenure 4–72 months'));
+    expect(line()).toBe(pinned);
+    fireEvent.focus(cell('Contract One year, tenure 4–72 months'));
+    expect(line()).toBe(pinned);
+    fireEvent.pointerLeave(cell('Contract One year, tenure 4–72 months'));
+    expect(line()).toBe(pinned);
+  });
 });
 
 describe('Patterns: a new response starts clear', () => {
@@ -420,7 +444,9 @@ describe('Patterns: a new response starts clear', () => {
     const seen = recordRequests();
     await showPatterns();
     fireEvent.pointerEnter(cell('Contract One year, tenure 4–72 months'));
-    expect(screen.getByText(/^Contract One year, tenure 4–72 months: 988/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^Contract One year, tenure 4–72 months: 988/, { selector: 'p' }),
+    ).toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Columns' }), {
       target: { value: 'PaymentMethod' },
     });

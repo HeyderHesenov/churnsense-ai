@@ -19,10 +19,10 @@ APP_PORT ?= 8501
 API_PORT ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-runtime check-python lock sbom data eda train explain dev evaluate all test lint format audit app api clean
+.PHONY: help setup setup-runtime check-python lock sbom data eda train explain dev evaluate all test lint format audit app api frontend-install frontend frontend-test e2e clean
 
 help:  ## Show the available targets
-	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	 | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 # Every file installed is checked against a sha256 in the lock, the build
@@ -97,8 +97,8 @@ explain:  ## Compute and cache global SHAP values and their figure
 dev: data eda train explain  ## Full development pipeline; never reads the test partition
 
 # The only target that scores the held-out test partition. It refuses unless
-# asked explicitly, because every run adds to that partition's history
-# (docs/MODEL_CARD.md, "Evaluation history"): make evaluate CONFIRM=yes
+# asked explicitly: make evaluate CONFIRM=yes. A working tree gets one release, and the
+# project's official one is made only under the procedure in SECURITY.md.
 evaluate:  ## FINAL evaluation on the test partition (needs CONFIRM=yes)
 	$(PY) -m churnsense.evaluation.report $(if $(filter yes,$(CONFIRM)),--confirm-test-read)
 
@@ -129,6 +129,31 @@ app:  ## Launch the Streamlit dashboard
 # never an address a forwarding header claims.
 api:  ## Launch the FastAPI service
 	.venv/bin/uvicorn churnsense.api.main:app --host 127.0.0.1 --port $(API_PORT) --reload --no-proxy-headers
+
+# The front end. npm ci installs exactly frontend/package-lock.json (it never
+# rewrites it) and leaves node_modules/.package-lock.json behind, so the file
+# target below reinstalls only when the lock is newer than the installed tree.
+FRONTEND_DEPS := frontend/node_modules/.package-lock.json
+
+$(FRONTEND_DEPS): frontend/package-lock.json
+	cd frontend && npm ci
+
+frontend-install:  ## Install the front end from its lock (npm ci), even when it looks current
+	cd frontend && npm ci
+
+frontend: $(FRONTEND_DEPS)  ## Build the front end into frontend/dist, which the API serves
+	cd frontend && npm run build
+
+frontend-test: $(FRONTEND_DEPS)  ## Type-check, lint, format-check and unit-test the front end
+	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm test
+
+# The built app against scripts/e2e_server.py: a synthetic book, model and SHAP
+# cache in a temporary folder; nothing under data/, artifacts/ or reports/ is
+# read or written. Chromium is installed once with
+# `cd frontend && npx --no-install playwright install chromium`.
+e2e: frontend  ## Browser tests of the built app against a synthetic book and model
+	@test -x $(PY) || { echo "The e2e server runs on .venv: run make setup first."; exit 1; }
+	cd frontend && npx --no-install playwright test
 
 clean:  ## Remove generated artifacts, reports and caches (raw data is kept)
 	rm -rf artifacts/* reports/figures/* .pytest_cache .ruff_cache

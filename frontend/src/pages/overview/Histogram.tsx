@@ -1,7 +1,7 @@
 /**
  * Customers (or monthly charges) per 0.05 of probability, in band colours,
- * with the churn observed in each bin among training and validation
- * customers against the diagonal of perfect calibration.
+ * with the churn observed in each bin among validation customers against the
+ * diagonal where a stated probability equals the observed rate.
  *
  * The geometry is the artboard's (a 640 x 214 box, the plot from x 40 to 600
  * and y 180 up to 30); the scales come from the data. A bin is chosen by
@@ -40,16 +40,22 @@ function binRange(bin: Bin): string {
 function observedText(bin: Bin, withheld: boolean): string {
   const observed = bin.observed;
   if (withheld || observed === null) return 'withheld';
-  if (observed.rate === null || observed.churned === null) return 'fewer than 20 with outcomes';
-  return `${pct(observed.rate)} (${int(observed.churned)} of ${int(observed.customers)})`;
+  if (observed.rate === null || observed.churned === null)
+    return 'fewer than 20 validation customers';
+  return `${pct(observed.rate)} (${int(observed.churned)} of ${int(observed.customers)} validation)`;
 }
 
 /** Everything the tooltip shows, for the slider's value text. */
 function binDescription(bin: Bin, withheld: boolean): string {
   return (
     `p ${binRange(bin)}, ${bin.band}: ${int(bin.customers)} customers, ` +
-    `${money(bin.monthly_charges)} a month, observed ${observedText(bin, withheld)}`
+    `${money(bin.monthly_charges)} a month, observed on validation ${observedText(bin, withheld)}`
   );
+}
+
+/** Where a bin's rate is drawn: at what its validation customers were told, on the diagonal's scale. */
+function dotX(bin: Bin): number {
+  return x(bin.observed_mean ?? (bin.low + bin.high) / 2);
 }
 
 /** The observed-churn line, broken wherever a bin has no rate to show. */
@@ -62,7 +68,7 @@ function observedPath(bins: readonly Bin[]): string {
       drawing = false;
       continue;
     }
-    const px = x((bin.low + bin.high) / 2).toFixed(1);
+    const px = dotX(bin).toFixed(1);
     const py = rateY(rate).toFixed(1);
     path += `${drawing ? 'L' : 'M'}${px} ${py} `;
     drawing = true;
@@ -118,8 +124,10 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
   };
 
   const label =
-    `Histogram of churn probability for ${int(book.customers)} customers in ${bins.length} bins, ` +
-    'with the churn observed in each bin among training and validation customers.';
+    `Histogram of churn probability for ${int(book.customers)} customers in ${bins.length} bins` +
+    (book.withheld_reason === null
+      ? ', with the churn observed in each bin among validation customers.'
+      : '.');
   const ticks = [...book.bands.map((band) => band.min), 1];
 
   return (
@@ -127,7 +135,13 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
       label={label}
       table={{
         caption: 'Customers per 0.05 of probability',
-        columns: ['Probability', 'Band', 'Customers', 'Monthly charges', 'Observed churn'],
+        columns: [
+          'Probability',
+          'Band',
+          'Customers',
+          'Monthly charges',
+          'Observed churn, validation',
+        ],
         rows: bins.map((b) => [
           binRange(b),
           b.band,
@@ -189,7 +203,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
                 <TipLine>
                   {int(bin.customers)} customers · {money(bin.monthly_charges)}/mo
                 </TipLine>
-                <TipLine>observed {observedText(bin, withheld)}</TipLine>
+                <TipLine>observed on validation {observedText(bin, withheld)}</TipLine>
               </>
             )}
           </ChartTooltip>
@@ -201,14 +215,18 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
             <span className={styles.ramp} aria-hidden="true" />
             {measure === 'customers' ? 'Customers' : 'Monthly charges'} per 0.05 of probability
           </span>
-          <span className={styles.legendItem}>
-            <span className={styles.dot} aria-hidden="true" />
-            observed churn in that bin, train + validation (right axis)
-          </span>
-          <span className={styles.legendItem}>
-            <span className={styles.dashed} aria-hidden="true" />
-            perfect calibration
-          </span>
+          {!withheld && (
+            <>
+              <span className={styles.legendItem}>
+                <span className={styles.dot} aria-hidden="true" />
+                observed churn in that bin, validation customers (right axis)
+              </span>
+              <span className={styles.legendItem}>
+                <span className={styles.dashed} aria-hidden="true" />
+                stated equals observed on validation
+              </span>
+            </>
+          )}
         </>
       }
     >
@@ -272,18 +290,22 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
             />
           );
         })}
-        <line className={styles.diagonal} x1={LEFT} y1={BOTTOM} x2={RIGHT} y2={TOP} />
-        <path className={styles.observed} d={observedPath(bins)} />
-        {bins.map((b, i) =>
-          b.observed?.rate == null ? null : (
-            <circle
-              key={i}
-              className={styles.observedDot}
-              cx={x((b.low + b.high) / 2)}
-              cy={rateY(b.observed.rate)}
-              r={3}
-            />
-          ),
+        {!withheld && (
+          <>
+            <line className={styles.diagonal} x1={LEFT} y1={BOTTOM} x2={RIGHT} y2={TOP} />
+            <path className={styles.observed} d={observedPath(bins)} />
+            {bins.map((b, i) =>
+              b.observed?.rate == null ? null : (
+                <circle
+                  key={i}
+                  className={styles.observedDot}
+                  cx={dotX(b)}
+                  cy={rateY(b.observed.rate)}
+                  r={3}
+                />
+              ),
+            )}
+          </>
         )}
         <line
           className={styles.threshold}

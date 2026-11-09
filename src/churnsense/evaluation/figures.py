@@ -14,9 +14,7 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import numpy as np
 import pandas as pd
-from sklearn.metrics import precision_recall_curve
 
 from churnsense import viz
 
@@ -106,68 +104,6 @@ def threshold_economics(
 
     fig.align_ylabels()
     return viz.save_figure(fig, out / "threshold_economics.png")
-
-
-def reliability(table: pd.DataFrame, ece: float, out: Path) -> Path:
-    """Predicted probability against observed rate, sized by bin population."""
-    fig, ax = viz.figure(figsize=(5.4, 4.6))
-    ax.plot(
-        [0, 1], [0, 1], color=viz.AXIS, linestyle="--", linewidth=1.4, label="Perfect calibration"
-    )
-
-    sizes = 40 + 320 * table["count"] / table["count"].max()
-    ax.plot(
-        table["mean_predicted"], table["observed_rate"], color=viz.ACCENT, linewidth=2, zorder=2
-    )
-    ax.scatter(
-        table["mean_predicted"],
-        table["observed_rate"],
-        s=sizes,
-        color=viz.ACCENT,
-        zorder=3,
-        edgecolor=viz.SURFACE,
-        linewidth=1.5,
-        label="Bin (area = customers)",
-    )
-
-    ax.set_title("Do predicted probabilities match reality?")
-    ax.set_xlabel("Mean predicted probability")
-    ax.set_ylabel("Observed churn rate")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    for axis in (ax.xaxis, ax.yaxis):
-        axis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    ax.annotate(
-        f"ECE = {ece:.4f}", xy=(0.05, 0.9), xycoords="axes fraction", color=viz.INK, fontsize=11
-    )
-    ax.legend(loc="lower right")
-    return viz.save_figure(fig, out / "reliability.png")
-
-
-def precision_recall(y_true, y_proba, out: Path) -> Path:
-    """The PR curve, against the only baseline that means anything here."""
-    precision, recall, _ = precision_recall_curve(y_true, y_proba)
-    base_rate = float(np.mean(y_true))
-
-    fig, ax = viz.figure(figsize=(5.4, 4.6))
-    ax.plot(recall, precision, color=viz.ACCENT, linewidth=2.2, label="Model")
-    ax.axhline(
-        base_rate,
-        color=viz.STATUS["critical"],
-        linestyle="--",
-        linewidth=1.6,
-        label=f"No-skill baseline ({base_rate:.1%})",
-    )
-
-    ax.set_title("Precision against recall on the test partition")
-    ax.set_xlabel("Recall")
-    ax.set_ylabel("Precision")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    for axis in (ax.xaxis, ax.yaxis):
-        axis.set_major_formatter(lambda v, _: f"{v:.0%}")
-    ax.legend(loc="upper right")
-    return viz.save_figure(fig, out / "precision_recall.png")
 
 
 def shap_importance(importance: pd.DataFrame, out: Path, top_n: int = 12) -> Path:

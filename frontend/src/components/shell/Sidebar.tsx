@@ -175,16 +175,12 @@ function Serving() {
             <div className={styles.figureValue}>{model ? cut(model.threshold) : '—'}</div>
           </div>
           <div>
-            <div className={styles.figureName}>Test ROC-AUC</div>
-            <div className={styles.figureValue}>{figure(test?.roc_auc)}</div>
+            <div className={styles.figureName}>Test precision</div>
+            <div className={styles.figureValue}>{figure(test?.precision)}</div>
           </div>
           <div>
             <div className={styles.figureName}>Test recall</div>
             <div className={styles.figureValue}>{figure(test?.recall)}</div>
-          </div>
-          <div>
-            <div className={styles.figureName}>Test ECE</div>
-            <div className={styles.figureValue}>{figure(test?.ece)}</div>
           </div>
         </div>
       </div>

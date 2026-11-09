@@ -148,6 +148,19 @@ export function signedPoints(fraction: number, digits = 1): string {
   return (shown > 0 ? '+' : minus(shown)) + Math.abs(shown).toFixed(digits);
 }
 
+/**
+ * Axis labels for ``ticks`` (evenly spaced fractions) in percentage points, as
+ * many decimals as their step needs: a step of 0.2 points must not read "0, 0, +1".
+ * Only the text changes; a tick stays where it is. A tick at 0 reads "0".
+ */
+export function tickLabels(ticks: readonly number[]): string[] {
+  const steps = ticks.slice(1).map((tick, i) => Math.abs(tick - (ticks[i] ?? tick)) * 100);
+  const step = steps.length > 0 ? Math.min(...steps) : 1;
+  // The tolerance absorbs a computed step's rounding error (0.1 * 3).
+  const digits = step > 0 ? Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)) : 0;
+  return ticks.map((tick) => (tick === 0 ? '0' : signedPoints(tick, digits)));
+}
+
 /** The sign ``signedPoints`` shows: 1, −1, or 0 for a contribution that rounds to nothing. */
 export function shownSign(fraction: number, digits = 1): -1 | 0 | 1 {
   const shown = Number((fraction * 100).toFixed(digits));

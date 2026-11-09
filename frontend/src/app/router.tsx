@@ -95,9 +95,9 @@ export function navigate(to: string, options: { replace?: boolean } = {}): void 
   const url = appUrl(to);
   writeDrafts();
   if (canonical(url) === canonical(new URL(window.location.href))) return;
-  const address = url.pathname + url.search + url.hash;
-  if (options.replace) window.history.replaceState(null, '', address);
-  else window.history.pushState(null, '', address);
+  // Whole, for the same reason: a bare path beginning "//" would not be this origin.
+  if (options.replace) window.history.replaceState(null, '', url.href);
+  else window.history.pushState(null, '', url.href);
   window.dispatchEvent(new Event(NAVIGATE));
 }
 
@@ -109,7 +109,9 @@ export interface Location {
 export function useLocation(): Location {
   const current = useSyncExternalStore(onNavigate, snapshot);
   return useMemo(() => {
-    const url = new URL(current, window.location.origin);
+    // ``current`` is this page's own path, but a path can begin "//": parsed on
+    // its own that names another host. The whole address keeps it a path.
+    const url = new URL(window.location.origin + current);
     return { pathname: url.pathname, search: url.searchParams };
   }, [current]);
 }
@@ -146,7 +148,8 @@ export function useSearchParams(): [
         pathname: window.location.pathname,
         search: new URLSearchParams(window.location.search),
       };
-      navigate(withParams(now, changes), options);
+      // Whole, as in ``navigate``: a bare path beginning "//" would name another host.
+      navigate(window.location.origin + withParams(now, changes), options);
     },
     [],
   );

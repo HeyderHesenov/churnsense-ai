@@ -60,7 +60,7 @@ export function Assumptions({ scenario, bounds, defaults, onSettle }: Assumption
           <span>value</span> = monthly charges × horizon × margin
         </p>
         <p>
-          <span>retained</span> = Σ churners reached × value × success
+          <span>retained</span> = Σ flagged churners × value × success
         </p>
         <p>
           <span>cost</span> = flagged × offer

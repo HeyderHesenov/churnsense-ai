@@ -121,6 +121,13 @@ def evaluate(
     )
 
 
+def reliability_bin(y_proba: ArrayLike, n_bins: int = 10) -> np.ndarray:
+    """Each probability's bin; bins are ``(low, high]``, and the first also holds 0."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    # `right=True` with a clip keeps p == 0.0 in the first bin instead of bin -1.
+    return np.clip(np.digitize(y_proba, edges[1:-1], right=True), 0, n_bins - 1)
+
+
 def reliability_table(
     y_true: ArrayLike, y_proba: ArrayLike, n_bins: int = 10, *, with_edges: bool = False
 ) -> pd.DataFrame:
@@ -134,10 +141,8 @@ def reliability_table(
     """
     y, p = _validated(y_true, y_proba)
     edges = np.linspace(0.0, 1.0, n_bins + 1)
-    # `right=True` with a clip keeps p == 0.0 in the first bin instead of bin -1.
-    index = np.clip(np.digitize(p, edges[1:-1], right=True), 0, n_bins - 1)
 
-    frame = pd.DataFrame({"bin": index, "y": y, "p": p})
+    frame = pd.DataFrame({"bin": reliability_bin(p, n_bins), "y": y, "p": p})
     table = (
         frame.groupby("bin", observed=True)
         .agg(mean_predicted=("p", "mean"), observed_rate=("y", "mean"), count=("y", "size"))

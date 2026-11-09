@@ -75,11 +75,17 @@ export function select(
   return next;
 }
 
-/** The listing request for the queue's state. */
+/** The listing request for the queue's state; ``defaults`` sets the order of any bands. */
 export function queueQuery(state: QueueState, defaults: readonly BandName[]): CustomerQuery {
+  const bands = state.bands ?? defaults;
+  // A band nobody is flagged in is no default, but a link may still name it: it goes last.
+  const rank = (band: BandName) =>
+    defaults.includes(band) ? defaults.indexOf(band) : defaults.length;
   return {
     flagged: true,
-    bands: state.bands ?? defaults,
+    exclude_churned: true,
+    // In one order, so the same bands chosen either way are the same request.
+    bands: [...bands].sort((a, b) => rank(a) - rank(b)),
     partition: state.part,
     q: state.q,
     sort: state.sort,

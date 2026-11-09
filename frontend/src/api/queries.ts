@@ -98,6 +98,8 @@ export interface CustomerFilter {
   tenure_max?: number | null;
   flagged?: boolean | null;
   partition?: Partition | null;
+  /** Leave out customers recorded as churned; a withheld outcome is not one of them. */
+  exclude_churned?: boolean;
   /** Exactly these customers (at most 200); the API refuses ids with any other filter. */
   ids?: readonly string[];
 }
@@ -121,6 +123,7 @@ export function customerParams(query: CustomerFilter & Partial<CustomerQuery>) {
     tenure_max: query.tenure_max,
     flagged: query.flagged,
     partition: query.partition,
+    exclude_churned: query.exclude_churned,
     ids: query.ids,
     sort: query.sort,
     dir: query.dir,

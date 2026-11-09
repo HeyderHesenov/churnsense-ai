@@ -32,7 +32,7 @@ scikit-learn went 1.7.2 → 1.9.1, numpy 2.2.6 → 2.3.5.
 
 **The reassuring part:** the whole pipeline reproduced bit-identical results
 across that jump — validation PR-AUC 0.6444, calibration ECE 0.1441 → 0.0288,
-threshold 0.36, and the same test ROC-AUC (0.8425 for the pre-audit model; that
+threshold 0.36, and the same test figures (that
 re-run is one of the test-partition reads listed in the model card's
 evaluation history). That is a stronger reproducibility signal
 than any assertion I could have written.
@@ -267,12 +267,13 @@ assumption, and the table makes that visible.
 The dashboard shades the band, because a chosen point that is visibly not the
 peak would otherwise read as a bug.
 
-### Reporting the test-optimal threshold
+### Not reporting the test-optimal threshold
 
-The final evaluation reports what the optimal threshold *would have been* on
-test, and then discards it. Using it would be tuning on held-out data.
-Publishing it is a fair measure of how much threshold choice moves between
-samples, and staying silent about it would be the more flattering choice.
+The final evaluation used to report what the optimal threshold *would have been* on
+test, then discard it. It no longer does: that figure is one more thing worked out
+from the listed customers' outcomes, and two cuts on one partition give a group's
+count by subtraction (`churnsense.evaluation.disclosure`). Older reports and Git
+history still hold it; a new commit does not remove them.
 
 ---
 
@@ -397,8 +398,8 @@ fixed, and each fix has a regression test that fails on the old code.
 
 The calibration and SHAP fixes changed the model, so the pipeline was re-run
 and the test partition scored again. Both fixes were decided on principle,
-before that scoring, and nothing was selected on it. The measured effect on
-test was in the third decimal (recall 0.7005 → 0.7032, ECE 0.0264 → 0.0275);
+before that scoring, and nothing was selected on it. The size of the change on
+test is not quoted;
 validation ECE improved from 0.0288 to 0.0274. Model, threshold and every
 qualitative conclusion stayed the same. This document used to call that the
 "second" scoring; it was not — see the next section.

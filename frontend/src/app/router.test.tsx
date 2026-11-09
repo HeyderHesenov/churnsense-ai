@@ -134,6 +134,43 @@ describe('router', () => {
     expect(window.history.length).toBe(before);
   });
 
+  describe('an address that only looks like another site', () => {
+    it('changes the query of a path beginning "//" without leaving, or throwing', () => {
+      window.history.replaceState(null, '', '/.//evil.example/explorer?a=1');
+      expect(window.location.pathname).toBe('//evil.example/explorer');
+      const origin = window.location.origin;
+      const { result } = renderHook(() => useSearchParams());
+      act(() => result.current[1]({ a: 2 }));
+      expect(window.location.origin).toBe(origin);
+      expect(window.location.pathname).toBe('//evil.example/explorer');
+      expect(window.location.search).toBe('?a=2');
+    });
+
+    // Dot segments are how such a path is reached on this origin: it is this page's own path.
+    beforeEach(() => window.history.replaceState(null, '', '/.//evil.example/explorer?a=1'));
+
+    it('reads as the path it is, so no page of the app claims it', () => {
+      expect(window.location.pathname).toBe('//evil.example/explorer');
+      const { result } = renderHook(() => useLocation());
+      expect(result.current.pathname).toBe('//evil.example/explorer');
+      expect(result.current.search.get('a')).toBe('1');
+    });
+
+    it('leaves it for a page of the app, on this origin', () => {
+      const origin = window.location.origin;
+      act(() => navigate('/explorer'));
+      expect(window.location.href).toBe(`${origin}/explorer`);
+    });
+
+    it('stays on this origin when only its query changes', () => {
+      const origin = window.location.origin;
+      act(() => navigate('?a=2'));
+      expect(window.location.origin).toBe(origin);
+      expect(window.location.pathname).toBe('//evil.example/explorer');
+      expect(window.location.search).toBe('?a=2');
+    });
+  });
+
   it.each(['//evil.example/path', '/\\evil.example', 'https://evil.example/'])(
     'refuses to leave the app for %s',
     (to) => {

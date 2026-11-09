@@ -640,8 +640,9 @@ _METADATA_TYPES: dict[str, tuple[type, ...]] = {
     "n_validation": (int,),
     "probability_epsilon": (int, float),
     "validation_metrics": (dict,),
-    # Null when calibration was not kept, or before a final evaluation.
+    # Null when calibration was not kept.
     "calibration_method": (str, type(None)),
+    # Earlier runs of `make evaluate` wrote this here; nothing writes or reads it now.
     "test_metrics": (dict, type(None)),
 }
 

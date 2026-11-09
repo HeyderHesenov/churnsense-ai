@@ -176,7 +176,8 @@ export function SweepCharts({ sweep, selected, stale, onPick }: ChartsProps) {
                     flagged {int(shown.flagged)} · P {precisionText(shown)}
                   </TipLine>
                   <TipLine>
-                    reached {int(shown.true_positives)} · R {recallText(shown, sweep.churners)}
+                    churners flagged {int(shown.true_positives)} · R{' '}
+                    {recallText(shown, sweep.churners)}
                   </TipLine>
                 </>
               )}

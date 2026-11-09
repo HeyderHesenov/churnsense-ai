@@ -95,7 +95,7 @@ describe('Single customer: the README example', () => {
     expect(within(card).getByText('Critical band')).toBeInTheDocument();
     expect(within(card).getByText('Flagged at 0.36')).toBeInTheDocument();
     expect(
-      within(card).getByText('0.443 above the threshold. This customer would receive an offer.'),
+      within(card).getByText('0.443 above the threshold. Flagged at the current operating point.'),
     ).toBeInTheDocument();
     const lit = card.querySelectorAll('[data-on="true"]');
     expect([...lit].map((band) => band.getAttribute('data-band'))).toEqual(['Critical']);
@@ -330,7 +330,7 @@ describe('Single customer: the README example', () => {
     expect(await within(card).findByText('Flagged at 0.40')).toBeInTheDocument();
     expect(within(card).getByText('threshold 0.40')).toBeInTheDocument();
     expect(
-      within(card).getByText('0.403 above the threshold. This customer would receive an offer.'),
+      within(card).getByText('0.403 above the threshold. Flagged at the current operating point.'),
     ).toBeInTheDocument();
     expect(
       screen.getByText('API example: 80.3%, Critical band, flagged at 0.40.'),

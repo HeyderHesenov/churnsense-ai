@@ -24,7 +24,7 @@ import {
   question,
   ringNote,
   ROUNDING_NOTE,
-  rowName,
+  rowDescription,
   SCALE,
   TITLE,
   totalChargesNote,
@@ -40,9 +40,9 @@ describe('the method', () => {
     expect(additivity(0)).toBe('0');
   });
 
-  it('names a swarm row with its served figure and rank', () => {
-    expect(rowName('Tenure', 0.104331, 1)).toBe(
-      'Tenure, mean absolute contribution 10.4 percentage points, rank 1',
+  it('describes a swarm row by its served figure and rank', () => {
+    expect(rowDescription(0.104331, 1)).toBe(
+      'Mean absolute contribution 10.4 percentage points, rank 1',
     );
   });
 

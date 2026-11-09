@@ -5,21 +5,21 @@ Two reports live here and they are deliberately separate:
 * ``write_comparison_report`` - model selection (cross-validation on train),
   calibration and the operating point (validation), and the per-segment view.
   Produced by ``make train``; it never touches the test partition.
-* ``write_final_report`` - the scoring of the **test** partition at the
+* ``render_final_report`` - the official release of the **test** partition, at the
   threshold ``make train`` recorded. Produced by ``make evaluate CONFIRM=yes``,
   the only command that reads that partition, and only when asked to.
 
 Keeping them apart mirrors the protocol: development reruns the first as often
-as it likes, while every run of the second adds to the test partition's
-history (docs/MODEL_CARD.md, "Evaluation history").
+as it likes, while the second has one official answer, frozen by ``evaluation.release``.
 """
 
 from __future__ import annotations
 
-import json
+import contextlib
 import logging
 import sys
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,26 +27,16 @@ import numpy as np
 import pandas as pd
 
 from churnsense import viz
-from churnsense.config import Config, load_config
-from churnsense.data.split import DataSplits
-from churnsense.evaluation.metrics import (
-    ClassificationMetrics,
-    evaluate,
-    expected_calibration_error,
-    reliability_table,
-    segment_table,
-)
-from churnsense.evaluation.threshold import (
-    DISCLAIMER,
-    ThresholdScenario,
-    recommend_threshold,
-    scenario_at,
-    sweep_thresholds,
-)
-from churnsense.exceptions import ChurnSenseError
+from churnsense.config import DEFAULT_CONFIG_PATH, Config, load_config
+from churnsense.data.loader import features_and_target, load_clean
+from churnsense.data.split import DataSplits, check_provenance, make_splits
+from churnsense.evaluation import disclosure, release
+from churnsense.evaluation.metrics import evaluate
+from churnsense.evaluation.threshold import DISCLAIMER, sweep_thresholds
+from churnsense.exceptions import ChurnSenseError, ReleaseRefused
 from churnsense.logging_setup import configure_logging
 from churnsense.models.registry import BASELINE_KEY
-from churnsense.models.train import TrainingOutcome
+from churnsense.models.train import TrainingOutcome, load_artifact
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +58,13 @@ def _markdown_table(frame: pd.DataFrame, floats: str = "{:.4f}") -> str:
     return "\n".join([header, rule, *rows])
 
 
-#: Dimensions the final report breaks test performance down by (model inputs,
-#: so they are present in ``X_test``).
-SEGMENT_COLUMNS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen")
-
-
 def _with_interval(value: float, low: float, high: float) -> str:
     return "—" if pd.isna(value) else f"{value:.3f} [{low:.2f}, {high:.2f}]"
+
+
+def _shown(values: pd.Series, template: str) -> list[str]:
+    """``values`` written with ``template``; a figure withheld or undefined is "—"."""
+    return ["—" if pd.isna(value) else template.format(value) for value in values]
 
 
 def segment_markdown(segments: pd.DataFrame) -> str:
@@ -84,10 +74,10 @@ def segment_markdown(segments: pd.DataFrame) -> str:
             "Dimension": segments["dimension"],
             "Segment": segments["segment"],
             "Customers": segments["customers"].map("{:,}".format),
-            "Churners": segments["churners"].map("{:,}".format),
-            "Churn rate": segments["churn_rate"].map("{:.1%}".format),
+            "Churners": _shown(segments["churners"].astype("Int64"), "{:,}"),
+            "Churn rate": _shown(segments["churn_rate"], "{:.1%}"),
             "Flagged": segments["flagged"].map("{:,}".format),
-            "Flag rate": segments["flagged_rate"].map("{:.1%}".format),
+            "Flag rate": _shown(segments["flagged_rate"], "{:.1%}"),
             "Precision (95% CI)": [
                 _with_interval(*row)
                 for row in segments[["precision", "precision_low", "precision_high"]].to_numpy()
@@ -104,13 +94,14 @@ def segment_markdown(segments: pd.DataFrame) -> str:
 
 def _unscanned_note(segments: pd.DataFrame) -> str:
     """Name the segments the operating point leaves entirely unflagged."""
-    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
+    unscanned = segments[segments["flagged"].eq(0) & segments["churners"].ne(0)]
     if unscanned.empty:
         return "Every segment has at least one flagged customer at this threshold."
     names = ", ".join(f"{row.segment} ({row.dimension})" for row in unscanned.itertuples())
+    churners = f"Their {int(unscanned['churners'].sum()):,} churners"
     return (
-        f"**No customer is flagged in: {names}.** Their {int(unscanned['churners'].sum()):,} "
-        "churners would receive nothing from a campaign driven by this score. That is a "
+        f"**No customer is flagged in: {names}.** {churners} "
+        "would receive nothing from a campaign driven by this score. That is a "
         "property of one global operating point - a segment with no flags is *not "
         "scanned*, which is different from *no risk*. The within-segment ROC-AUC says "
         "whether the model could still rank those customers if the business chose to "
@@ -430,8 +421,8 @@ rather than left at 0.5 - see the next section.
 ## What this comparison does not tell you
 
 - Nothing here is a test-set result. Only `make evaluate CONFIRM=yes` reads the
-  test partition; its results and history are in `reports/final_evaluation.md`
-  and docs/MODEL_CARD.md.
+  test partition, and the project publishes one release of it; its history is in
+  docs/MODEL_CARD.md.
 - A better PR-AUC is not automatically a better business outcome; the operating
   point matters more than the ranking metric, and it is chosen separately.
 - These numbers describe one public snapshot of one operator. They do not
@@ -451,114 +442,142 @@ rather than left at 0.5 - see the next section.
 REFUSAL = """\
 Refusing to run: this command scores the held-out TEST partition.
 
-Every scoring is part of that partition's history (docs/MODEL_CARD.md,
-"Evaluation history"), and each one weakens it as an independent estimate.
+The project publishes one release of this partition. Once this checkout's
+governance/held_out_release.json records it, this command evaluates nothing else
+here, and nothing in it can reopen it. The official release is made only under the
+procedure in SECURITY.md; a run anywhere else is not the project's.
 Routine development never needs it: `make dev` trains, chooses the threshold
 and writes every validation report without touching test data.
 
-Run it only for a final, recorded evaluation:
+Run it only for the final, recorded evaluation:
 
     make evaluate CONFIRM=yes
 """
 
+#: The report rendered from the release. Never the historical ``final_evaluation.md``,
+#: which no code writes or reads any more.
+REPORT_FILENAME = "held_out_release.md"
+
 
 @dataclass(frozen=True, slots=True)
 class FinalEvaluation:
-    """The outcome of one scoring of the test partition.
+    """What one scoring of the test partition may publish, and nothing else.
 
-    ``test_optimal_threshold`` is recorded deliberately. It is *not* used for
-    anything - it exists so the report can show how far the honestly-chosen
-    threshold sits from the one that would have been picked by cheating, which
-    is a more informative disclosure than silence.
+    It holds neither the scores nor the raw metrics, so nothing rendered from it can
+    reach a figure ``evaluation.disclosure`` did not release.
     """
 
     threshold: float
-    validation_scenario: ThresholdScenario
     validation_sweep: pd.DataFrame
-    test_proba: np.ndarray
-    test_metrics: ClassificationMetrics
-    test_metrics_at_half: ClassificationMetrics
-    test_scenario: ThresholdScenario
-    test_optimal_threshold: float
-    test_ece: float
-    reliability: pd.DataFrame
-    segments: pd.DataFrame
-
-    @property
-    def tuning_gain(self) -> dict[str, float]:
-        """What moving off 0.5 bought, in test metrics."""
-        return {
-            "precision": self.test_metrics.precision - self.test_metrics_at_half.precision,
-            "recall": self.test_metrics.recall - self.test_metrics_at_half.recall,
-            "f1": self.test_metrics.f1 - self.test_metrics_at_half.f1,
-        }
+    #: ``disclosure.release``: ``None`` when every figure is withheld.
+    released: dict | None
 
 
-def run_final_evaluation(
-    model, splits: DataSplits, threshold: float, cfg: Config | None = None
+def summary(evaluation: FinalEvaluation) -> str:
+    """The evaluation in a few lines for a terminal or a log, which get pasted elsewhere."""
+    m = evaluation.released
+    if m is None:
+        return f"Test partition at threshold {evaluation.threshold:.2f}: every figure withheld."
+    return (
+        f"Test partition ({m['n']:,} customers) at threshold {evaluation.threshold:.2f}\n"
+        f"  precision {m['precision']:.4f}  recall {m['recall']:.4f}  f1 {m['f1']:.4f}"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationRows:
+    """The validation partition and nothing else, for what must not be able to reach the test one.
+
+    ``make_splits`` builds all three partitions, so the test rows are in this process's memory
+    from then on. This object is how the rehearsal is kept from them: it has nowhere to hold one.
+    """
+
+    X_val: pd.DataFrame
+    y_val: pd.Series
+
+
+def positive_scores(model, rows) -> np.ndarray:
+    """Each row's probability of churn, or ``ValueError``: how every partition is scored.
+
+    The second column is churn only if the model says its classes are 0 and 1. The message
+    names what is wrong and quotes no value.
+    """
+    if list(model.classes_) != [0, 1]:
+        raise ValueError("the model's classes are not 0 and 1")
+    scores = np.asarray(model.predict_proba(rows), dtype=float)
+    if scores.shape != (len(rows), 2):
+        raise ValueError("the model did not give two probabilities for each row")
+    if not np.isfinite(scores).all() or scores.min() < 0 or scores.max() > 1:
+        raise ValueError("the model's scores are not probabilities")
+    return scores[:, 1]
+
+
+def score_held_out(model, splits: DataSplits, threshold: float, hold: release.Hold) -> dict | None:
+    """Score the test partition: what may be published of it, or ``None``.
+
+    Only under the release lock. ``None`` is the rule's answer, and final. Scores that are
+    not probabilities, or a partition with a single outcome, raise: that is a failure and
+    not an answer, so it reaches the caller and nothing is published.
+    """
+    if not isinstance(hold, release.Hold):
+        raise ReleaseRefused("the test partition is scored only under the release lock")
+    hold.require()
+    # --- the test partition is read from here, and only here -----------------
+    test_proba = positive_scores(model, splits.X_test)
+    return disclosure.release(evaluate(splits.y_test, test_proba, threshold=threshold).as_dict())
+
+
+def describe_release(
+    model,
+    rows: DataSplits | ValidationRows,
+    threshold: float,
+    released: dict | None,
+    cfg: Config | None = None,
 ) -> FinalEvaluation:
-    """Score the test partition at the threshold ``make train`` recorded.
+    """A release with the validation trade it was chosen from; reads no test row.
 
-    The threshold is an input, fixed on validation before this function runs;
-    nothing here can move it. The validation sweep is recomputed only so the
-    report can show the trade it was chosen from. ``X_test`` is predicted in
-    one place, below, and every test figure derives from those probabilities.
+    The threshold is an input, fixed on validation before the partition was scored;
+    nothing here can move it. The validation sweep is recomputed only so the report can
+    show that trade.
     """
     cfg = cfg or load_config()
-
-    validation_proba = model.predict_proba(splits.X_val)[:, 1]
+    validation_proba = positive_scores(model, rows.X_val)
     sweep = sweep_thresholds(
-        splits.y_val, validation_proba, splits.X_val["MonthlyCharges"], cfg.business
+        rows.y_val, validation_proba, rows.X_val["MonthlyCharges"], cfg.business
     )
-
-    # --- the test partition is read from here, and only here -----------------
-    test_proba = model.predict_proba(splits.X_test)[:, 1]
-    test_charges = splits.X_test["MonthlyCharges"]
-
-    evaluation = FinalEvaluation(
+    return FinalEvaluation(
         threshold=threshold,
-        validation_scenario=scenario_at(sweep, threshold, cfg.business),
         validation_sweep=sweep,
-        test_proba=test_proba,
-        test_metrics=evaluate(splits.y_test, test_proba, threshold=threshold),
-        test_metrics_at_half=evaluate(splits.y_test, test_proba, threshold=0.5),
-        test_scenario=recommend_threshold(
-            splits.y_test, test_proba, test_charges, cfg.business, thresholds=[threshold]
-        ),
-        test_optimal_threshold=recommend_threshold(
-            splits.y_test, test_proba, test_charges, cfg.business
-        ).threshold,
-        test_ece=expected_calibration_error(splits.y_test, test_proba),
-        reliability=reliability_table(splits.y_test, test_proba),
-        segments=segment_table(
-            splits.y_test, test_proba, splits.X_test, SEGMENT_COLUMNS, threshold
-        ),
+        released=released,
     )
-    logger.info(
-        "test: pr_auc=%.4f roc_auc=%.4f precision=%.4f recall=%.4f ece=%.4f",
-        evaluation.test_metrics.average_precision,
-        evaluation.test_metrics.roc_auc,
-        evaluation.test_metrics.precision,
-        evaluation.test_metrics.recall,
-        evaluation.test_ece,
-    )
-    return evaluation
 
 
-def write_final_report(
-    evaluation: FinalEvaluation,
-    meta: dict,
-    cfg: Config | None = None,
-    directory: Path | None = None,
-) -> Path:
-    """Write ``reports/final_evaluation.md`` from a real test-set scoring."""
+def _withheld_report(meta: dict) -> str:
+    """The whole report when the partition's own totals would name its customers."""
+    return f"""# Final evaluation - ChurnSense AI
+
+Generated by `make evaluate CONFIRM=yes` from the partition's official release
+(`governance/held_out_release.json`). The partition's earlier history is in
+docs/MODEL_CARD.md, "Evaluation history".
+
+Model: **{meta.get("display_name", meta.get("model_key", "unknown"))}**, trained
+{str(meta.get("trained_at", "unknown"))[:10]}, artifact `model.joblib` sha256
+`{meta.get("model_sha256", "not recorded")}`.
+
+Every figure of this evaluation is withheld under the disclosure policy
+(`churnsense.evaluation.disclosure`).
+"""
+
+
+def render_final_report(evaluation: FinalEvaluation, meta: dict, cfg: Config | None = None) -> str:
+    """The report of the release, as text. Only ``main`` writes it, and only after publishing."""
     cfg = cfg or load_config()
-    directory = Path(directory) if directory else cfg.paths.reports_dir
-    directory.mkdir(parents=True, exist_ok=True)
+    m = evaluation.released
+    if m is None:
+        return _withheld_report(meta)
 
-    b, m, half = cfg.business, evaluation.test_metrics, evaluation.test_metrics_at_half
-    scenario, currency = evaluation.test_scenario, cfg.business.currency
-    gain = evaluation.tuning_gain
+    b, currency = cfg.business, cfg.business.currency
+    flagged = m["tp"] + m["fp"]
 
     # Positional, not `.isin([0.1, ..., 0.8])`: the sweep grid is
     # np.linspace(0, 1, 101), whose 0.7 is 0.7000000000000001, so float
@@ -586,20 +605,19 @@ def write_final_report(
         }
     )
 
-    content = f"""# Final evaluation - ChurnSense AI
+    return f"""# Final evaluation - ChurnSense AI
 
-Generated by `make evaluate CONFIRM=yes`, the only command that reads the test
-partition. The model was selected by cross-validation on the training
-partition and its threshold fixed on validation by `make train`
-(`reports/model_comparison.md`); neither used the numbers below. Every run of
-this command adds to the partition's history - see docs/MODEL_CARD.md,
-"Evaluation history".
+Generated by `make evaluate CONFIRM=yes` from the partition's official release
+(`governance/held_out_release.json`). The model was selected by cross-validation
+on the training partition and its threshold fixed on validation by `make train`
+(`reports/model_comparison.md`); neither used the numbers below. The partition's
+earlier history is in docs/MODEL_CARD.md, "Evaluation history".
 
 Model: **{meta.get("display_name", meta.get("model_key", "unknown"))}**, trained
 {str(meta.get("trained_at", "unknown"))[:10]}, artifact `model.joblib` sha256
 `{meta.get("model_sha256", "not recorded")}`.
-Test partition: **{m.n:,} customers, {m.positives:,} of them churned
-({m.positives / m.n:.1%})**.
+Test partition: **{m["n"]:,} customers, {m["positives"]:,} of them churned
+({disclosure.churn_rate(m):.1%})**.
 
 ## Test-set performance at the chosen operating point
 
@@ -608,52 +626,32 @@ before this partition was read.
 
 | Metric | Value |
 |---|---|
-| Precision | {m.precision:.4f} |
-| Recall | {m.recall:.4f} |
-| F1 | {m.f1:.4f} |
-| ROC-AUC | {m.roc_auc:.4f} |
-| PR-AUC (average precision) | {m.average_precision:.4f} |
-| Brier score | {m.brier:.4f} |
-| Expected calibration error | {evaluation.test_ece:.4f} |
-| Accuracy | {m.accuracy:.4f} |
+| Precision | {m["precision"]:.4f} |
+| Recall | {m["recall"]:.4f} |
+| F1 | {m["f1"]:.4f} |
+| Accuracy | {m["accuracy"]:.4f} |
 
 Accuracy is last on purpose. Predicting "nobody churns" would score
-{1 - m.positives / m.n:.1%} on this partition and be worth nothing.
+{disclosure.no_skill_accuracy(m):.1%} on this partition and be worth nothing.
 
 ### Confusion matrix at threshold {evaluation.threshold:.2f}
 
 |  | Predicted stay | Predicted churn |
 |---|---|---|
-| **Actually stayed** | {m.tn:,} | {m.fp:,} |
-| **Actually churned** | {m.fn:,} | {m.tp:,} |
+| **Actually stayed** | {m["tn"]:,} | {m["fp"]:,} |
+| **Actually churned** | {m["fn"]:,} | {m["tp"]:,} |
 
-{m.flagged:,} customers would be flagged for intervention. {m.fn:,} churners
+{flagged:,} customers would be flagged for intervention. {m["fn"]:,} churners
 would be missed.
 
-### What tuning the threshold bought
+## What this report does not publish
 
-| Metric | At 0.50 (default) | At {evaluation.threshold:.2f} (tuned) | Change |
-|---|---|---|---|
-| Precision | {half.precision:.4f} | {m.precision:.4f} | {gain["precision"]:+.4f} |
-| Recall | {half.recall:.4f} | {m.recall:.4f} | {gain["recall"]:+.4f} |
-| F1 | {half.f1:.4f} | {m.f1:.4f} | {gain["f1"]:+.4f} |
-| Customers flagged | {half.flagged:,} | {m.flagged:,} | {m.flagged - half.flagged:+,} |
-
-### Performance by segment at threshold {evaluation.threshold:.2f}
-
-An aggregate recall can hide a segment the model never flags. Precision is
-shown as "—" where nothing in the segment was flagged: undefined, not zero.
-Each rate carries a 95 % Wilson interval.
-
-{segment_markdown(evaluation.segments)}
-
-{_unscanned_note(evaluation.segments)}
-
-For reference only: the threshold that would have been optimal *on this test
-partition* is {evaluation.test_optimal_threshold:.2f}, against the
-{evaluation.threshold:.2f} chosen on validation. That number is reported and
-then discarded - using it would be tuning on the held-out set. The gap is a
-fair measure of how much threshold choice moves between samples.
+This partition's customers are listed with their features, flags and scores, so a
+figure about any group of them is read against known people. No segment breakdown,
+reliability bin, calibration error, Brier score, ROC-AUC, PR-AUC, figure at a second
+cut, or simulated money is published for it, whatever its value
+(`churnsense.evaluation.disclosure`). Segments, calibration and the ranking metrics
+are measured on validation, in `reports/model_comparison.md`.
 
 ## Threshold economics (SIMULATED)
 
@@ -683,44 +681,9 @@ costs a customer's remaining margin, while a false positive costs one offer.
 Those are not symmetric, so the cut that balances them is not the cut that
 balances the probability.
 
-### Applied to the test partition
-
-| Quantity | Value |
-|---|---|
-| Customers flagged | {scenario.flagged:,} |
-| Of those, real churners | {scenario.true_positives:,} |
-| Churners missed | {scenario.false_negatives:,} |
-| Simulated campaign cost | {viz.money(scenario.intervention_cost, currency)} |
-| Simulated retained value | {viz.money(scenario.retained_value, currency)} |
-| **Simulated net benefit** | **{viz.money(scenario.net_benefit, currency)}** |
-
-These are simulated figures for a {m.n:,}-customer partition of a published
-sample dataset. They are not a forecast of any company's results, and the
-offer-success assumption in particular is an input, not an estimate.
-
-## Calibration on test
-
-Expected calibration error **{evaluation.test_ece:.4f}**, Brier score
-**{m.brier:.4f}**.
-
-{
-        _markdown_table(
-            evaluation.reliability.rename(
-                columns={
-                    "mean_predicted": "Mean predicted",
-                    "observed_rate": "Observed rate",
-                    "count": "Customers",
-                    "gap": "Gap",
-                }
-            ),
-            "{:.4f}",
-        )
-    }
-
-Calibration is reported because the probability itself is what people read -
-the API and the dashboard show it, and the risk bands are fixed probability
-ranges. A model that ranks well but is systematically overconfident would put
-the wrong customers in the wrong band.
+These are simulated figures on a partition of a published sample dataset. They are
+not a forecast of any company's results, and the offer-success assumption in
+particular is an input, not an estimate.
 
 ## Limitations
 
@@ -735,71 +698,82 @@ the wrong customers in the wrong band.
   conditions all move; a deployed version of this would need monitoring and
   periodic recalibration, neither of which is in scope here.
 """
-    path = directory / "final_evaluation.md"
-    path.write_text(content, encoding="utf-8")
-    logger.info("wrote %s", path.name)
-    return path
 
 
-#: The machine-readable record of the final evaluation, next to its report.
-FINAL_RECORD_FILENAME = "final_evaluation.json"
+#: A table no partition produced, for the part of the rehearsal that needs a released one.
+_INVENTED_CELLS = {"tn": 100, "fp": 100, "fn": 100, "tp": 100}
 
 
-def _finite(value: float) -> float | None:
-    """JSON has no NaN: an undefined figure (precision with nothing flagged) is null."""
-    return None if pd.isna(value) else float(value)
+@contextlib.contextmanager
+def _rehearsing(step: str) -> Iterator[None]:
+    """A failure as its step and class: an error's message can quote the values it choked on."""
+    try:
+        yield
+    except Exception as exc:  # noqa: BLE001 - whatever it is, the run stops here
+        raise ReleaseRefused(
+            f"the validation rehearsal failed at {step} ({exc.__class__.__name__}): "
+            "the test partition was not scored"
+        ) from None
 
 
-def final_record(evaluation: FinalEvaluation, meta: dict, evaluated_at: str) -> dict:
-    """What the dashboard shows of a test scoring: aggregates only, never a probability.
+def rehearse(
+    model,
+    rows: ValidationRows,
+    threshold: float,
+    meta: dict,
+    identity: dict,
+    now: Callable[[], str],
+    cfg: Config,
+) -> None:
+    """Run what a release runs, short of the test rows, before anything is reserved.
 
-    Keyed to the artifact by ``model_sha256``, so a retrained model is never
-    shown its predecessor's figures.
+    A defect that repeats, found after the reservation, can consume the one release, so it is
+    looked for while the ledger can still say ``open``. The scoring and the metrics run on
+    validation rows and their results are dropped, unread and unlogged. What comes after them
+    runs on one withheld evaluation and one invented table, never on validation's figures
+    dressed up as the test partition's. Output goes to a temporary directory.
+
+    This reduces the risk and does not remove it: a value only the test rows hold, or a system
+    failure later on, can still leave the ledger reserved.
     """
-    m = evaluation.test_metrics
-    segments = [
-        {key: (_finite(value) if isinstance(value, float) else value) for key, value in row.items()}
-        | {"unscanned": row["flagged"] == 0 and row["churners"] > 0}
-        for row in evaluation.segments.to_dict(orient="records")
-    ]
-    return {
-        "model_sha256": meta.get("model_sha256"),
-        "model_key": meta.get("model_key"),
-        "evaluated_at": evaluated_at,
-        "threshold": evaluation.threshold,
-        "metrics": {k: _finite(v) if isinstance(v, float) else v for k, v in m.as_dict().items()},
-        "metrics_at_half": {
-            k: _finite(v) if isinstance(v, float) else v
-            for k, v in evaluation.test_metrics_at_half.as_dict().items()
-        },
-        "ece": _finite(evaluation.test_ece),
-        "no_skill_accuracy": 1 - m.positives / m.n,
-        "test_optimal_threshold": evaluation.test_optimal_threshold,
-        "segments": segments,
-        "reliability": [
-            {key: _finite(value) for key, value in row.items()}
-            for row in evaluation.reliability.to_dict(orient="records")
-        ],
-    }
+    with _rehearsing("scoring"):
+        scores = positive_scores(model, rows.X_val)
+    with _rehearsing("metrics"):
+        disclosure.release(evaluate(rows.y_val, scores, threshold=threshold).as_dict())
+    with _rehearsing("describing"):
+        withheld = describe_release(model, rows, threshold, None, cfg)
+        invented = replace(
+            withheld,
+            released=disclosure.release(
+                {"threshold": threshold, "n": 400, "positives": 200, **_INVENTED_CELLS}
+            ),
+        )
+    with _rehearsing("summary"):
+        for evaluation in (withheld, invented):
+            summary(evaluation)
+    with _rehearsing("rendering"):
+        rendered = [render_final_report(e, meta, cfg) for e in (withheld, invented)]
+    with _rehearsing("serialization"):
+        release.rehearse_writes(identity, now(), invented.released, meta, "".join(rendered))
 
 
-def write_final_record(record: dict, cfg: Config | None = None) -> Path:
-    """Write ``reports/final_evaluation.json``; refuses NaN rather than writing invalid JSON."""
-    cfg = cfg or load_config()
-    path = cfg.paths.reports_dir / FINAL_RECORD_FILENAME
-    path.write_text(json.dumps(record, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    logger.info("wrote %s", path.name)
-    return path
+#: What a run that stopped has left behind, by the state of the ledger.
+_WHAT_A_STATE_MEANS = {
+    release.OPEN: "nothing was reserved or published",
+    release.RESERVED: "the ledger stays reserved: readers withhold, and only this identity can retry",
+    release.PUBLISHED: "the release is published and final",
+    None: "the ledger cannot be read, and readers withhold",
+}
+
+
+def _what_the_ledger_holds() -> str:
+    """Read and not assumed: a write can fail after the file was already replaced."""
+    return _WHAT_A_STATE_MEANS[release.current_state()]
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`make evaluate CONFIRM=yes`: score the test partition and publish the result."""
+    """`make evaluate CONFIRM=yes`: make this checkout's release, or read it back."""
     import argparse
-
-    from churnsense.data.loader import features_and_target, load_clean
-    from churnsense.data.split import check_provenance, make_splits
-    from churnsense.evaluation import figures
-    from churnsense.models.train import META_FILENAME, load_artifact
 
     parser = argparse.ArgumentParser(description="Final evaluation on the held-out test partition.")
     parser.add_argument(
@@ -812,44 +786,64 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     configure_logging()
-    cfg = load_config()
+    # The default path, by name: CHURNSENSE_CONFIG can move every path and the dataset.
+    cfg = load_config(DEFAULT_CONFIG_PATH)
     cfg.paths.ensure()
 
     try:
+        release.require_source_tree()
+        release.preflight_environment()
         model, meta = load_artifact(cfg.paths.artifacts_dir)
+        release.preflight_artifact(meta)
         df, cleaning = load_clean(cfg)
         X, y = features_and_target(df, cfg)
         splits = make_splits(X, y, cfg)
         # Refuse before anything is scored if the data or the split is not the
         # one the artifact - and its threshold - were built on.
         check_provenance(splits, cleaning.source_sha256, meta)
+        if cleaning.source_sha256 != cfg.dataset.sha256:
+            raise ReleaseRefused("the dataset is not the one this project pins")
+        threshold = float(meta["threshold"])
+        identity = release.identity_of(cfg, meta, splits.digest(), cleaning.source_sha256)
+
+        def now() -> str:
+            return datetime.now(UTC).isoformat(timespec="seconds")
+
+        rehearse(
+            model, ValidationRows(splits.X_val, splits.y_val), threshold, meta, identity, now, cfg
+        )
+        ledger = release.freeze(
+            identity, lambda hold: score_held_out(model, splits, threshold, hold), now
+        )
     except ChurnSenseError as exc:
-        logger.error("final evaluation refused: %s", exc)
+        logger.error("final evaluation refused: %s; %s", exc, _what_the_ledger_holds())
+        return 1
+    except Exception as exc:  # noqa: BLE001 - a failure of any kind leaves the ledger as it is
+        # The class only: a numerical error's message can quote the values it choked on.
+        logger.error(
+            "final evaluation failed (%s): %s", exc.__class__.__name__, _what_the_ledger_holds()
+        )
         return 1
 
-    evaluation = run_final_evaluation(model, splits, float(meta["threshold"]), cfg)
-    write_final_report(evaluation, meta, cfg)
-
-    out = cfg.paths.figures_dir
-    figures.reliability(evaluation.reliability, evaluation.test_ece, out)
-    figures.precision_recall(splits.y_test, evaluation.test_proba, out)
-
-    # Recorded beside the artifact, so the model's metadata says when it was
-    # last evaluated on test and what that scoring found.
-    evaluated_at = datetime.now(UTC).isoformat(timespec="seconds")
-    write_final_record(final_record(evaluation, meta, evaluated_at), cfg)
-    meta_path = cfg.paths.artifacts_dir / META_FILENAME
-    meta["test_metrics"] = evaluation.test_metrics.as_dict()
-    meta["test_ece"] = evaluation.test_ece
-    meta["test_evaluated_at"] = evaluated_at
-    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-
-    m = evaluation.test_metrics
-    print(
-        f"Test partition ({m.n:,} customers) at threshold {evaluation.threshold:.2f}\n"
-        f"  precision {m.precision:.4f}  recall {m.recall:.4f}  f1 {m.f1:.4f}\n"
-        f"  roc_auc   {m.roc_auc:.4f}  pr_auc {m.average_precision:.4f}  ece {evaluation.test_ece:.4f}"
-    )
+    # Nothing about the partition is said before this point: a run that died earlier,
+    # or was refused, printed and logged no figure. From here the ledger is final, so
+    # nothing below scores anything or writes to it.
+    try:
+        evaluation = describe_release(model, splits, threshold, ledger.released, cfg)
+        said = summary(evaluation)
+        release.write_report(
+            cfg.paths.reports_dir / REPORT_FILENAME, render_final_report(evaluation, meta, cfg)
+        )
+        print(said)
+    except Exception as exc:  # noqa: BLE001 - the release stands whatever goes wrong here
+        logger.error(
+            "the release is published and unchanged, but its report could not be produced (%s). "
+            "The same command renders it from the ledger "
+            "without scoring the test partition again, for as long as every fingerprint is "
+            "unchanged.",
+            exc.__class__.__name__,
+        )
+        return 1
     return 0
 
 

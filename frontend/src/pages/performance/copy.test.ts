@@ -13,11 +13,11 @@ const name = (model: string) => model.toLowerCase();
 describe('the lede', () => {
   it('names the partitions’ jobs and, without a record, says no figure is a test result', () => {
     expect(copy.lede(5, 4225, 1409, false)).toBe(
-      'Chosen by 5-fold cross-validation on 4,225 training customers; the cut, and whether to keep calibration, were decided on 1,409 validation customers. No test evaluation is recorded for this model, so no figure here is a test result.',
+      'Chosen by 5-fold cross-validation on 4,225 training customers; the cut, and whether to keep calibration, were decided on 1,409 validation customers. No test evaluation is shown for this model, so no figure here is a test result.',
     );
     expect(copy.lede(null, 4225, 1409, false)).toMatch(/^Chosen by cross-validation on 4,225/);
     expect(copy.lede(5, 4225, 1409, true)).toMatch(
-      /recorded final evaluation, read on a re-used holdout\.$/,
+      /one recorded release, counts and rates only, read on a re-used holdout\.$/,
     );
   });
 });
@@ -61,13 +61,18 @@ describe('the one-standard-error rule', () => {
   });
 
   it('says by how much the leader leads, without calling the gap noise', () => {
-    expect(copy.selectionNote(forest, logistic, name)).toBe(
+    expect(copy.selectionNote(forest, logistic, 0.0052, name)).toBe(
       'random forest leads logistic regression by 0.0052, inside one standard error, so the simpler model is chosen.',
     );
-    expect(copy.selectionNote(logistic, logistic, name)).toBe(
+    expect(copy.selectionNote(logistic, logistic, 0, name)).toBe(
       'logistic regression leads and is the simplest model inside the cutoff.',
     );
-    expect(copy.selectionNote(undefined, logistic, name)).toBe(
+    expect(copy.selectionNote(undefined, logistic, null, name)).toBe(
+      'The simplest model inside the cutoff is chosen.',
+    );
+    // The lead is the served figure; with none served, none is stated.
+    expect(copy.selectionNote(forest, logistic, 0.1234, name)).toContain('by 0.1234,');
+    expect(copy.selectionNote(forest, logistic, null, name)).toBe(
       'The simplest model inside the cutoff is chosen.',
     );
   });
@@ -76,12 +81,11 @@ describe('the one-standard-error rule', () => {
 describe('figures in sentences', () => {
   it('come from the served counts', () => {
     expect(copy.errorsAt(0.36, 512, 216, 14)).toBe(
-      'At 0.36: 512 flagged; 216 offers to customers who stayed, 14 churners not flagged.',
+      'At 0.36: 512 flagged; 216 of them stayed, 14 churners not flagged.',
     );
     expect(copy.churnersFlagged(222, 310)).toBe('222 of 310 churners flagged');
     expect(copy.flaggedChurned(222, 385)).toBe('222 of 385 flagged churned');
-    expect(copy.offerCost(50, 'USD')).toBe('$50 offer each, assumed');
-    expect(copy.testOptimal(0.29)).toMatch(/^The test-optimal cut \(0\.29\) is reported/);
+    expect(copy.offerCost(50, 'USD')).toBe('$50 each if offered, assumed');
     expect(copy.shortSha('0123456789abcdef'.repeat(4))).toBe('01234567…cdef');
   });
 
@@ -118,15 +122,14 @@ describe('the words', () => {
     copy.ECE_NOTE,
     copy.CANDIDATES_NOTE,
     copy.selectionSubtitle(5),
-    copy.selectionNote(forest, logistic, name),
+    copy.selectionNote(forest, logistic, 0.0052, name),
     copy.segmentsSubtitle(0.36),
     copy.UNSCANNED,
     copy.GENDER,
-    copy.TEST_SEGMENTS,
+    copy.TEST_SCOPE,
     copy.FOOTER,
     copy.calibrationSentence(calibration),
     copy.calibrationSentence({ ...calibration, method: null }),
-    copy.testOptimal(0.29),
     copy.withheld('the split differs'),
   ];
 

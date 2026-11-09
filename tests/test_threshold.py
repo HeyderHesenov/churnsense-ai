@@ -9,7 +9,6 @@ any claim about real savings.
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,8 +22,7 @@ from churnsense.evaluation.threshold import (
     recommend_threshold_from,
     sweep_thresholds,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.conftest import tracked_report
 
 Y = np.array([1, 1, 1, 1, 0, 0, 0, 0, 0, 0])
 P = np.array([0.9, 0.8, 0.6, 0.4, 0.7, 0.55, 0.3, 0.2, 0.1, 0.05])
@@ -282,7 +280,7 @@ def _tracked_sweep(business: Business, defaults: Business) -> pd.DataFrame:
     sweep depends on it, so the tracked file prices every other success rate
     exactly - with no dataset, which no test reads.
     """
-    sweep = pd.read_csv(ROOT / "reports" / "threshold_sweep.csv")
+    sweep = pd.read_csv(tracked_report("threshold_sweep.csv"))
     scale = business.offer_success_rate / defaults.offer_success_rate
     retained = sweep["retained_value"] * scale
     return sweep.assign(retained_value=retained, net_benefit=retained - sweep["intervention_cost"])
@@ -296,7 +294,7 @@ def test_the_default_assumptions_recommend_the_shipped_threshold(cfg: Config):
 def test_the_recommendation_moves_with_the_success_rate_as_published(cfg: Config):
     """0.88 / 0.50 / 0.36 / 0.23 / 0.22 for 10-50 %, the table in reports/model_comparison.md."""
     published = {}
-    for line in (ROOT / "reports" / "model_comparison.md").read_text().splitlines():
+    for line in tracked_report("model_comparison.md").read_text().splitlines():
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) == 6 and cells[0].endswith("%") and cells[0][:-1].isdigit():
             published[int(cells[0][:-1]) / 100] = float(cells[1])

@@ -35,7 +35,7 @@ export function flagText(flagged: boolean, threshold: number): string {
   return `${flagged ? 'Flagged' : 'Not flagged'} at ${cut(threshold)}`;
 }
 
-/** "0.443 above the threshold. This customer would receive an offer." */
+/** "0.443 above the threshold. Flagged at the current operating point." */
 export function gapNote(probability: number, threshold: number, flagged: boolean): string {
   const gap = probability - threshold;
   const shown = Math.abs(gap).toFixed(3);
@@ -46,8 +46,8 @@ export function gapNote(probability: number, threshold: number, flagged: boolean
         ? `Just ${gap > 0 ? 'above' : 'below'} the threshold.`
         : `${shown} ${gap > 0 ? 'above' : 'below'} the threshold.`;
   const offer = flagged
-    ? 'This customer would receive an offer.'
-    : 'No offer at the current operating point.';
+    ? 'Flagged at the current operating point.'
+    : 'Not flagged at the current operating point.';
   return `${where} ${offer}`;
 }
 

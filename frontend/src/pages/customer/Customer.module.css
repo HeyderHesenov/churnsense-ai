@@ -49,13 +49,12 @@
 .cardTop {
   align-items: baseline;
 }
+/* Wrapped, never cut: the longest ID the API accepts is read in full at 320 px. */
 .cardName {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: 13px;
-  white-space: nowrap;
 }
 .cardValue {
   font-family: var(--font-mono);

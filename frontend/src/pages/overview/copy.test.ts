@@ -1,8 +1,7 @@
 import { overview } from '../../test/overviewFixtures';
 import {
   assumptionsNote,
-  lifecycleTitle,
-  riskiestLink,
+  riskiestBands,
   unflaggedNote,
   bandRange,
   campaignCaption,
@@ -37,7 +36,29 @@ describe('band ranges', () => {
 describe('segment notes', () => {
   it('states the contract spread the API measured', () => {
     expect(segmentNote(tab('Contract'))).toBe(
-      'A 17× spread, partly self-selection: people who expect to stay sign longer.',
+      'A 17× spread in observed churn across contract types. An association in one snapshot; it does not say why.',
+    );
+    expect(segmentNote({ ...tab('Contract'), spread: null })).toBe(
+      'Observed churn differs across contract types. An association in one snapshot; it does not say why.',
+    );
+  });
+
+  it('states what the data shows of payment and internet service, and no motive', () => {
+    expect(segmentNote(tab('PaymentMethod'))).toBe(
+      'Observed churn differs across payment methods. An association in one snapshot; it does not say why.',
+    );
+    expect(segmentNote(tab('InternetService'))).toBe(
+      'Observed churn differs across internet service types. An association in one snapshot; it does not say why.',
+    );
+  });
+
+  it('assumes nothing about why customers stay or what a product is', () => {
+    const notes = ['Contract', 'PaymentMethod', 'InternetService'].map((key) =>
+      segmentNote(tab(key)),
+    );
+    const notes2 = segmentNote({ ...tab('Contract'), spread: null });
+    expect([...notes, notes2].join(' ')).not.toMatch(
+      /self-selection|expect to stay|sign longer|commitment|friction|proxies|lever|premium/i,
     );
   });
 
@@ -79,8 +100,12 @@ describe('campaign copy', () => {
   const campaign = book.campaign;
   if (!campaign) throw new Error('fixture has a campaign');
 
-  it('names the shipped point and the peak, with the gap between them', () => {
+  it('names the shipped point and the peak, with the gap the API serves', () => {
     expect(campaignCaption(campaign)).toBe('0.36 shipped · 0.30 peak, $32 higher');
+    // The served figure itself: nothing here subtracts the two it sits beside.
+    expect(campaignCaption({ ...campaign, peak_gain: 7 })).toBe(
+      '0.36 shipped · 0.30 peak, $7 higher',
+    );
     expect(campaignCaption({ ...campaign, peak_threshold: 0.36, peak_net_benefit: 26_400 })).toBe(
       '0.36 shipped, at the peak',
     );
@@ -103,14 +128,6 @@ describe('campaign copy', () => {
 });
 
 describe('claims about the book', () => {
-  it('calls risk front-loaded only when the first months churn above the average', () => {
-    expect(lifecycleTitle(book.lifecycle)).toBe('Risk is front-loaded');
-    expect(lifecycleTitle(null)).toBe('Churn by tenure');
-    const lifecycle = book.lifecycle;
-    if (!lifecycle) throw new Error('fixture has a lifecycle');
-    expect(lifecycleTitle({ ...lifecycle, base_rate: 0.9 })).toBe('Churn by tenure');
-  });
-
   it('explains an unflagged band by its top only when the top is below the threshold', () => {
     const low = { name: 'Low', min: 0, max: 0.25, customers: 4000 };
     expect(unflaggedNote(low, 0.36)).toBe(
@@ -121,13 +138,8 @@ describe('claims about the book', () => {
     );
   });
 
-  it('promises the riskiest bands’ whole count only when all of them are flagged', () => {
-    expect(riskiestLink(book)).toEqual({
-      bands: ['High', 'Critical'],
-      label: 'High or Critical: 1,500 customers. Show them in the retention queue',
-    });
-    expect(riskiestLink({ ...book, threshold: 0.6 }).label).toBe(
-      'High or Critical: 1,500 customers. Show the flagged ones in the retention queue',
-    );
+  it('names the two riskiest bands, whatever the threshold', () => {
+    expect(riskiestBands(book)).toEqual(['High', 'Critical']);
+    expect(riskiestBands({ ...book, threshold: 0.6 })).toEqual(['High', 'Critical']);
   });
 });

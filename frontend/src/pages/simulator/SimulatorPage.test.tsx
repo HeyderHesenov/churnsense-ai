@@ -306,9 +306,9 @@ describe('the figures at the cut', () => {
     );
     expect(screen.getByRole('heading', { name: 'At 0.40' })).toBeInTheDocument();
     expect(figure('Flagged')).toBe('512 of 1,250');
-    expect(figure('Churners reached')).toBe('241 of 310');
+    expect(figure('Churners flagged')).toBe('241 of 310');
     expect(figure('Churners missed')).toBe('7');
-    expect(figure('Offers to customers who stayed')).toBe('9');
+    expect(figure('Flagged customers who stayed')).toBe('9');
     expect(figure('Precision')).toBe('0.123');
     expect(figure('Recall')).toBe('0.456');
     expect(figure('Net benefit')).toBe('+$31,235 net gain');
@@ -854,9 +854,9 @@ describe('nothing worked out in the page', () => {
     };
     expect(terms('Measured on validation')).toEqual([
       'Flagged',
-      'Churners reached',
+      'Churners flagged',
       'Churners missed',
-      'Offers to customers who stayed',
+      'Flagged customers who stayed',
       'Precision',
       'Recall',
     ]);

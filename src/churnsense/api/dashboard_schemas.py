@@ -19,6 +19,8 @@ from churnsense.api.schemas import (
 Probability = Annotated[float, Field(ge=0, le=1)]
 Share = Annotated[float, Field(ge=0, le=1)]
 Outcome = Literal["churned", "stayed", "withheld"]
+#: What is known of a customer today. ``unknown`` is neither of the others.
+CustomerStatus = Literal["active", "churned", "unknown"]
 Partition = Literal["train", "validation", "test", "unknown"]
 
 
@@ -44,6 +46,14 @@ class Segment(_Model):
     customers: int
     share: Share | None
     monthly_charges: float
+    #: Of those, who the retention queue lists: flagged and not recorded as churned.
+    in_queue: int
+    #: The same customers by what is known of them; these two add up to ``in_queue``.
+    in_queue_active: int
+    in_queue_unknown: int
+    in_queue_share: Share | None
+    #: Of those recorded active only: an unknown customer may no longer be paying.
+    in_queue_monthly: float
 
 
 class BandSummary(_Model):
@@ -55,6 +65,7 @@ class BandSummary(_Model):
     monthly_charges: float
     monthly_share: Share | None
     flagged: int
+    flagged_not_churned: int
     observed: Observed | None
 
 
@@ -78,7 +89,9 @@ class SuppressedCell(_Model):
     """A group whose churn is hidden: its size only, never a rate or a churn count.
 
     ``too_few``: fewer than 20 customers. ``complementary``: enough customers,
-    but showing its churn would let a smaller group's be worked out.
+    but showing its churn would let a smaller group's be worked out from this
+    table. A rule for this report, not privacy protection: training customers'
+    own outcomes are listed by ``GET /api/customers``.
     """
 
     row: str
@@ -108,7 +121,9 @@ class HistogramBin(_Model):
     band: str
     customers: int
     monthly_charges: float
+    #: Validation customers in this bin. ``customers`` is the whole book.
     observed: Observed | None
+    observed_mean: Probability | None
 
 
 class SegmentTab(_Model):
@@ -163,6 +178,8 @@ class Campaign(_Model):
     net_benefit: float
     peak_threshold: float
     peak_net_benefit: float
+    #: What the peak's net benefit gains over the shipped cut's. SIMULATED.
+    peak_gain: float
     recommended_threshold: float
     assumptions: BusinessAssumptions
     curve: list[CurvePoint]
@@ -171,6 +188,11 @@ class Campaign(_Model):
 class OverviewResponse(_Model):
     customers: int
     monthly_charges: float
+    #: Those of customers recorded active; null when nobody is known to be.
+    current_monthly_charges: float | None
+    #: Customers whose status is unknown, and what they were charged: left out of the above.
+    unknown_customers: int
+    unknown_monthly_charges: float
     threshold: Probability
     observed: Observed | None
     high_or_critical: Segment
@@ -203,8 +225,10 @@ class CustomerRow(_Model):
     flagged: bool
     partition: Partition
     outcome: Outcome
-    #: churn_probability x monthly_charges: expected monthly revenue at risk.
-    at_risk: float
+    status: CustomerStatus
+    #: churn_probability x monthly_charges: expected monthly revenue at risk. Null unless
+    #: the customer is recorded active: it cannot be established for an unknown one.
+    at_risk: float | None
 
 
 class SelectionSummary(_Model):
@@ -216,9 +240,20 @@ class SelectionSummary(_Model):
     expected_churners: float
     observed: Observed | None
     monthly_charges: float
+    #: Of the selection's customers recorded active.
+    active_monthly_charges: float
+    #: Summed over the selection's customers recorded active.
     at_risk: float
     #: Customers per 0.05 of probability, 20 bins.
     histogram: list[int]
+
+
+class StatusCounts(_Model):
+    """How many customers match, by what is known of them; these add up to the total."""
+
+    active: int
+    churned: int
+    unknown: int
 
 
 class CustomerPage(_Model):
@@ -228,6 +263,9 @@ class CustomerPage(_Model):
     pages: int
     rows: list[CustomerRow]
     summary: SelectionSummary
+    #: How many customers the other filters keep in each band, chosen or not.
+    band_counts: dict[str, int]
+    status_counts: StatusCounts
     withheld_reason: str | None
 
 
@@ -451,6 +489,8 @@ class Selection(_Model):
     leader: str
     #: The leader as ``candidates`` name it.
     leader_name: str
+    #: The leader's cross-validated score less the selected model's; null if either is unlisted.
+    leader_gap: float | None = None
     standard_error: float
     cutoff: float
     eligible: list[str]
@@ -515,48 +555,42 @@ class PartitionMetrics(_Model):
     brier: float
 
 
-class HoldoutMetrics(PartitionMetrics):
-    """The recorded test evaluation's metrics."""
+class HoldoutMetrics(_Model):
+    """The test release's figures, to four decimals (``evaluation.disclosure``).
+
+    One two-by-two table and the rates it gives. This partition has no Brier score,
+    ROC-AUC or PR-AUC to serve: they are withheld whatever their value.
+    """
+
+    threshold: Probability
+    n: int
+    positives: int
+    tn: int
+    fp: int
+    fn: int
+    tp: int
+    accuracy: float
+    precision: float
+    recall: float
+    f1: float
 
 
 class ValidationMetrics(PartitionMetrics):
     """The served model on the validation partition, at the shipped threshold."""
 
 
-class HoldoutSegment(_Model):
-    """One segment of the recorded test evaluation; rates are null below 20 customers.
-
-    Records written before intervals were kept have none: those fields are null.
-    """
-
-    dimension: str
-    segment: str
-    customers: int
-    churners: int | None
-    churn_rate: float | None
-    flagged: int
-    flagged_rate: float | None
-    precision: float | None
-    recall: float | None
-    unscanned: bool | None
-    precision_low: Share | None = None
-    precision_high: Share | None = None
-    recall_low: Share | None = None
-    recall_high: Share | None = None
-    roc_auc: Share | None = None
-
-
 class HoldoutEvaluation(_Model):
-    """Recorded by ``make evaluate CONFIRM=yes``; no page computes it."""
+    """Recorded by ``make evaluate CONFIRM=yes``; no page computes it.
+
+    No breakdown, bin or calibration error of this partition exists to serve: its
+    customers are listed, so each would be read against known people.
+    """
 
     evaluated_at: str
     metrics: HoldoutMetrics
     #: Churners over customers in the record.
-    churn_rate: Share | None
-    ece: float | None
+    churn_rate: Share
     no_skill_accuracy: float
-    test_optimal_threshold: float
-    segments: list[HoldoutSegment]
 
 
 class ReliabilityBin(_Model):

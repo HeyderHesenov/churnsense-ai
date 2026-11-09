@@ -16,7 +16,7 @@ describe('hiddenText', () => {
 
   it('says why a large group is held back', () => {
     expect(hiddenText(hidden(304, 'complementary'), 20)).toBe(
-      'held back so a smaller group cannot be worked out',
+      'not shown here, so this table gives no smaller group away',
     );
   });
 

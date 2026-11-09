@@ -215,7 +215,7 @@ function Row({ row, open, onToggle }: { row: CustomerRow; open: boolean; onToggl
         {cents(row.monthly_charges)}
       </div>
       <div role="cell" className={cx(styles.cell, styles.number, styles.strong)}>
-        {cents(row.at_risk)}
+        {row.at_risk === null ? '—' : cents(row.at_risk)}
       </div>
       <div role="cell" className={cx(styles.cell, styles.last)}>
         <OutcomePill outcome={row.outcome} partition={row.partition} />

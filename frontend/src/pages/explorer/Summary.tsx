@@ -119,7 +119,7 @@ function Tiles({
         compact
         label="Monthly charges"
         value={money(summary.monthly_charges)}
-        sub={`${money(summary.at_risk)} / mo at risk`}
+        sub={`${money(summary.at_risk)} / mo at risk, customers recorded active only`}
       />
     </>
   );

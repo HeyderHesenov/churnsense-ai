@@ -453,7 +453,9 @@ def read_cache(path: Path, model_sha256: str) -> dict[str, Any] | None:
         return None
     try:
         cached = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    # ValueError covers JSONDecodeError and an integer past Python's digit limit;
+    # RecursionError is what nesting deeper than the interpreter allows raises.
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
         logger.warning("the SHAP cache could not be read: %s", exc.__class__.__name__)
         return None
     if not isinstance(cached, dict):

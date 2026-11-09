@@ -17,17 +17,27 @@ import {
   noSkill,
   SCORE_GROUPS,
   SCORE_NOTE,
-  testOptimal,
+  NOT_PUBLISHED,
+  TEST_SCOPE,
   UNAVAILABLE,
   withheld,
 } from './copy';
-import { f1Of, precisionOf, recallOf, score, type Metrics } from './performance';
+import {
+  f1Of,
+  precisionOf,
+  recallOf,
+  score,
+  type Metrics,
+  type RecordedMetrics,
+} from './performance';
 import { Coded } from './Provenance';
 import styles from './Performance.module.css';
 
 /** One partition's figures, as the scorecard reads them. */
 interface Column {
-  metrics: Metrics;
+  metrics: Metrics | RecordedMetrics;
+  /** Null for the test release: its Brier, ROC-AUC and PR-AUC are not published. */
+  scores: Pick<Metrics, 'average_precision' | 'roc_auc' | 'brier'> | null;
   churnRate: number | null;
   noSkillAccuracy: number;
   ece: number | null;
@@ -59,6 +69,11 @@ function Track({ value, floor }: { value: number; floor: number | null }) {
   );
 }
 
+/** A figure this partition does not publish: never filled in from another partition. */
+function NotPublished() {
+  return <Value figure="—" sub={NOT_PUBLISHED} />;
+}
+
 const GROUPS: { key: keyof typeof SCORE_GROUPS; rows: Row[] }[] = [
   {
     key: 'ranking',
@@ -66,18 +81,22 @@ const GROUPS: { key: keyof typeof SCORE_GROUPS; rows: Row[] }[] = [
       {
         label: 'PR-AUC (average precision)',
         meaning: 'primary · precision averaged over recall levels',
-        value: (c) => (
-          <Value
-            figure={score(c.metrics.average_precision)}
-            bar={<Track value={c.metrics.average_precision} floor={c.churnRate} />}
-            {...(c.churnRate !== null && { sub: noSkill(c.churnRate) })}
-          />
-        ),
+        value: (c) =>
+          c.scores === null ? (
+            <NotPublished />
+          ) : (
+            <Value
+              figure={score(c.scores.average_precision)}
+              bar={<Track value={c.scores.average_precision} floor={c.churnRate} />}
+              {...(c.churnRate !== null && { sub: noSkill(c.churnRate) })}
+            />
+          ),
       },
       {
         label: 'ROC-AUC',
         meaning: 'chance a churner is scored above a stayer',
-        value: (c) => <Value figure={score(c.metrics.roc_auc)} />,
+        value: (c) =>
+          c.scores === null ? <NotPublished /> : <Value figure={score(c.scores.roc_auc)} />,
       },
     ],
   },
@@ -117,12 +136,13 @@ const GROUPS: { key: keyof typeof SCORE_GROUPS; rows: Row[] }[] = [
       {
         label: 'Brier score',
         meaning: 'mean squared gap between probability and outcome; lower is better',
-        value: (c) => <Value figure={score(c.metrics.brier)} />,
+        value: (c) =>
+          c.scores === null ? <NotPublished /> : <Value figure={score(c.scores.brier)} />,
       },
       {
         label: 'ECE',
         meaning: 'gap between stated and observed rates over ten bins; lower is better',
-        value: (c) => <Value figure={c.ece === null ? '—' : score(c.ece)} />,
+        value: (c) => (c.ece === null ? <NotPublished /> : <Value figure={score(c.ece)} />),
       },
     ],
   },
@@ -143,24 +163,22 @@ export function Scorecard({ figures }: { figures: Performance }) {
   const test = figures.test;
   const validation: Column | null = measured && {
     metrics: measured.metrics,
+    scores: measured.metrics,
     churnRate: measured.churn_rate,
     noSkillAccuracy: measured.no_skill_accuracy,
     ece: measured.ece,
   };
   const recorded: Column | null = test && {
     metrics: test.metrics,
+    scores: null,
     churnRate: test.churn_rate,
     noSkillAccuracy: test.no_skill_accuracy,
-    ece: test.ece,
+    ece: null,
   };
   const columns = [validation, ...(recorded ? [recorded] : [])];
   const cutLabel = (key: keyof typeof SCORE_GROUPS) => {
     if (key !== 'cut') return SCORE_GROUPS[key];
-    const at = `${SCORE_GROUPS.cut} ${cut(validation?.metrics.threshold ?? figures.threshold)}`;
-    return recorded &&
-      recorded.metrics.threshold !== (validation?.metrics.threshold ?? figures.threshold)
-      ? `${at} (test ${cut(recorded.metrics.threshold)})`
-      : at;
+    return `${SCORE_GROUPS.cut} ${cut(validation?.metrics.threshold ?? figures.threshold)}`;
   };
 
   return (
@@ -219,21 +237,21 @@ export function Scorecard({ figures }: { figures: Performance }) {
         </table>
         {!recorded && (
           <div role="note" aria-label="Test evaluation" className={styles.notRecorded}>
-            <p className={styles.notRecordedTitle}>Test evaluation not recorded</p>
+            <p className={styles.notRecordedTitle}>No test figures shown</p>
             {figures.test_reason && (
               <p>
                 <Coded text={figures.test_reason} />
               </p>
             )}
             <p>
-              Until it is, the validation column is the only measured evidence, and it is somewhat
+              The validation column is the only measured evidence here, and it is somewhat
               optimistic: validation set the cut.
             </p>
           </div>
         )}
       </div>
       <p className={styles.note}>{SCORE_NOTE}</p>
-      {test && <p className={styles.note}>{testOptimal(test.test_optimal_threshold)}</p>}
+      {test && <p className={styles.note}>{TEST_SCOPE}</p>}
     </Card>
   );
 }

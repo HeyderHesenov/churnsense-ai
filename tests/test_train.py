@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import replace
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,7 +29,7 @@ from churnsense.models.train import (
     save_artifact,
     train_all,
 )
-from tests.conftest import DROP, edit_sidecar
+from tests.conftest import DROP, edit_sidecar, tracked_report
 
 
 @pytest.fixture(scope="module")
@@ -415,11 +414,11 @@ def test_values_recorded_only_sometimes_may_be_null(outcome, tmp_path, cfg, chan
 
 
 def test_an_artifact_after_its_final_evaluation_still_loads(outcome, tmp_path, cfg):
-    """report.main adds these keys to the sidecar, test_metrics as Metrics.as_dict()."""
+    """Earlier runs of report.main added these keys to the sidecar; nothing writes or reads them."""
     save_artifact(outcome, tmp_path, cfg)
     recorded = {
         "test_metrics": outcome.shipped_validation.as_dict(),
-        "test_ece": 0.03,
+        "test_disclosure_policy": 2,
         "test_evaluated_at": "2026-10-17T00:00:00+00:00",
     }
     edit_sidecar(tmp_path, **recorded)
@@ -759,12 +758,24 @@ def test_the_tracked_comparison_reports_come_from_one_run():
     """
     from churnsense.evaluation.report import _markdown_table
 
-    reports = Path(__file__).resolve().parents[1] / "reports"
     # The default parser can move the 17th significant digit; read what was written.
-    tracked = pd.read_csv(reports / "model_comparison.csv", float_precision="round_trip")
+    tracked = pd.read_csv(tracked_report("model_comparison.csv"), float_precision="round_trip")
     assert list(tracked.columns) == REPORTED_COLUMNS
     table = _markdown_table(tracked.set_axis(REPORTED_HEADERS, axis=1))
-    assert table in (reports / "model_comparison.md").read_text()
+    assert table in tracked_report("model_comparison.md").read_text()
+
+
+def test_the_rendered_comparison_report_makes_no_false_claim(
+    outcome: TrainingOutcome, cfg: Config, tmp_path
+):
+    """What the renderer writes, on synthetic data; the tracked file has its own check."""
+    from churnsense.evaluation.report import write_comparison_report
+    from tests.test_documentation import FALSE_HISTORY, SEGMENT_FIX_CLAIMS
+
+    text = write_comparison_report(outcome, cfg, directory=tmp_path).read_text().lower()
+    assert not [phrase for phrase in FALSE_HISTORY if phrase.lower() in text]
+    flat = " ".join(text.split())
+    assert not [phrase for phrase in SEGMENT_FIX_CLAIMS if phrase in flat]
 
 
 # --- feature decisions ------------------------------------------------------

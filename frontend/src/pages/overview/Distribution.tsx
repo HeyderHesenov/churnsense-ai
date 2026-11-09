@@ -29,7 +29,11 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
       <CardHeader
         id="distribution"
         title="Where the book sits on the probability scale"
-        subtitle={`How is risk spread across ${int(book.customers)} customers, and do the probabilities hold up against what happened?`}
+        subtitle={
+          book.withheld_reason === null
+            ? `How is risk spread across ${int(book.customers)} customers, and how do stated probabilities compare with validation outcomes?`
+            : `How is risk spread across ${int(book.customers)} customers?`
+        }
         aside={
           <Segmented
             label="Measure"
@@ -37,7 +41,7 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
             onChange={setMeasure}
             options={[
               { value: 'customers', label: 'Customers' },
-              { value: 'charges', label: 'Monthly charges' },
+              { value: 'charges', label: 'Monthly charges, all statuses' },
             ]}
           />
         }
@@ -59,7 +63,7 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
         {info?.calibration_method === 'isotonic' &&
           "The isotonic step shows: probabilities bunch at the calibrator's levels. "}
         {book.withheld_reason === null &&
-          'Where the dots meet the diagonal, a probability reads as a frequency: for example, 0.40 means about 40 in 100 similar past customers churned. '}
+          'Validation customers informed the cut and the calibration choice, so this is not an independent test. Held-out figures appear only on Performance, once recorded. '}
         Select a bin or a band to filter the queue.
       </p>
     </Card>
@@ -107,7 +111,7 @@ function BandCard({ band, measure, alone, withheld, onPick }: BandCardProps) {
       </span>{' '}
       <span className={styles.bandFoot}>
         <span>
-          churned{' '}
+          churned, train + val{' '}
           <b className={styles.figure}>
             {withheld ? 'withheld' : churned === null || churned === undefined ? '—' : pct(churned)}
           </b>

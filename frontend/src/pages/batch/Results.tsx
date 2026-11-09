@@ -176,7 +176,7 @@ function Tiles({ result }: { result: BatchScore }) {
         compact
         label="Monthly charges at risk"
         value={`${money(summary.at_risk)} / mo`}
-        sub="Σ probability × monthly charges"
+        sub="Expected: Σ probability × monthly charges, assuming each row is a current customer"
       />
       <div className={styles.bandsTile}>
         <span className={styles.tileLabel}>By band</span>

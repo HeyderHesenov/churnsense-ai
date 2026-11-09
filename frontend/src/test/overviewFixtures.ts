@@ -45,8 +45,29 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     monthly_charges: 450_000,
     threshold: 0.36,
     observed: { customers: 5600, churned: 1400, rate: 0.25 },
-    high_or_critical: { customers: 1500, monthly_charges: 120_000, share: 1500 / 7000 },
-    flagged: { customers: 2300, monthly_charges: 180_000, share: 2300 / 7000 },
+    current_monthly_charges: 320_000,
+    unknown_customers: 1400,
+    unknown_monthly_charges: 80_000,
+    high_or_critical: {
+      customers: 1500,
+      monthly_charges: 120_000,
+      share: 1500 / 7000,
+      in_queue: 1200,
+      in_queue_active: 900,
+      in_queue_unknown: 300,
+      in_queue_share: 1200 / 7000,
+      in_queue_monthly: 96_000,
+    },
+    flagged: {
+      customers: 2300,
+      monthly_charges: 180_000,
+      share: 2300 / 7000,
+      in_queue: 1900,
+      in_queue_active: 1500,
+      in_queue_unknown: 400,
+      in_queue_share: 1900 / 7000,
+      in_queue_monthly: 150_000,
+    },
     bands: [
       {
         ...BANDS[0],
@@ -55,6 +76,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         monthly_charges: 220_000,
         monthly_share: 220 / 450,
         flagged: 0,
+        flagged_not_churned: 0,
         observed: { customers: 3200, churned: 256, rate: 0.08 },
       },
       {
@@ -64,6 +86,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         monthly_charges: 110_000,
         monthly_share: 110 / 450,
         flagged: 800,
+        flagged_not_churned: 700,
         observed: { customers: 1200, churned: 420, rate: 0.35 },
       },
       {
@@ -73,6 +96,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         monthly_charges: 90_000,
         monthly_share: 90 / 450,
         flagged: 1100,
+        flagged_not_churned: 900,
         observed: { customers: 880, churned: 528, rate: 0.6 },
       },
       {
@@ -82,6 +106,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         monthly_charges: 30_000,
         monthly_share: 30 / 450,
         flagged: 400,
+        flagged_not_churned: 300,
         observed: { customers: 320, churned: 272, rate: 0.85 },
       },
     ],
@@ -96,6 +121,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
         i === 19
           ? { customers: 12, churned: null, rate: null }
           : { customers: 280, churned: 14 * (i + 1), rate: (14 * (i + 1)) / 280 },
+      observed_mean: i === 19 ? null : (i + 0.8) / 20,
     })),
     segments: [
       {
@@ -205,6 +231,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
       net_benefit: 26_400,
       peak_threshold: 0.3,
       peak_net_benefit: 26_432,
+      peak_gain: 32,
       recommended_threshold: 0.36,
       assumptions: {
         currency: 'USD',
@@ -232,7 +259,8 @@ export function customerRow(id: string, overrides: Partial<CustomerRow> = {}): C
     risk_band: 'Critical',
     flagged: true,
     partition: 'train',
-    outcome: 'churned',
+    outcome: 'stayed',
+    status: 'active',
     at_risk: 72,
     ...overrides,
   };
@@ -248,6 +276,12 @@ export function customerPage(
     page_size: 8,
     pages: Math.max(1, Math.ceil(rows.length / 8)),
     rows,
+    band_counts: {},
+    status_counts: {
+      active: rows.filter((row) => row.status === 'active').length,
+      churned: rows.filter((row) => row.status === 'churned').length,
+      unknown: rows.filter((row) => row.status === 'unknown').length,
+    },
     summary: {
       customers: rows.length,
       share_of_book: rows.length / 7000,
@@ -257,6 +291,7 @@ export function customerPage(
       expected_churners: rows.length * 0.8,
       observed: null,
       monthly_charges: rows.length * 90,
+      active_monthly_charges: rows.length * 90,
       at_risk: rows.length * 72,
       histogram: Array.from({ length: 20 }, () => 0),
     },

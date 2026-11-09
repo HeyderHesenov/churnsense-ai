@@ -8,7 +8,7 @@ import { entriesAdded } from '../../test/history';
 import { curve, measured, performance, performanceApi, recorded } from '../../test/performanceApi';
 import { renderAt } from '../../test/render';
 import { answer, refuse, server } from '../../test/server';
-import { FAILED, GENDER, MISMATCH, TEST_SEGMENTS, TITLE, UNAVAILABLE, UNSCANNED } from './copy';
+import { FAILED, GENDER, MISMATCH, TEST_SCOPE, TITLE, UNAVAILABLE, UNSCANNED } from './copy';
 import { PR, prX, prY } from './performance';
 
 /** The page at ``path``, with ``body`` as the performance response. */
@@ -68,10 +68,10 @@ function matrix(): Record<'tn' | 'fp' | 'fn' | 'tp', string> {
   const count = (name: RegExp) =>
     within(table).getByRole('cell', { name }).firstElementChild?.textContent ?? '';
   return {
-    tn: count(/left alone/),
-    fp: count(/offer to a stayer/),
-    fn: count(/missed churner/),
-    tp: count(/reached/),
+    tn: count(/not flagged, stayed/),
+    fp: count(/(?<!not )flagged, stayed/),
+    fn: count(/not flagged, churned/),
+    tp: count(/(?<!not )flagged, churned/),
   };
 }
 
@@ -214,10 +214,8 @@ describe('where each figure comes from', () => {
     expect(evidence).toHaveTextContent('4,225 customers');
     expect(evidence).toHaveTextContent('1,409 customers');
     expect(evidence).toHaveTextContent('somewhat optimistic');
-    expect(evidence).toHaveTextContent('Not recorded');
-    expect(
-      within(evidence).getByText('make evaluate CONFIRM=yes', { selector: 'code' }),
-    ).toBeInTheDocument();
+    expect(evidence).toHaveTextContent('Not shown');
+    expect(evidence).toHaveTextContent('No test evaluation is recorded for this model.');
     expect(evidence).toHaveTextContent('aaaaaaaa…aaaa');
     expect(evidence).toHaveTextContent('The data and the split match the ones it was trained on.');
   });
@@ -248,18 +246,16 @@ describe('where each figure comes from', () => {
     const first = await showPerformance();
     const lede = screen.getByRole('heading', { level: 1 }).nextElementSibling;
     expect(lede).toHaveTextContent(
-      /^Chosen by 5-fold cross-validation on 4,225 training customers; .* on 1,409 validation customers\. No test evaluation is recorded/,
+      /^Chosen by 5-fold cross-validation on 4,225 training customers; .* on 1,409 validation customers\. No test evaluation is shown/,
     );
     expect(screen.getByText('artifact aaaaaaaa…aaaa')).toBeInTheDocument();
-    for (const name of [/Model card/, /Final evaluation \(archival\)/]) {
-      const link = screen.getByRole('link', { name });
-      expect(link).toHaveAttribute('target', '_blank');
-      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    }
+    const modelCard = screen.getByRole('link', { name: /Model card/ });
+    expect(modelCard).toHaveAttribute('target', '_blank');
+    expect(modelCard).toHaveAttribute('rel', 'noopener noreferrer');
     first.unmount();
     await showPerformance('/performance', performance({ ...RECORDED, selection: null }));
     expect(screen.getByRole('heading', { level: 1 }).nextElementSibling).toHaveTextContent(
-      /^Chosen by cross-validation on 4,225 .* Test figures are the recorded final evaluation/,
+      /^Chosen by cross-validation on 4,225 .* Test figures are the partition's one recorded release/,
     );
   });
 });
@@ -288,38 +284,52 @@ describe('the scorecard', () => {
     await showPerformance();
     expect(within(scorecard()).queryByRole('columnheader', { name: /Test/ })).toBeNull();
     const note = screen.getByRole('note', { name: 'Test evaluation' });
-    expect(note).toHaveTextContent('Test evaluation not recorded');
-    expect(note).toHaveTextContent('make evaluate CONFIRM=yes');
+    expect(note).toHaveTextContent('No test figures shown');
+    expect(note).toHaveTextContent('No test evaluation is recorded for this model.');
   });
 
-  it('adds the recorded test column beside validation, every figure its own, at its own cut', async () => {
+  it('adds the recorded test column beside validation, every figure its own', async () => {
     await showPerformance('/performance', RECORDED);
     const table = scorecard();
     expect(within(table).getByRole('columnheader', { name: /Test · recorded/ })).toHaveTextContent(
       '1,400',
     );
     const test = (row: RegExp) => cells(table, row)[1];
-    expect(test(/^PR-AUC/)).toMatch(/^0\.611.*flagging at random scores 0\.261$/);
-    expect(test(/^ROC-AUC/)).toBe('0.830');
+    expect(test(/^PR-AUC/)).toBe('—not published for test');
+    expect(test(/^ROC-AUC/)).toBe('—not published for test');
     expect(test(/^Recall/)).toBe('0.712250 of 350 churners flagged');
     expect(test(/^Precision/)).toBe('0.499250 of 500 flagged churned');
     expect(test(/^F1/)).toBe('0.587');
-    expect(test(/^Brier/)).toBe('0.140');
-    expect(test(/^ECE/)).toBe('0.030');
+    expect(test(/^Brier/)).toBe('—not published for test');
+    expect(test(/^ECE/)).toBe('—not published for test');
     expect(test(/^Accuracy/)).toBe('0.751flagging nobody scores 0.750');
-    expect(
-      within(table).getByRole('rowgroup', { name: 'At the cut 0.36 (test 0.40)' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/The test-optimal cut \(0\.29\) is reported/)).toBeInTheDocument();
+    expect(within(table).getByRole('rowgroup', { name: 'At the cut 0.36' })).toBeInTheDocument();
+    expect(screen.getByText(TEST_SCOPE)).toBeInTheDocument();
+    expect(screen.queryByText(/test-optimal/)).toBeNull();
     expect(screen.queryByRole('note', { name: 'Test evaluation' })).toBeNull();
   });
 
-  it('writes "—" for a recorded ECE that is missing, not zero', async () => {
-    await showPerformance(
-      '/performance',
-      performance({ test: recorded({ ece: null }), test_reason: null }),
-    );
-    expect(cells(scorecard(), /^ECE/)[1]).toBe('—');
+  it('never fills a withheld test figure from validation, and validation keeps its own', async () => {
+    await showPerformance('/performance', RECORDED);
+    const table = scorecard();
+    const [validation, test] = [0, 1].map((i) => (row: RegExp) => cells(table, row)[i]);
+    expect(validation?.(/^ROC-AUC/)).toBe('0.841');
+    expect(validation?.(/^Brier/)).toBe('0.137');
+    expect(validation?.(/^PR-AUC/)).toMatch(/^0\.654/);
+    for (const row of [/^PR-AUC/, /^ROC-AUC/, /^Brier/, /^ECE/]) {
+      expect(test?.(row)).toBe('—not published for test');
+    }
+    expect(test?.(/^Recall/)).toBe('0.712250 of 350 churners flagged');
+  });
+
+  it('says the same whatever kept a recorded evaluation from being shown', async () => {
+    const reason = 'The recorded test evaluation is withheld under the disclosure policy.';
+    await showPerformance('/performance', performance({ test: null, test_reason: reason }));
+    const note = screen.getByRole('note', { name: 'Test evaluation' });
+    expect(note).toHaveTextContent('No test figures shown');
+    expect(note).toHaveTextContent(reason);
+    expect(note).not.toHaveTextContent(/not recorded/i);
+    expect(card('Where each figure comes from')).not.toHaveTextContent('Not recorded');
   });
 
   it('says validation is withheld, with the reason, wherever a validation figure would be', async () => {
@@ -381,14 +391,14 @@ describe('errors at a cut', () => {
     // 701 is the served figure; customers less churners less offers would be 724.
     expect(matrix()).toEqual({ tn: '701', fp: '216', fn: '14', tp: '296' });
     expect(
-      within(errorsTable()).getByRole('cell', { name: /offer to a stayer/ }),
-    ).toHaveTextContent('$50 offer each, assumed');
+      within(errorsTable()).getByRole('cell', { name: /(?<!not )flagged, stayed/ }),
+    ).toHaveTextContent('$50 each if offered, assumed');
     expect(strip('Flagged')).toBe('512');
     expect(strip('Precision')).toBe(at(36).precision.toFixed(3));
     expect(strip('Recall')).toBe(at(36).recall.toFixed(3));
     expect(strip('F1')).toBe(at(36).f1.toFixed(3));
     const summary = screen.getByText(
-      'At 0.36: 512 flagged; 216 offers to customers who stayed, 14 churners not flagged.',
+      'At 0.36: 512 flagged; 216 of them stayed, 14 churners not flagged.',
     );
     expect(summary).toHaveAttribute('aria-live', 'polite');
   });
@@ -466,9 +476,7 @@ describe('errors at a cut', () => {
       '0.587',
     ]);
     expect(
-      screen.getByText(
-        'At 0.40: 500 flagged; 250 offers to customers who stayed, 100 churners not flagged.',
-      ),
+      screen.getByText('At 0.40: 500 flagged; 250 of them stayed, 100 churners not flagged.'),
     ).toBeInTheDocument();
     expect(screen.queryByRole('slider')).toBeNull();
   });
@@ -608,23 +616,12 @@ describe('segments', () => {
     expect(segments).toHaveTextContent(GENDER);
   });
 
-  it('switches to the recorded test breakdown at its own cut, and says what it lacks', async () => {
+  it('offers no test breakdown, whatever is recorded', async () => {
     await showPerformance('/performance', RECORDED);
     const segments = card('Does one cut serve every segment?');
-    const partition = within(segments).getByRole('group', { name: 'Partition for the segments' });
-    await userEvent.click(within(partition).getByRole('button', { name: 'Test · recorded' }));
-    const table = segmentTable(/^Segments at 0\.40, recorded test$/);
-    expect(cells(table, 'Month-to-month')).toEqual([
-      '770',
-      '300',
-      '39.0%',
-      '450',
-      '0.501',
-      '0.751',
-      '—',
-    ]);
-    expect(segments).toHaveTextContent(TEST_SEGMENTS);
-    expect(segments).not.toHaveTextContent(GENDER);
+    expect(within(segments).queryByRole('group', { name: /Partition/ })).toBeNull();
+    expect(within(segments).queryByRole('button', { name: 'Test · recorded' })).toBeNull();
+    expect(segmentTable(/^Segments at 0\.36, validation$/)).toBeInTheDocument();
   });
 });
 
@@ -715,6 +712,23 @@ describe('model selection', () => {
     expect(card('Model selection: the one-standard-error rule')).toHaveTextContent(
       'Random forest leads Logistic regression by 0.0052, inside one standard error, so the simpler model is chosen.',
     );
+  });
+
+  it('states the lead the server gives, and works none out', async () => {
+    const figures = performance();
+    await showPerformance(
+      '/performance',
+      performance({ selection: figures.selection && { ...figures.selection, leader_gap: 0.1234 } }),
+    );
+    expect(card('Model selection: the one-standard-error rule')).toHaveTextContent(
+      'Random forest leads Logistic regression by 0.1234,',
+    );
+  });
+
+  it('links to the model card, and to no report holding figures the policy does not publish', async () => {
+    await showPerformance('/performance', RECORDED);
+    expect(screen.getByRole('link', { name: /Model card/ })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Final evaluation/ })).toBeNull();
   });
 
   it('marks the leader the server names, not the highest score', async () => {

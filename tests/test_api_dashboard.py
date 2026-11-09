@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 
 from churnsense import analysis as an
 from churnsense import insights
+from churnsense.api.dashboard import TEST_WITHHELD_REASON
 from churnsense.book import score_book
 from churnsense.config import Config, RateLimit
 from churnsense.data import schema
@@ -147,7 +148,6 @@ def test_the_overview_counts_outcomes_on_training_and_validation_only(served, sh
     assert observed["churned"] != int(clean_frame[schema.TARGET].sum()), "test is not sensitive"
     assert sum(b["customers"] for b in body["bands"]) == len(clean_frame)
     assert sum(h["customers"] for h in body["histogram"]) == len(clean_frame)
-    assert sum(h["observed"]["customers"] for h in body["histogram"]) == len(shown)
     assert body["withheld_reason"] is None
 
 
@@ -307,11 +307,14 @@ def test_the_export_is_spreadsheet_safe_and_withholds_test_outcomes(served, ids,
         "flagged",
         "partition",
         "outcome",
+        "status",
     ]
     is_test = frame[schema.ID_COLUMN].isin(ids["test"])
     assert is_test.sum() == len(ids["test"])
     assert frame.loc[is_test, "outcome"].eq("withheld").all()
+    assert frame.loc[is_test, "status"].eq("unknown").all()
     assert set(frame.loc[~is_test, "outcome"]) <= {"churned", "stayed"}
+    assert set(frame.loc[~is_test, "status"]) <= {"churned", "active"}
 
 
 def test_the_export_of_a_selection_lists_exactly_those_customers(served):
@@ -774,32 +777,23 @@ def test_each_served_bound_is_accepted_and_a_step_beyond_it_refused(served):
 def test_performance_without_a_recorded_evaluation_says_so(served):
     body = _ok(served.get("/api/performance"))
     assert body["test"] is None
-    assert "make evaluate CONFIRM=yes" in body["test_reason"]
+    assert body["test_reason"] == "No test evaluation is recorded for this model."
     assert body["candidates"][0]["model"] == "Logistic Regression"
     assert body["validation"]["customers"] > 0
 
 
-def test_a_recorded_evaluation_is_shown_only_for_the_artifact_it_describes(
-    served, environment, model, dashboard_parts, cfg: Config
-):
-    from churnsense.evaluation.report import final_record, run_final_evaluation
+def test_a_recorded_evaluation_is_shown_only_for_the_artifact_it_describes(served, recorded, model):
+    body = _ok(served.get("/api/performance"))
+    assert body["test"]["metrics"]["n"] == 1000
+    info = _ok(served.get("/api/model-info"))
+    assert info["test_evaluation"]["recall"] == recorded["metrics"]["recall"]
+    assert info["test_evaluation"]["precision"] == recorded["metrics"]["precision"]
 
-    _, reports = environment
-    evaluation = run_final_evaluation(model.model, dashboard_parts, model.threshold, cfg)
-    record = final_record(evaluation, model.meta, "2026-10-21T00:00:00+00:00")
-    path = reports / "final_evaluation.json"
-    try:
-        path.write_text(json.dumps(record, allow_nan=False))
-        body = _ok(served.get("/api/performance"))
-        assert body["test"]["metrics"]["n"] == len(dashboard_parts.X_test)
-        info = _ok(served.get("/api/model-info"))
-        assert info["test_evaluation"]["recall"] == record["metrics"]["recall"]
-
-        path.write_text(json.dumps({**record, "model_sha256": "0" * 64}))
+    for other in ({"model_sha256": "0" * 64}, {"threshold": 0.99}):
+        _record_with(recorded, model, **other)
         assert _ok(served.get("/api/performance"))["test"] is None
         assert _ok(served.get("/api/model-info"))["test_evaluation"] is None
-    finally:
-        path.unlink(missing_ok=True)
+        assert _ok(served.get("/api/model-info"))["test_metrics"] is None
 
 
 def _validation(book) -> pd.DataFrame:
@@ -927,7 +921,6 @@ def test_the_segment_rules_name_only_fields_the_tables_have():
     from churnsense.api import dashboard_schemas as out
     from churnsense.evaluation.metrics import segment_table
 
-    assert set(insights.SEGMENT_OUTCOMES) <= set(out.HoldoutSegment.model_fields)
     assert set(insights.SEGMENT_OUTCOMES) <= set(out.ValidationSegment.model_fields)
     y = np.array([0, 1, 0, 1])
     frame = pd.DataFrame({"Contract": ["A", "A", "B", "B"]})
@@ -966,29 +959,510 @@ def test_an_unknown_leader_is_named_by_its_key_not_a_failure(served, model, monk
     assert selection["leader_name"] == "a_model_since_removed"
 
 
-def test_a_recorded_evaluation_carries_its_rate_and_intervals(served, recorded):
+def test_a_recorded_evaluation_carries_its_rate(served, recorded):
     test = _ok(served.get("/api/performance"))["test"]
-    metrics = test["metrics"]
-    assert test["churn_rate"] == pytest.approx(metrics["positives"] / metrics["n"])
-    big = [s for s in test["segments"] if s["customers"] >= insights.MIN_CELL and s["flagged"]]
-    assert big, "the record has no segment to read an interval from"
-    for s in big:
-        assert s["precision_low"] <= s["precision"] <= s["precision_high"]
+    assert test["churn_rate"] == 0.3
+    assert test["no_skill_accuracy"] == 0.7
 
 
-def test_a_record_written_before_intervals_still_loads(served, recorded, environment):
+#: What no response may say of the test partition, whatever the record holds.
+_NEVER_SERVED = (
+    "segments",
+    "reliability",
+    "ece",
+    "metrics_at_half",
+    "test_optimal_threshold",
+    "unscanned",
+)
+
+
+def test_a_ledger_holding_more_than_the_rule_allows_is_withheld_whole(served, recorded, model):
+    """A hand edit with a correct digest: the extra key refuses it, it is not just dropped."""
+    for extra in (
+        {"ece": 0.031},
+        {"segments": [{"dimension": "Contract", "segment": "One year", "precision": 0.8}]},
+        {"reliability": [{"count": 600, "observed_rate": 0.2}]},
+        {"metrics_at_half": {"tp": 1}},
+        {"test_optimal_threshold": 0.42},
+        {"secret": 0.123456},
+        {"roc_auc": 0.812345},
+        {"average_precision": 0.612345},
+        {"brier": 0.123456},
+    ):
+        _record_with(recorded, model, metrics={**recorded["metrics"], **extra})
+        body = _ok(served.get("/api/performance"))
+        assert body["test"] is None, extra
+        assert body["test_reason"] == TEST_WITHHELD_REASON
+        info = _ok(served.get("/api/model-info"))
+        assert info["test_evaluation"] is None and info["test_metrics"] is None, extra
+
+
+_SCALARS = {"roc_auc", "average_precision", "brier"}
+
+
+def test_no_surface_serves_a_held_out_score_metric(served, recorded):
+    """Not null, not zero: the fields are not there, on any route, and not in the contract."""
+    test = _ok(served.get("/api/performance"))["test"]
+    assert test["metrics"]["tp"] == 150, "the fixture must reach the release"
+    assert not _SCALARS & set(test["metrics"])
+    assert not _SCALARS & set(test)
+    for route in ("/model-info", "/api/model-info"):
+        info = _ok(served.get(route))
+        assert not _SCALARS & set(info["test_metrics"])
+        assert not _SCALARS & set(info["test_evaluation"])
+    contract = served.get("/openapi.json").json()["components"]["schemas"]
+    assert not _SCALARS & set(contract["HoldoutMetrics"]["properties"])
+    assert not _SCALARS & set(contract["HoldoutSummary"]["properties"])
+
+
+def test_validation_keeps_its_score_metrics_under_their_own_name(served, recorded):
+    """A withheld test figure is not filled in from validation, and validation loses nothing."""
+    body = _ok(served.get("/api/performance"))
+    assert set(body["validation_evaluation"]["metrics"]) >= _SCALARS
+    assert set(_ok(served.get("/api/model-info"))["validation_metrics"]) >= _SCALARS
+    assert not _SCALARS & set(body["test"]["metrics"])
+
+
+def test_a_sidecar_cannot_put_figures_back(served, model, monkeypatch):
+    """The sidecar used to carry a copy, marked or not: it is not read any more."""
+    monkeypatch.setitem(model.meta, "test_metrics", dict(_INVENTED_METRICS))
+    monkeypatch.setitem(model.meta, "test_disclosure_policy", 2)
+    monkeypatch.setitem(model.meta, "test_evaluated_at", "2026-10-21T00:00:00+00:00")
+    info = _ok(served.get("/api/model-info"))
+    assert info["test_metrics"] is None and info["test_evaluation"] is None
+
+
+def test_a_record_file_beside_the_reports_cannot_put_figures_back(served, environment, model):
     _, reports = environment
-    older = {
-        **recorded,
-        "segments": [
-            {k: v for k, v in s.items() if k not in (*_INTERVALS, "roc_auc")}
-            for s in recorded["segments"]
-        ],
+    path = reports / "final_evaluation.json"
+    path.write_text(
+        json.dumps(
+            {
+                "model_sha256": model.meta["model_sha256"],
+                "evaluated_at": "2026-10-21T00:00:00+00:00",
+                "test_disclosure_policy": 2,
+                "metrics": _INVENTED_METRICS,
+            }
+        )
+    )
+    try:
+        assert _ok(served.get("/api/performance"))["test"] is None
+        assert _ok(served.get("/api/model-info"))["test_evaluation"] is None
+    finally:
+        path.unlink()
+
+
+def test_performance_and_model_info_never_disagree_about_a_release(served, recorded, model):
+    """One file behind both: in every state, either both show it or neither does."""
+    from churnsense.evaluation import release
+
+    def both() -> tuple[bool, bool]:
+        return (
+            _ok(served.get("/api/performance"))["test"] is not None,
+            _ok(served.get("/api/model-info"))["test_evaluation"] is not None,
+        )
+
+    assert both() == (True, True)
+    _seal(model, None, state="reserved")
+    assert both() == (False, False)
+    _seal(model, None)
+    assert both() == (False, False)
+    release.LEDGER_FILE.write_text("{ half a ledger")
+    assert both() == (False, False)
+    release.LEDGER_FILE.unlink()
+    assert both() == (False, False)
+    release.LEDGER_FILE.write_text(release.open_ledger_text())
+    assert both() == (False, False)
+
+
+# --- revenue at risk ---------------------------------------------------------------------------
+
+
+def _labels(shown: pd.DataFrame) -> pd.Series:
+    return shown.set_index(schema.ID_COLUMN)[schema.TARGET]
+
+
+def _at_risk_ids(ids, shown, count: int = 30) -> dict[str, list[str]]:
+    train, labels = sorted(ids["train"]), _labels(shown)
+    return {
+        "churned": [i for i in train if labels[i] == 1][:count],
+        "stayed": [i for i in train if labels[i] == 0][:count],
+        "withheld": sorted(ids["test"])[:count],
     }
-    (reports / "final_evaluation.json").write_text(json.dumps(older, allow_nan=False))
-    test = _ok(served.get("/api/performance"))["test"]
-    assert test is not None
-    assert all(s[k] is None for s in test["segments"] for k in (*_INTERVALS, "roc_auc"))
+
+
+def test_a_customer_recorded_as_churned_has_no_revenue_at_risk(served, ids, shown):
+    chosen = _at_risk_ids(ids, shown)
+    everyone = list(itertools.chain.from_iterable(chosen.values()))
+    body = _ok(served.get("/api/customers", params={"ids": everyone, "page_size": 100}))
+    by_id = {r["id"]: r for r in body["rows"]}
+    for customer_id in chosen["churned"]:
+        assert by_id[customer_id]["outcome"] == "churned"
+        assert by_id[customer_id]["at_risk"] is None
+    for customer_id in chosen["stayed"]:
+        row = by_id[customer_id]
+        assert row["at_risk"] == pytest.approx(row["churn_probability"] * row["monthly_charges"])
+    for customer_id in chosen["withheld"]:
+        assert by_id[customer_id]["status"] == "unknown"
+        assert by_id[customer_id]["at_risk"] is None, "not known to be paying, nor to have left"
+
+
+def test_the_total_at_risk_counts_only_customers_recorded_active(served, ids, shown):
+    chosen = _at_risk_ids(ids, shown)
+    everyone = list(itertools.chain.from_iterable(chosen.values()))
+    body = _ok(served.get("/api/customers", params={"ids": everyone, "page_size": 100}))
+    expected = sum(
+        r["churn_probability"] * r["monthly_charges"]
+        for r in body["rows"]
+        if r["status"] == "active"
+    )
+    assert expected > 0
+    assert body["summary"]["at_risk"] == pytest.approx(expected)
+    alone = _ok(served.get("/api/customers", params={"ids": chosen["churned"]}))
+    assert alone["summary"]["at_risk"] == 0
+    assert alone["summary"]["monthly_charges"] > 0, "their charges still count as charges"
+
+
+@pytest.mark.parametrize("direction", ["asc", "desc"])
+def test_customers_with_nothing_at_risk_sort_last_either_way(served, direction):
+    pages = _ok(
+        served.get(
+            "/api/customers",
+            params={"partition": "train", "sort": "at_risk", "dir": direction, "page_size": 100},
+        )
+    )["pages"]
+    last = _ok(
+        served.get(
+            "/api/customers",
+            params={
+                "partition": "train",
+                "sort": "at_risk",
+                "dir": direction,
+                "page_size": 100,
+                "page": pages,
+            },
+        )
+    )
+    first = _ok(
+        served.get(
+            "/api/customers",
+            params={"partition": "train", "sort": "at_risk", "dir": direction, "page_size": 100},
+        )
+    )
+    assert all(r["at_risk"] is not None for r in first["rows"])
+    assert last["rows"][-1]["at_risk"] is None
+    values = [r["at_risk"] for r in first["rows"]]
+    assert values == sorted(values, reverse=direction == "desc")
+
+
+def test_excluding_churned_customers_leaves_those_who_can_still_be_retained(served, ids, shown):
+    churned = int(_labels(shown).sum())
+    everyone = _ok(served.get("/api/customers", params={"page_size": 1}))["total"]
+    kept = _ok(served.get("/api/customers", params={"exclude_churned": "true", "page_size": 100}))
+    assert kept["total"] == everyone - churned
+    assert "churned" not in {r["outcome"] for r in kept["rows"]}
+
+
+@pytest.mark.parametrize("band", ["Low", "Moderate", "High", "Critical"])
+def test_each_bands_count_of_those_who_can_be_retained_is_the_queues(served, band):
+    """A chip's number and the list it opens have to be the same customers."""
+    summary = next(b for b in _ok(served.get("/api/overview"))["bands"] if b["name"] == band)
+    params = {"bands": band, "flagged": "true", "page_size": 1}
+    assert summary["flagged"] == _ok(served.get("/api/customers", params=params))["total"]
+    params["exclude_churned"] = "true"
+    kept = _ok(served.get("/api/customers", params=params))["total"]
+    assert summary["flagged_not_churned"] == kept
+
+
+def test_a_band_count_of_those_who_can_be_retained_keeps_every_flagged_test_customer(book, cfg):
+    """It reads shown outcomes only: test customers count whatever became of them."""
+    from churnsense import book as books
+
+    frame = book.frame.assign(partition="test")
+    blind = books.Book(frame, book.outcomes.iloc[:0], pd.Index([]), "not verified")
+    for band in insights.band_summaries(blind, cfg):
+        assert band.flagged_not_churned == band.flagged
+
+
+def test_excluding_churned_customers_takes_no_test_customer_away(served):
+    """The filter reads shown outcomes only: it cannot tell a test churner from a stayer."""
+    base = _ok(served.get("/api/customers", params={"partition": "test", "page_size": 100}))
+    kept = _ok(
+        served.get(
+            "/api/customers",
+            params={"partition": "test", "exclude_churned": "true", "page_size": 100},
+        )
+    )
+    assert kept["total"] == base["total"]
+    assert [r["id"] for r in kept["rows"]] == [r["id"] for r in base["rows"]]
+    assert kept["summary"]["at_risk"] == pytest.approx(base["summary"]["at_risk"])
+
+
+def test_the_export_takes_the_same_filter(served):
+    kept = served.get("/api/customers/export", params={"exclude_churned": "true"}).text
+    frame = pd.read_csv(io.StringIO(kept), dtype=str)
+    assert "churned" not in set(frame["outcome"])
+
+
+# --- the overview's figures against the queue they open ----------------------------------------
+
+
+def _queue(served, **params) -> dict:
+    return _ok(
+        served.get(
+            "/api/customers", params={"flagged": "true", "exclude_churned": "true", **params}
+        )
+    )
+
+
+def test_a_key_figure_is_the_count_of_the_queue_it_opens(served, cfg: Config):
+    """Tiles and list: the same customers, each counted, churners left out of both."""
+    book = _ok(served.get("/api/overview"))
+    riskiest = [band.name for band in cfg.risk_bands][-2:]
+    for figure, params in (
+        (book["flagged"], {}),
+        (book["high_or_critical"], {"bands": riskiest}),
+    ):
+        listing = _queue(served, **params)
+        assert figure["in_queue"] == listing["total"]
+        assert figure["in_queue_monthly"] == pytest.approx(
+            listing["summary"]["active_monthly_charges"]
+        )
+        assert figure["in_queue_share"] == pytest.approx(listing["total"] / book["customers"])
+    assert book["flagged"]["in_queue"] < book["flagged"]["customers"], "no churner to leave out"
+
+
+def test_a_key_figure_leaves_out_who_the_threshold_does_not_flag(book, cfg: Config):
+    """A band's edge can sit below the threshold: the queue lists flagged customers only."""
+    top = book.frame["risk_band"].isin([band.name for band in cfg.risk_bands][-2:])
+    assert top.sum() > 1, "the fixture has no customer in the top bands"
+    unflagged = book._replace(frame=book.frame.assign(flagged=book.frame["flagged"] & ~top))
+    figure = insights.high_or_critical(unflagged, cfg)
+    assert figure.customers == top.sum()
+    assert figure.in_queue == 0
+    assert figure.in_queue_monthly == 0
+
+
+def test_the_book_wide_flagged_count_is_what_the_explorer_lists(served):
+    book = _ok(served.get("/api/overview"))
+    listing = _ok(served.get("/api/customers", params={"flagged": "true"}))
+    assert book["flagged"]["customers"] == listing["total"]
+
+
+def test_recurring_charges_count_active_customers_and_name_the_unknown_apart(served, ids):
+    book = _ok(served.get("/api/overview"))
+    whole = _ok(served.get("/api/customers"))
+    assert book["current_monthly_charges"] == pytest.approx(
+        whole["summary"]["active_monthly_charges"]
+    )
+    test = _ok(served.get("/api/customers", params={"partition": "test"}))
+    assert book["unknown_customers"] == test["total"] == len(ids["test"])
+    assert book["unknown_monthly_charges"] == pytest.approx(test["summary"]["monthly_charges"])
+    assert test["summary"]["active_monthly_charges"] == 0
+    assert (
+        book["current_monthly_charges"] + book["unknown_monthly_charges"] < book["monthly_charges"]
+    ), "the rest is who is recorded as churned"
+    kept = _ok(
+        served.get("/api/customers", params={"partition": "test", "exclude_churned": "true"})
+    )
+    assert kept["total"] == test["total"], "an unknown status is not a churned one"
+
+
+def test_each_row_says_its_status_and_it_follows_only_the_shown_outcome(served, ids):
+    for partition in ("train", "validation", "test"):
+        rows = _ok(served.get("/api/customers", params={"partition": partition, "page_size": 100}))[
+            "rows"
+        ]
+        for row in rows:
+            assert (
+                row["status"]
+                == {"stayed": "active", "churned": "churned", "withheld": "unknown"}[row["outcome"]]
+            )
+        if partition == "test":
+            assert {row["status"] for row in rows} == {"unknown"}
+            assert all(row["at_risk"] is None for row in rows)
+
+
+def test_status_counts_add_up_under_every_filter(served, cfg: Config):
+    names = [band.name for band in cfg.risk_bands]
+    for params in (
+        {},
+        {"partition": "train"},
+        {"partition": "test"},
+        {"flagged": "true"},
+        {"flagged": "true", "exclude_churned": "true"},
+        {"flagged": "true", "exclude_churned": "true", "partition": "test"},
+        {"flagged": "true", "exclude_churned": "true", "partition": "validation"},
+        {"flagged": "true", "exclude_churned": "true", "bands": names[-1:]},
+        {"q": "ZZZ-NOBODY"},
+    ):
+        page = _ok(served.get("/api/customers", params=params))
+        counts = page["status_counts"]
+        assert set(counts) == {"active", "churned", "unknown"}
+        assert sum(counts.values()) == page["total"], params
+        if params.get("exclude_churned"):
+            assert counts["churned"] == 0, params
+
+
+def test_a_key_figure_splits_the_queue_as_the_list_does(served, cfg: Config):
+    book = _ok(served.get("/api/overview"))
+    riskiest = [band.name for band in cfg.risk_bands][-2:]
+    for figure, params in (
+        (book["flagged"], {}),
+        (book["high_or_critical"], {"bands": riskiest}),
+    ):
+        listing = _queue(served, **params)
+        assert figure["in_queue_active"] == listing["status_counts"]["active"]
+        assert figure["in_queue_unknown"] == listing["status_counts"]["unknown"]
+        assert figure["in_queue"] == figure["in_queue_active"] + figure["in_queue_unknown"]
+        assert figure["in_queue_unknown"] > 0, "the fixture must have flagged test customers"
+        assert figure["in_queue_active"] > 0
+
+
+def test_every_status_unknown_book_has_no_recurring_figure_at_all(book, cfg: Config):
+    """Partitions that cannot be verified: nothing is known, so nothing is claimed as current."""
+    from churnsense import book as books
+
+    blind = books.Book(book.frame, book.outcomes.iloc[:0], pd.Index([]), "not verified")
+    assert insights.current_monthly_charges(blind) is None
+    assert insights.unknown_customers(blind) == len(book.frame)
+    assert insights.unknown_monthly_charges(blind) == pytest.approx(
+        book.frame["MonthlyCharges"].sum()
+    )
+    figure = insights.flagged_share(blind)
+    assert figure.in_queue_active == 0
+    assert figure.in_queue_monthly == 0
+    assert figure.in_queue == figure.in_queue_unknown == int(book.frame["flagged"].sum())
+
+
+def test_all_churned_is_nobody_current_and_nobody_unknown(book, cfg: Config):
+    from churnsense import book as books
+
+    every = pd.Series(1, index=book.frame[schema.ID_COLUMN], name=schema.TARGET)
+    gone = books.Book(book.frame, every, book.train_index, None)
+    assert insights.current_monthly_charges(gone) is None
+    assert insights.unknown_customers(gone) == 0
+    figure = insights.flagged_share(gone)
+    assert (figure.in_queue, figure.in_queue_active, figure.in_queue_unknown) == (0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    "narrowed",
+    [{}, {"partition": "train"}, {"partition": "validation"}, {"partition": "test"}, {"q": "1"}],
+    ids=["whole-book", "train", "validation", "test", "search"],
+)
+def test_a_chip_counts_what_choosing_its_band_would_list(served, cfg: Config, narrowed):
+    """The chips and the list agree under every filter, whichever bands are chosen."""
+    names = [band.name for band in cfg.risk_bands]
+    whole = _queue(served, **narrowed)
+    assert set(whole["band_counts"]) == set(names), "a band with nobody is named, with 0"
+    assert sum(whole["band_counts"].values()) == whole["total"]
+    for name in names:
+        chosen = _queue(served, **narrowed, bands=[name])
+        assert chosen["band_counts"] == whole["band_counts"], "the bands chosen change no chip"
+        assert chosen["total"] == whole["band_counts"][name]
+
+
+def test_every_flagged_test_customer_stays_in_the_chips(served, cfg: Config):
+    """The chips read no held-out outcome: what is flagged is what is counted."""
+    counts = _queue(served, partition="test")["band_counts"]
+    flagged = _ok(served.get("/api/customers", params={"partition": "test", "flagged": "true"}))
+    assert sum(counts.values()) == flagged["total"]
+
+
+def test_a_histogram_rate_is_drawn_at_its_customers_mean_score_inside_its_bin(served):
+    bins = _ok(served.get("/api/overview"))["histogram"]
+    drawn = [b for b in bins if b["observed_mean"] is not None]
+    assert drawn, "the fixture has no bin to draw"
+    for b in bins:
+        if b["observed_mean"] is None:
+            assert b["observed"] is None or b["observed"]["rate"] is None
+        else:
+            assert b["low"] <= b["observed_mean"] <= b["high"]
+            assert b["observed"]["rate"] is not None
+
+
+def test_listing_by_ids_and_excluding_churned_is_refused_not_guessed(served, ids):
+    response = served.get(
+        "/api/customers", params={"ids": sorted(ids["train"])[:2], "exclude_churned": "true"}
+    )
+    assert response.status_code == 422
+
+
+def test_with_outcomes_withheld_nobody_has_a_known_revenue_at_risk_and_nobody_is_dropped(book):
+    """An unknown status is neither a confirmed customer nor a churned one."""
+    from churnsense import book as books
+
+    blind = books.Book(book.frame, book.outcomes.iloc[:0], pd.Index([]), "not verified")
+    frame = insights.with_outcomes(blind)
+    assert frame["at_risk"].isna().all()
+    assert set(frame["status"]) == {"unknown"}
+    kept = insights.select(frame, insights.CustomerFilter(exclude_churned=True))
+    assert len(kept) == len(frame)
+
+
+# --- calibration overlay and served differences --------------------------------------------------
+
+
+def test_the_histogram_reads_observed_churn_from_validation_customers_only(
+    served, ids, clean_frame
+):
+    body = _ok(served.get("/api/overview"))
+    assert sum(h["customers"] for h in body["histogram"]) == len(clean_frame)
+    assert sum(h["observed"]["customers"] for h in body["histogram"]) == len(ids["validation"])
+
+
+def test_the_histogram_counts_the_outcomes_the_validation_customers_have(book, shown, ids):
+    from churnsense.config import load_config
+
+    bins = insights.probability_histogram(book, load_config())
+    frame = book.frame[book.frame[schema.ID_COLUMN].isin(ids["validation"])]
+    positions = insights.histogram_bins(frame["churn_probability"])
+    labels, counted = _labels(shown), 0
+    for i, histogram_bin in enumerate(bins):
+        if histogram_bin.observed.churned is not None:
+            members = frame[positions == i][schema.ID_COLUMN]
+            assert histogram_bin.observed.churned == labels[members].sum()
+            counted += 1
+    assert counted, "no bin of the fixture is large enough to read"
+
+
+def test_the_campaign_serves_what_the_peak_gains_over_the_shipped_cut(served, monkeypatch):
+    """A cut made worse than the peak, as the fixture's own cut can sit on it and gain nothing."""
+    from dataclasses import replace
+
+    from churnsense.api import dashboard
+
+    real = dashboard.scenario_at
+
+    def worse(*args, **kwargs):
+        shipped = real(*args, **kwargs)
+        return replace(shipped, net_benefit=shipped.net_benefit - 100)
+
+    monkeypatch.setattr(dashboard, "scenario_at", worse)
+    campaign = _ok(served.get("/api/overview"))["campaign"]
+    assert campaign["peak_gain"] > 0
+    assert campaign["peak_gain"] == pytest.approx(
+        campaign["peak_net_benefit"] - campaign["net_benefit"]
+    )
+
+
+def test_the_selection_serves_the_leaders_lead_over_the_selected_model(served, model, monkeypatch):
+    from churnsense.models.registry import DISPLAY_NAMES
+
+    candidates = _ok(served.get("/api/performance"))["candidates"]
+    chosen = next(c for c in candidates if c["selected"])
+    leader = next(c for c in candidates if not c["selected"] and c["model"] != "Baseline (prior)")
+    key = next(k for k, name in DISPLAY_NAMES.items() if name == leader["model"])
+    monkeypatch.setitem(model.meta["selection"], "leader", key)
+    selection = _ok(served.get("/api/performance"))["selection"]
+    assert selection["leader_gap"] == pytest.approx(leader["cv_pr_auc"] - chosen["cv_pr_auc"])
+
+
+def test_without_a_matching_comparison_no_lead_is_stated(served, model, monkeypatch):
+    monkeypatch.setitem(model.meta["selection"], "leader", "a_model_since_removed")
+    selection = _ok(served.get("/api/performance"))["selection"]
+    assert selection["leader_gap"] is None
 
 
 # --- batch scoring ----------------------------------------------------------------------------
@@ -1157,23 +1631,56 @@ def test_a_label_check_says_why_a_rate_has_no_value(
 # --- every response: no test outcome, no small-cell rate, a clean error shape ------------------------
 
 
+#: Invented figures that add up: 1,000 customers, 300 churners, 350 flagged, 150 caught.
+_INVENTED_METRICS = {
+    "threshold": 0.36,
+    "n": 1000,
+    "positives": 300,
+    "tn": 500,
+    "fp": 200,
+    "fn": 150,
+    "tp": 150,
+    "accuracy": 0.65,
+    "precision": 0.4286,
+    "recall": 0.5,
+    "f1": 0.4615,
+}
+
+
+def _seal(model, metrics: dict | None, *, state: str = "published", **identity) -> None:
+    """Put a ledger on disk as a release of the served artifact, or as ``identity`` says.
+
+    Past the writer, which would refuse: these tests plant what a damaged file could hold.
+    """
+    from churnsense.evaluation import release
+
+    threshold = model.meta["threshold"]
+    release.LEDGER_FILE.write_text(
+        release._encode(
+            release.Ledger(
+                state,
+                {
+                    **dict.fromkeys(release._HASH_KEYS, "a" * 64),
+                    "model_sha256": model.meta["model_sha256"],
+                    "threshold": threshold,
+                    **identity,
+                },
+                "2026-10-21T00:00:00+00:00",
+                None if metrics is None else {**metrics, "threshold": threshold},
+            )
+        )
+    )
+
+
 @pytest.fixture
-def recorded(served, environment, model, dashboard_parts, cfg: Config):
-    """A recorded test evaluation of the served artifact, for the length of one test."""
-    from churnsense.evaluation.report import final_record, run_final_evaluation
-
-    _, reports = environment
-    evaluation = run_final_evaluation(model.model, dashboard_parts, model.threshold, cfg)
-    record = final_record(evaluation, model.meta, "2026-10-21T00:00:00+00:00")
-    path = reports / "final_evaluation.json"
-    path.write_text(json.dumps(record, allow_nan=False))
-    yield record
-    path.unlink(missing_ok=True)
+def recorded(served, model):
+    """The partition's one release, of the served artifact, for the length of one test."""
+    _seal(model, _INVENTED_METRICS)
+    return {"metrics": dict(_INVENTED_METRICS)}
 
 
-#: Where the published final evaluation's aggregates appear. They are the
-#: figures reports/final_evaluation.md prints - a recorded report, not a view of
-#: test rows - and are the one documented exception to "no test figure".
+#: Where the partition's one release appears: recorded figures, not a view of test
+#: rows, and the one documented exception to "no test figure".
 RECORDED_TEST_BLOCKS = {
     ("performance", "test"),
     ("model-info", "test_evaluation"),
@@ -1278,12 +1785,145 @@ def test_no_response_reports_an_outcome_rate_for_fewer_than_twenty_customers(
     assert small, "the scan never met a small group"
 
 
-def test_the_recorded_test_segments_lose_their_rates_below_twenty(served, recorded):
-    segments = _ok(served.get("/api/performance"))["test"]["segments"]
-    small = [s for s in segments if s["customers"] < insights.MIN_CELL]
-    assert small, "the record has no small segment"
-    for segment in small:
-        assert all(segment[k] is None for k in insights.SEGMENT_OUTCOMES), segment
+def _record_with(recorded: dict, model, **changes) -> None:
+    """A ledger holding other figures. The digest is right: only the figures can fail."""
+    from churnsense.evaluation import release
+
+    _seal(model, changes.pop("metrics", recorded["metrics"]), **changes)
+    assert release.LEDGER_FILE.is_file()
+
+
+@pytest.mark.parametrize(
+    "metrics",
+    [
+        pytest.param({"n": 19, "positives": 5, "tn": 7, "fp": 7, "fn": 2, "tp": 3}, id="small"),
+        pytest.param({"tp": 0, "fp": 350, "tn": 350, "fn": 300}, id="nobody-flagged-churned"),
+        pytest.param(
+            {"tp": 350, "fp": 0, "tn": 500, "fn": 150, "positives": 500}, id="all-churned"
+        ),
+        pytest.param({"fn": 0, "tp": 300, "fp": 200, "tn": 500}, id="no-churner-missed"),
+        pytest.param({"tp": 19, "fp": 331, "fn": 281, "tn": 369}, id="nineteen-in-a-cell"),
+        pytest.param({"tp": 150.5}, id="not-a-whole-count"),
+        pytest.param({"n": 999}, id="does-not-add-up"),
+    ],
+)
+def test_a_partition_the_rule_withholds_is_not_served(served, recorded, model, metrics):
+    _record_with(recorded, model, metrics={**recorded["metrics"], **metrics})
+    body = _ok(served.get("/api/performance"))
+    assert body["test"] is None
+    assert _ok(served.get("/api/model-info"))["test_evaluation"] is None
+
+
+def test_every_cause_of_a_withheld_evaluation_reads_the_same(served, recorded, model):
+    """A reader who knows the rule must not learn from the answer which case it was."""
+    from churnsense.evaluation import release
+
+    def answer() -> tuple:
+        body = _ok(served.get("/api/performance"))
+        return body["test"] is None, body["test_reason"]
+
+    answers = set()
+    for metrics in (
+        None,
+        {**recorded["metrics"], "tp": 0, "fp": 350, "tn": 350, "fn": 300},
+        {**recorded["metrics"], "fn": 0, "tp": 300, "fp": 200, "tn": 500},
+        {**recorded["metrics"], "brier": 0.1},
+    ):
+        _record_with(recorded, model, metrics=metrics)
+        answers.add(answer())
+    _seal(model, None, state="reserved")
+    answers.add(answer())
+    release.LEDGER_FILE.write_text("not json")
+    answers.add(answer())
+    assert answers == {(True, TEST_WITHHELD_REASON)}
+
+
+#: What a reader might try. Unknown parameters are ignored, so they narrow nothing.
+_TEST_LISTINGS = (
+    {"partition": "test"},
+    {"partition": "test", "flagged": "true"},
+    {"partition": "test", "flagged": "false"},
+    {"partition": "test", "flagged": "true", "contract": "Month-to-month"},
+    {"partition": "test", "flagged": "true", "contract": "One year", "internet": "DSL"},
+    {"partition": "test", "contract": "Two year", "tenure_min": 0, "tenure_max": 24},
+    {"partition": "test", "payment": "Electronic check", "bands": ["High", "Critical"]},
+    {"partition": "test", "sort": "at_risk", "dir": "asc", "page": 2, "page_size": 5},
+    {"partition": "test", "sort": "id", "dir": "desc", "page_size": 100},
+)
+
+
+@pytest.mark.parametrize("params", _TEST_LISTINGS)
+def test_a_test_listing_holds_no_outcome_whatever_narrows_it(served, ids, recorded, params):
+    body = _ok(served.get("/api/customers", params=params))
+    assert body["summary"]["observed"] is None
+    assert {r["id"] for r in body["rows"]} <= ids["test"]
+    for row in body["rows"]:
+        assert row["outcome"] == "withheld"
+        assert not {"churn", "Churn", "label", "churned"} & set(row)
+
+
+@pytest.mark.parametrize("attempt", ["outcome=churned", "churn=1", "Churn=Yes", "label=1"])
+def test_asking_for_an_outcome_narrows_nothing(served, attempt):
+    base = _ok(served.get("/api/customers", params={"partition": "test"}))
+    tried = _ok(served.get(f"/api/customers?partition=test&{attempt}"))
+    assert tried["total"] == base["total"]
+    assert [r["id"] for r in tried["rows"]] == [r["id"] for r in base["rows"]]
+
+
+@pytest.mark.parametrize("key", ["outcome", "churn", "Churn", "churned", "label"])
+def test_a_listing_cannot_be_sorted_by_an_outcome(served, key):
+    response = served.get("/api/customers", params={"partition": "test", "sort": key})
+    assert response.status_code == 422
+
+
+def test_a_test_customers_id_opens_no_outcome(served, ids, recorded):
+    chosen = sorted(ids["test"])[:5]
+    for customer_id in chosen:
+        assert _ok(served.get(f"/api/customers/{customer_id}"))["outcome"] == "withheld"
+    selection = _ok(served.get("/api/customers", params={"ids": chosen}))
+    assert selection["summary"]["observed"] is None
+    assert {r["outcome"] for r in selection["rows"]} == {"withheld"}
+    explained = _ok(served.post("/api/explain", json={"customer_ids": chosen[:1]}))
+    assert "outcome" not in json.dumps(explained)
+    assert "Churn" not in explained["explanations"][0]
+
+
+def test_a_test_export_holds_no_outcome(served, ids):
+    text = served.get("/api/customers/export", params={"partition": "test"}).text
+    frame = pd.read_csv(io.StringIO(text), dtype=str)
+    assert schema.TARGET not in frame.columns
+    assert set(frame["outcome"]) == {"withheld"}
+
+
+def _rounded(value):
+    """``value`` with every float to nine places, at any depth."""
+    if isinstance(value, float):
+        return round(value, 9)
+    if isinstance(value, dict):
+        return {k: _rounded(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_rounded(v) for v in value]
+    return value
+
+
+@pytest.mark.parametrize("with_ids", [True, False])
+def test_a_batch_answers_alike_whatever_label_a_test_customer_is_given(
+    served, ids, raw_frame, with_ids
+):
+    """Guessing a held-out customer's label and watching the response tells nothing."""
+    rows = raw_frame[raw_frame["customerID"].isin(ids["test"])].head(40)
+    if not with_ids:
+        rows = rows.drop(columns=["customerID"])
+    answers = [
+        _ok(_upload(served, rows.assign(**{schema.TARGET: label}))) for label in ("Yes", "No")
+    ]
+    tables = [pd.read_csv(io.StringIO(answer.pop("csv"))) for answer in answers]
+    pd.testing.assert_frame_equal(tables[0], tables[1])
+    # Scoring may differ in the last bits between two calls; a label would move far more.
+    assert _rounded(answers[0]) == _rounded(answers[1])
+    assert answers[0]["summary"]["labels"]["labelled"] == 0
+    assert answers[0]["summary"]["labels"]["excluded_test"] == 40
+    assert all(row["label"] is None for row in answers[0]["rows"])
 
 
 def test_a_group_of_exactly_twenty_keeps_its_figures_and_nineteen_loses_them():
@@ -1450,6 +2090,160 @@ def test_page_routes_keep_405_and_json_404(served, built):
     assert served.get("/no-such-page").json()["error"] == "not_found"
 
 
+#: What a browser's address bar sends; fetch, curl and TestClient send */*.
+NAVIGATION = {"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+
+
+@pytest.mark.parametrize(
+    "path", ["/no-such-page", "/a/b/c", "/explorer/x", "/index.html", "/..%2F..%2Fsecret.txt"]
+)
+def test_an_unknown_page_address_gets_the_app_shell_with_404(served, built, path):
+    from churnsense.api import middleware
+
+    response = served.get(path, headers=NAVIGATION)
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.text == (built / "index.html").read_text()
+    assert response.headers["content-security-policy"] == middleware.CONTENT_SECURITY_POLICY
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_a_page_address_with_a_trailing_slash_redirects_to_the_page(served, built):
+    response = served.get("/explorer/", headers=NAVIGATION, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/explorer")
+
+
+def test_a_head_request_for_an_unknown_page_gets_404_without_a_body(served, built):
+    response = served.head("/no-such-page", headers=NAVIGATION)
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.content == b""
+
+
+@pytest.mark.parametrize(
+    ("path", "error"),
+    [
+        ("/api/nope", "not_found"),
+        ("/api", "not_found"),
+        ("/assets/missing.js", "not_found"),
+        ("/docs/x", "not_found"),
+        ("/redoc/x", "not_found"),
+        ("/openapi.json/x", "not_found"),
+        ("/favicon.svg/x", "not_found"),
+        ("/health/x", "not_found"),
+        ("/predict/x", "not_found"),
+        ("/model-info/x", "not_found"),
+        ("/api/customers/NOPE-00000", "not_found"),
+    ],
+)
+def test_api_asset_and_docs_paths_keep_their_json_404_for_a_browser_too(served, built, path, error):
+    response = served.get(path, headers=NAVIGATION)
+    assert response.status_code == 404
+    assert response.json()["error"] == error
+
+
+def test_only_a_browser_navigation_gets_the_shell(served, built):
+    # A program asking for JSON, or anything that is not a GET, keeps the JSON 404.
+    as_json = served.get("/no-such-page", headers={"Accept": "application/json"})
+    assert as_json.json()["error"] == "not_found"
+    assert served.post("/no-such-page", headers=NAVIGATION).json()["error"] == "not_found"
+    # A path some route claims for another method stays a 405, never a page.
+    assert served.get("/predict", headers=NAVIGATION).status_code == 405
+    assert served.post("/", headers=NAVIGATION).status_code == 405
+
+
+def test_without_a_build_an_unknown_page_keeps_the_json_404(served, tmp_path, monkeypatch):
+    from churnsense.api import spa
+
+    monkeypatch.setattr(spa, "FRONTEND_DIST", tmp_path / "missing")
+    response = served.get("/no-such-page", headers=NAVIGATION)
+    assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
+
+
+def test_without_a_build_a_page_tells_a_browser_how_to_make_one(served, tmp_path, monkeypatch):
+    from churnsense.api import spa
+
+    monkeypatch.setattr(spa, "FRONTEND_DIST", tmp_path / "missing")
+    assert served.get("/explorer", headers=NAVIGATION).json()["error"] == "frontend_not_built"
+
+
+@pytest.mark.parametrize("status", [400, 403, 405, 409, 429, 500, 503])
+def test_only_a_404_ever_gets_the_shell(built, status):
+    # Today every other error comes from a reserved path; the contract holds for a page too.
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    from starlette.requests import Request
+
+    from churnsense.api import main, spa
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/explorer",
+        "query_string": b"",
+        "headers": [(b"accept", NAVIGATION["Accept"].encode())],
+        "app": main.app,
+    }
+    page = spa.not_found_page(Request(scope), StarletteHTTPException(status_code=404))
+    assert page is not None and page.status_code == 404
+    assert spa.not_found_page(Request(scope), StarletteHTTPException(status_code=status)) is None
+
+
+def test_a_404_that_names_its_own_error_keeps_it_even_on_a_page_address(built):
+    # frontend_not_built is raised by a page route; a build finishing meanwhile
+    # must not turn it into the shell.
+    from starlette.requests import Request
+
+    from churnsense.api import main, spa
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/explorer",
+        "query_string": b"",
+        "headers": [(b"accept", NAVIGATION["Accept"].encode())],
+        "app": main.app,
+    }
+    assert spa.not_found_page(Request(scope), spa.FrontendNotBuiltError()) is None
+
+
+def test_the_accept_header_is_read_without_regard_to_case(served, built):
+    # Media types are case-insensitive (RFC 9110 §8.3.1).
+    response = served.get("/no-such-page", headers={"Accept": "TEXT/HTML"})
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("text/html")
+
+
+def test_a_405_for_a_browser_is_the_json_error_response(served, built):
+    response = served.get("/predict", headers=NAVIGATION)
+    assert response.status_code == 405
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["error"] == "method_not_allowed"
+
+
+def test_a_head_request_for_a_reserved_path_keeps_the_json_404(served, built):
+    response = served.head("/api/nope", headers=NAVIGATION)
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+
+
+def test_the_reserved_first_segments_are_the_apps_own_non_page_routes():
+    from churnsense.api import main, spa
+
+    assert spa.reserved_segments(main.app) == {
+        "api",
+        "assets",
+        "docs",
+        "favicon.svg",
+        "health",
+        "model-info",
+        "openapi.json",
+        "predict",
+        "redoc",
+    }
+
+
 # --- security layers -----------------------------------------------------------------------------------
 
 
@@ -1466,6 +2260,48 @@ def test_every_response_carries_the_hardening_headers(served):
         assert "camera=()" in headers["permissions-policy"]
         assert headers["cross-origin-opener-policy"] == "same-origin"
         assert "strict-transport-security" not in headers  # plain http
+
+
+def _directives(policy: str) -> dict[str, set[str]]:
+    """A Content-Security-Policy as directive -> sources, order and spacing aside."""
+    pairs = (part.split() for part in policy.split(";") if part.strip())
+    return {name: set(sources) for name, *sources in pairs}
+
+
+def test_the_app_policy_is_exactly_the_reviewed_one(served, built):
+    # Written out, not read from middleware: loosening the policy (an added
+    # 'unsafe-inline', a CDN, a dropped directive) has to change this test too.
+    reviewed = {
+        "default-src": {"'self'"},
+        "script-src": {"'self'"},
+        "style-src": {"'self'"},
+        "img-src": {"'self'", "data:"},
+        "font-src": {"'self'"},
+        "connect-src": {"'self'"},
+        "frame-ancestors": {"'none'"},
+        "base-uri": {"'none'"},
+        "form-action": {"'self'"},
+    }
+    for response in (served.get("/"), served.get("/api/overview")):
+        assert _directives(response.headers["content-security-policy"]) == reviewed
+
+
+def test_the_docs_policy_is_exactly_the_reviewed_one(served):
+    cdn = "https://cdn.jsdelivr.net"
+    reviewed = {
+        "default-src": {"'none'"},
+        "script-src": {cdn, "'unsafe-inline'"},
+        "style-src": {cdn, "https://fonts.googleapis.com", "'unsafe-inline'"},
+        "font-src": {"https://fonts.gstatic.com"},
+        "img-src": {"'self'", "data:", "https://fastapi.tiangolo.com", "https://cdn.redoc.ly"},
+        "connect-src": {"'self'"},
+        "worker-src": {"blob:"},
+        "frame-ancestors": {"'none'"},
+        "base-uri": {"'none'"},
+        "form-action": {"'none'"},
+    }
+    for path in ("/docs", "/redoc"):
+        assert _directives(served.get(path).headers["content-security-policy"]) == reviewed
 
 
 def test_the_docs_pages_get_their_own_narrow_policy(served):
@@ -1615,21 +2451,23 @@ def test_an_explanation_that_does_not_add_up_is_never_served(served, monkeypatch
     [
         "{}",
         "not json",
-        '{"model_sha256": "%s", "evaluated_at": "x"}',
-        '{"model_sha256": "%s", "ece": NaN}',
+        '{"state": "published", "metrics": NaN}',
+        '{"state": "published", "threshold": 1e400}',
+        "[" * 200_000 + "]" * 200_000,
+        "[" + "9" * 5000 + "]",
     ],
+    ids=["empty-object", "not-json", "nan", "overflow", "deep-nesting", "enormous-integer"],
 )
-def test_a_malformed_evaluation_record_reads_as_not_recorded(served, environment, model, text):
-    _, reports = environment
-    path = reports / "final_evaluation.json"
-    sha = model.meta["model_sha256"]
-    try:
-        path.write_text(text.replace("%s", sha))
-        for route in ("/model-info", "/api/model-info"):
-            assert _ok(served.get(route))["test_evaluation"] is None
-        assert _ok(served.get("/api/performance"))["test"] is None
-    finally:
-        path.unlink(missing_ok=True)
+def test_a_malformed_ledger_is_withheld_and_takes_no_page_down(served, recorded, text):
+    from churnsense.evaluation import release
+
+    release.LEDGER_FILE.write_text(text)
+    for route in ("/model-info", "/api/model-info"):
+        info = _ok(served.get(route))
+        assert info["test_evaluation"] is None and info["test_metrics"] is None
+    body = _ok(served.get("/api/performance"))
+    assert body["test"] is None
+    assert body["test_reason"] == TEST_WITHHELD_REASON
 
 
 @pytest.mark.parametrize(
@@ -1679,7 +2517,7 @@ def test_a_listing_by_ids_shows_exactly_those_customers_and_totals_them(served):
     body = _ok(served.get("/api/customers", params={"ids": chosen, "page_size": 100}))
     assert sorted(row["id"] for row in body["rows"]) == sorted(chosen)
     assert body["total"] == body["summary"]["customers"] == 3
-    assert body["summary"]["at_risk"] == pytest.approx(sum(r["at_risk"] for r in body["rows"]))
+    assert body["summary"]["at_risk"] == pytest.approx(sum(r["at_risk"] or 0 for r in body["rows"]))
 
 
 def test_a_selection_of_test_customers_reports_no_outcome(served, ids):

@@ -109,8 +109,8 @@ export function additivity(gap: number): string {
 // --- the swarm -------------------------------------------------------------------
 
 /** A row's accessible name: the served mean |contribution| and its rank. */
-export function rowName(label: string, meanAbs: number, rank: number): string {
-  return `${label}, mean absolute contribution ${(meanAbs * 100).toFixed(1)} percentage points, rank ${rank}`;
+export function rowDescription(meanAbs: number, rank: number): string {
+  return `Mean absolute contribution ${(meanAbs * 100).toFixed(1)} percentage points, rank ${rank}`;
 }
 
 /** The question each chart answers, from the artboard; a plain one for the rest. */

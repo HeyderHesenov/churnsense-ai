@@ -25,22 +25,22 @@ import { CAUSAL } from '../../test/wording';
 describe('the prediction', () => {
   it('says how far the estimate sits from the threshold, and what the operating point does', () => {
     expect(gapNote(0.8029793735676088, 0.36, true)).toBe(
-      '0.443 above the threshold. This customer would receive an offer.',
+      '0.443 above the threshold. Flagged at the current operating point.',
     );
     expect(gapNote(0.030126, 0.36, false)).toBe(
-      '0.330 below the threshold. No offer at the current operating point.',
+      '0.330 below the threshold. Not flagged at the current operating point.',
     );
   });
 
   it('words a gap too small to write in three decimals', () => {
     expect(gapNote(0.36, 0.36, true)).toBe(
-      'At the threshold. This customer would receive an offer.',
+      'At the threshold. Flagged at the current operating point.',
     );
     expect(gapNote(0.3604, 0.36, true)).toBe(
-      'Just above the threshold. This customer would receive an offer.',
+      'Just above the threshold. Flagged at the current operating point.',
     );
     expect(gapNote(0.3599, 0.36, false)).toBe(
-      'Just below the threshold. No offer at the current operating point.',
+      'Just below the threshold. Not flagged at the current operating point.',
     );
   });
 
@@ -48,7 +48,7 @@ describe('the prediction', () => {
     expect(flagText(true, 0.36)).toBe('Flagged at 0.36');
     expect(flagText(false, 0.4)).toBe('Not flagged at 0.40');
     expect(gapNote(0.5, 0.4, true)).toBe(
-      '0.100 above the threshold. This customer would receive an offer.',
+      '0.100 above the threshold. Flagged at the current operating point.',
     );
   });
 

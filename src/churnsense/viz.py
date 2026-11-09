@@ -106,8 +106,8 @@ def money(amount: float, currency: str = "USD") -> str:
     """Format a monetary amount for display.
 
     Here rather than in the report or the figure module because both render
-    the same numbers into the same artifact set - `make evaluate` writes
-    final_evaluation.md and threshold_economics.png in one run - and two
+    the same numbers into the same artifact set - `make train` writes
+    model_comparison.md and threshold_economics.png in one run - and two
     copies of the currency table meant they could disagree inside it. The
     dashboard reads it too, so `business.currency` finally means something
     everywhere instead of only in the reports.

@@ -51,6 +51,7 @@ from churnsense.api.state import (
 from churnsense.api.uploads import read_upload
 from churnsense.config import Business, load_config
 from churnsense.data import schema
+from churnsense.evaluation import disclosure, release
 from churnsense.evaluation.threshold import DISCLAIMER, ThresholdScenario, scenario_at
 from churnsense.exceptions import DataError
 from churnsense.explainability.shap_explain import (
@@ -183,39 +184,39 @@ def _importance(d: Dashboard) -> tuple[list[out.Importance], out.ImportanceBasis
     return ranking, basis
 
 
-def recorded_evaluation(reports_dir: Path, model_sha256: str) -> out.HoldoutEvaluation | None:
-    """The test evaluation ``make evaluate`` recorded for this artifact, or ``None``.
+#: Why a test evaluation that was recorded is not served: one text for every cause.
+TEST_WITHHELD_REASON = "The recorded test evaluation is withheld under the disclosure policy."
 
-    The record is a published report - aggregates only, the same figures
-    ``reports/final_evaluation.md`` prints - and is shown as recorded, never
-    recomputed. A record that is missing, describes another artifact or is
-    malformed reads as "not recorded": a broken report must not take a page
-    down. Segments of fewer than 20 customers lose their rates here.
+
+def _held_out_evaluation(
+    model_sha256: object, threshold: float
+) -> tuple[out.HoldoutEvaluation | None, bool]:
+    """The release of this artifact, or ``None``; and whether one is being withheld.
+
+    Read from the partition's one ledger (``evaluation.release``) and never recomputed.
+    Anything that cannot be shown reads as withheld, in one sentence, whatever the cause.
     """
+    release_, withheld = release.published_release(model_sha256, threshold)
+    if release_ is None:
+        return None, withheld
     try:
-        record = reports.final_evaluation(reports_dir, model_sha256)
-        if record is None:
-            return None
-        fields = out.HoldoutSegment.model_fields
-        segments = [
-            insights.small_group(
-                {k: row[k] if f.is_required() else row.get(k) for k, f in fields.items()}
-            )
-            for row in record["segments"]
-        ]
-        metrics = record["metrics"]
-        return out.HoldoutEvaluation(
-            evaluated_at=record["evaluated_at"],
-            metrics=metrics,
-            churn_rate=metrics["positives"] / metrics["n"] if metrics["n"] else None,
-            ece=record["ece"],
-            no_skill_accuracy=record["no_skill_accuracy"],
-            test_optimal_threshold=record["test_optimal_threshold"],
-            segments=segments,
+        return (
+            out.HoldoutEvaluation(
+                evaluated_at=release_.evaluated_at,
+                metrics=release_.metrics,
+                churn_rate=disclosure.churn_rate(release_.metrics),
+                no_skill_accuracy=disclosure.no_skill_accuracy(release_.metrics),
+            ),
+            False,
         )
-    except (DataError, KeyError, TypeError, ValueError, OSError) as exc:
-        logger.warning("the recorded test evaluation is unreadable: %s", exc.__class__.__name__)
-        return None
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("the test release is unreadable: %s", exc.__class__.__name__)
+        return None, True
+
+
+def recorded_evaluation(model_sha256: object, threshold: float) -> out.HoldoutEvaluation | None:
+    """The test evaluation that may be served for this artifact, or ``None``."""
+    return _held_out_evaluation(model_sha256, threshold)[0]
 
 
 def _detail(d: Dashboard, row: pd.Series) -> out.CustomerDetail:
@@ -281,6 +282,7 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
             net_benefit=shipped.net_benefit,
             peak_threshold=economics.peak.threshold,
             peak_net_benefit=economics.peak.net_benefit,
+            peak_gain=economics.peak.net_benefit - shipped.net_benefit,
             recommended_threshold=economics.recommended.threshold,
             assumptions=_assumptions(cfg.business),
             curve=[
@@ -295,6 +297,11 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
     return out.OverviewResponse(
         customers=len(d.frame),
         monthly_charges=float(d.frame["MonthlyCharges"].sum()),
+        current_monthly_charges=d.memo("current", lambda: insights.current_monthly_charges(d.book)),
+        unknown_customers=d.memo("unknown", lambda: insights.unknown_customers(d.book)),
+        unknown_monthly_charges=d.memo(
+            "unknown_charges", lambda: insights.unknown_monthly_charges(d.book)
+        ),
         threshold=d.model.threshold,
         observed=d.memo("observed", lambda: insights.observed_overall(d.book)),
         high_or_critical=d.memo("high", lambda: insights.high_or_critical(d.book, cfg)),
@@ -333,6 +340,7 @@ def customer_filter(
     tenure_max: Annotated[int | None, Query(ge=0, le=120)] = None,
     flagged: bool | None = None,
     partition: out.Partition | None = None,
+    exclude_churned: bool = False,
 ) -> insights.CustomerFilter:
     """The filters a customer listing and its export share, validated."""
     names = {band.name for band in d.config.risk_bands}
@@ -350,6 +358,7 @@ def customer_filter(
         tenure_max=tenure_max,
         flagged=flagged,
         partition=partition,
+        exclude_churned=exclude_churned,
     )
 
 
@@ -385,7 +394,7 @@ def customers(
     """One page of the scored book, filtered and sorted, with a summary of every match.
 
     A page past the end is clamped to the last one, so a stale link still
-    shows rows. ``outcome`` is ``"withheld"`` for every test customer. With
+    shows rows. ``outcome`` is ``"withheld"`` and ``status`` is ``"unknown"`` for every test customer. With
     ``ids``, the summary totals exactly those customers (a page's selection).
     """
     matches = insights.select(d.frame, selection)
@@ -412,11 +421,16 @@ def customers(
                 flagged=bool(r["flagged"]),
                 partition=r["partition"],
                 outcome=r["outcome"],
-                at_risk=float(r["at_risk"]),
+                status=r["status"],
+                at_risk=None if pd.isna(r["at_risk"]) else float(r["at_risk"]),
             )
             for _, r in rows.iterrows()
         ],
         summary=insights.summarise(matches, len(d.frame), d.book.outcomes),
+        band_counts=insights.band_counts(
+            d.frame, selection, [band.name for band in d.config.risk_bands]
+        ),
+        status_counts=insights.status_counts(matches),
         withheld_reason=d.book.withheld,
     )
 
@@ -720,6 +734,17 @@ def _at_half(metrics: dict | None) -> out.AtHalf | None:
     )
 
 
+def _leader_gap(comparison: pd.DataFrame | None, leader_name: str) -> float | None:
+    """How far the leader's cross-validated score sits above the selected model's, if both listed."""
+    if comparison is None:
+        return None
+    leader = comparison.loc[comparison["model"] == leader_name, "cv_pr_auc"]
+    selected = comparison.loc[comparison["selected"].astype(bool), "cv_pr_auc"]
+    if len(leader) != 1 or len(selected) != 1:
+        return None
+    return float(leader.iloc[0] - selected.iloc[0])
+
+
 @router.get("/performance", response_model=out.PerformanceResponse, responses=_ERRORS)
 def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.PerformanceResponse:
     """Selection, calibration, the validation sweep and the served model measured
@@ -733,7 +758,7 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
     selection = meta.get("selection")
     comparison = _report(reports.model_comparison, d.reports_dir)
     economics = d.economics(d.config.business)
-    record = recorded_evaluation(d.reports_dir, meta.get("model_sha256", ""))
+    record, withheld = _held_out_evaluation(meta.get("model_sha256"), d.model.threshold)
     return out.PerformanceResponse(
         display_name=meta["display_name"],
         model_sha256=meta.get("model_sha256"),
@@ -746,6 +771,9 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
             folds=meta["cv_folds"],
             leader=selection["leader"],
             leader_name=DISPLAY_NAMES.get(selection["leader"], selection["leader"]),
+            leader_gap=_leader_gap(
+                comparison, DISPLAY_NAMES.get(selection["leader"], selection["leader"])
+            ),
             standard_error=selection["standard_error"],
             cutoff=selection["cutoff"],
             eligible=selection["eligible"],
@@ -775,10 +803,9 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
         test=record,
         test_reason=None
         if record is not None
-        else (
-            "No test evaluation is recorded for this model. "
-            "It is written by `make evaluate CONFIRM=yes`."
-        ),
+        else TEST_WITHHELD_REASON
+        if withheld
+        else "No test evaluation is recorded for this model.",
         withheld_reason=d.book.withheld,
     )
 

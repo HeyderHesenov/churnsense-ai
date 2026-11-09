@@ -251,7 +251,8 @@ Supporting changes:
    - Filter bar.
    - Selection summary (`aria-live`) with a mini histogram.
    - Sortable table with page size 15/25/50 and skeleton, error and empty states.
-   - Detail panel: prev/next/close, attributes, "Explain this customer".
+   - Detail panel: prev/next/close, attributes, "Explain this customer" (inline,
+     in the panel), and since Phase 4 a link to the customer's own page.
    - Export.
 3. **Single customer**
    - Picker: examples plus "New customer".
@@ -275,7 +276,7 @@ Supporting changes:
    - Net-benefit chart: band, peak, recommendation, hover, click-to-set.
    - Precision/recall chart.
    - Result tiles.
-   - Pins (≤ 4, kept in the URL).
+   - Pins (≤ 4). As built they are kept in memory, not in the URL (Phase 4 note).
    - "Why not the peak" panel.
    - Sensitivity pills.
    - 150 ms debounce; the previous result stays visible while the next loads.
@@ -311,12 +312,12 @@ Supporting changes:
   - the host in the API panel.
 - **The Main queue is the real paginated flagged list** ("Showing 1–8 of 2,306 flagged"). The prototype loaded only the top 8 per band.
 - **"Add to campaign list" is omitted.** It is a dead button, and no such feature exists. "Export selection" works.
-- **Numbers typed into the copy become API values:** "17×", "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V 0.419 … fourth", "0.27", "34 churners", ECE 0.144 → 0.027, ε.
+- **Numbers typed into the copy become API values:** "17×", "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V 0.419 … fourth", "0.27", "34 churners", validation ECE 0.144 → 0.027, ε.
 - **The Single-customer picker uses a deterministic rule.** The design's four case types are kept, but no hard-coded IDs; the chosen customers may differ from the prototype's.
 
 ## Phase 4 — hardening, CI, docs
 
-**Wording:** `scripts/check_wording.py` scans our own bundle chunks (not vendor) and the API strings for causal claims (`causes|caused by|drives|driven by|will prevent|prevents|guarantee(s|d)`). It runs in pytest when `dist` exists and always in CI.
+**Wording:** `tests/test_wording.py` (as built; planned as `scripts/check_wording.py`) scans our own bundle chunks (not vendor) and the API strings for causal claims (`causes|caused by|drives|driven by|will prevent|prevents|guarantee(s|d)`). It runs in pytest when `dist` exists and always in CI.
 
 **Frontend quality:**
 - ESLint 9 with react-hooks, jsx-a11y and security, plus Prettier and `tsc --noEmit`, with zero warnings;
@@ -331,7 +332,7 @@ Supporting changes:
 
 It runs against `scripts/e2e_server.py`: a synthetic dataset, model, reports and SHAP cache (`--sample 30`) built in a temp directory, run with `CHURNSENSE_CONFIG` and raised rate limits.
 
-**CI**, a new `frontend` job with SHA-pinned actions and Node 22 plus Python 3.12:
+**CI** (as built in Phase 4: two jobs, `frontend` with Node alone and `e2e` with Node plus Python 3.12; see "Phase 4"), with SHA-pinned actions:
 - the Python side installs the hashed lock, so the schema is stable;
 - `npm ci`, lint, typecheck, Vitest, build, wording check;
 - OpenAPI type freshness (`git diff --exit-code`);
@@ -340,11 +341,11 @@ It runs against `scripts/e2e_server.py`: a synthetic dataset, model, reports and
 
 Dependabot gets an `npm` entry (`/frontend`, 7-day cooldown, grouped). The `ci.yml` smoke tests use a loopback client.
 
-**Makefile:** `frontend-install`, `frontend`, `frontend-dev` (proxy to `API_PORT`), `serve` (API + SPA, no reload), `openapi`, `frontend-test`, `e2e`.
+**Makefile:** `frontend-install`, `frontend`, `frontend-dev` (proxy to `API_PORT`), `serve` (API + SPA, no reload), `openapi`, `frontend-test`, `e2e`. As built in Phase 4: `frontend-install`, `frontend`, `frontend-test` and `e2e`; `frontend-dev`, `serve` and `openapi` are deferred (`npm run dev`, `make api` and `npm run openapi` cover them).
 
 **Docs:**
-- SECURITY.md: loopback-only, rate limits, CSP and the docs exception, same-origin, I-01 closed;
-- README: SPA section, with only measured numbers and none of the phrases `test_documentation` bans;
+- SECURITY.md: loopback-only, rate limits, CSP and the docs exception, same-origin, I-01 closed (as built in Phase 4: SECURITY.md's scope names the CSP and the per-client limits; the README's Security list holds loopback, the Host and Origin checks and, new, the CSP with the docs exception; I-01 is an ID of the untracked local audit, so no tracked document cites it);
+- README: SPA section, with only measured numbers and none of the phrases `test_documentation` bans (as built: "Web front end");
 - MODEL_CARD: evaluation history;
 - memory handoff.
 
@@ -1477,7 +1478,8 @@ caught.
     - 5.1.9, pinned exactly by `@redocly/openapi-core` 1.34.21 under
       `openapi-typescript`.
   - **Production is not affected.** `npm audit --omit=dev` is 0, `dist/`
-    holds no minimatch code, and no CI job runs the front end yet.
+    holds no minimatch code, and no CI job ran the front end then (Phase 4
+    added the `frontend` and `e2e` jobs).
   - **The vulnerable code is not reachable.**
     - It runs only at `optimizationLevel >= 2`. The default is 1, and none of
       the four callers sets it.
@@ -1500,10 +1502,11 @@ caught.
     - Run lint, typecheck, vitest and build, and check that lint still covers
       the same files.
     - The redocly pair waits for `openapi-typescript` to move.
-    - The planned CI gate (`npm audit --audit-level=high`) does not fail on
-      these.
-- **There is still no frontend CI job and no Playwright e2e or axe run**
-  (Phase 4): the range inputs' arrow keys were checked in Chromium by hand.
+    - The CI gate (`npm audit --audit-level=high`, added in Phase 4) does not
+      fail on these; the advisory is listed in SECURITY.md.
+- ~~There is still no frontend CI job and no Playwright e2e or axe run~~
+  Resolved in Phase 4: the range inputs' arrow keys are now also driven in
+  Chromium by `e2e/performance.spec.ts` and `e2e/simulator.spec.ts`.
 - `explorer.ts:42` hard-codes the API's tenure bounds (seen while planning).
 
 ### API additions for the performance page (2026-11-01)
@@ -2127,3 +2130,400 @@ no console message but the 503 the test forced. `.playwright-mcp/` deleted.
   dataset present. The local, unpushed commit still holds the old line.
 - Intervals are per group and unadjusted for the many comparisons a reader
   can make; the copy says so.
+
+## Phase 4 — integration, e2e, accessibility, CI (2026-11-04/05)
+
+Pages were not redesigned. This phase ran the built app in a real browser
+against the real API, fixed what only shows there, and keeps it checked.
+
+### What was built
+
+- **Unknown page addresses** (`api/spa.py` `not_found_page`, called from
+  `main._http_error_handler`): a browser navigation (GET or HEAD whose
+  `Accept` holds `text/html`, any case) to a path outside every route's first
+  segment gets `index.html` with status 404 and the app's own Not found page.
+  The router's own 404 only: one that names its `error` (`frontend_not_built`)
+  keeps it; 405 stays JSON; nothing without a build; the path never reads a
+  file. The reserved segments are read from the app (`reserved_segments`).
+- **Explorer → Single customer**: the open customer's panel links to
+  `/customer?id=` ("Open {id} on the Single customer page").
+- **Makefile**: `frontend-install`, `frontend`, `frontend-test`, `e2e`.
+- **`scripts/e2e_server.py`**: a synthetic book (`E2E-00000`…, one 32-character
+  ID), a temporary `CHURNSENSE_CONFIG` whose every path is checked inside the
+  folder before anything is written (`within`, then `confine` on the loaded
+  configuration), one grid point per family, `n_jobs` 1, raised rate limits,
+  no final evaluation (the test partition stays withheld), SIGTERM turned into
+  `SystemExit` so the folder is removed. Startup about 11 s.
+- **Playwright** (`frontend/playwright.config.ts`, `frontend/e2e/`, Chromium,
+  2 workers, dark, UTC, `reducedMotion: 'reduce'`): 13 specs and opt-in review
+  screenshots (`E2E_SCREENSHOTS=1`, `test-results/review/`). A global setup
+  refuses a server whose customers are not `E2E-`. An automatic guard fails
+  any test on a page error; a console error the test did not allow (by text
+  *and* the address it is about); a CSP violation; a request to another
+  origin; one document sending a request again while it is in flight; or a
+  response holding a held-out (test or unverified) customer's outcome, a
+  suppressed group's figures, a final-evaluation figure or an IBM-format ID.
+  Expected model figures always come from captured responses.
+- **CI**: jobs `frontend` (Node only: typecheck, lint, format, Vitest, build,
+  `npm audit --omit=dev` at any level, dev at `high`) and `e2e` (the hashed
+  Python lock, OpenAPI type freshness, build, the bundle wording scan with a
+  build required, Chromium, Playwright, the report kept on failure). ruff now
+  covers `scripts/`. `actions/setup-node` is pinned to v7.1.0's commit.
+  Dependabot watches `/frontend` (npm).
+
+### Defects found in the browser and fixed
+
+1. **Patterns**: the pinned group's link moved about 20 px under the pointer
+   at 1280 px, because the focus line changed when the pointer left the pinned
+   cell. It now keeps "Pinned ·" while the pinned group is pointed at.
+2. **Single customer**: the picker card cut the 32-character ID with an
+   ellipsis at 320 px (WCAG 1.4.10). It now wraps (`overflow-wrap: anywhere`).
+3. **Accessibility** (axe): visible text is now each link's or button's name
+   with the context in `aria-describedby` (StatTile, the Swarm rows, the
+   CrossTab cells; WCAG 2.5.3); links in running text are underlined; the
+   Patterns count no longer drops below contrast (`.count { color: inherit }`).
+
+### Reviews (code-reviewer and qa-expert, 2026-11-05)
+
+code-reviewer: 0 critical, 0 high. qa-expert: 3 high, 7 medium. Both found
+the first two below. All fixed test-first:
+
+- the two "a late explanation never lands" tests asserted before the late
+  answer could arrive: they now prove the superseded request was aborted;
+- the duplicate-request guard was reset by every `pushState`: requests are now
+  counted per document (a main-frame navigation request, then its commit);
+- the CSV formula test read a demo file with nothing formula-shaped: a file of
+  formula-shaped IDs now has to come back defused, cell for cell; with
+  `exports._defused` disabled the old test passed and the new one fails;
+- `not_found_page` ignored a coded 404; `e2e_server` wrote its dataset before
+  the paths were checked (a `..` base path wrote outside the folder);
+- the console allowlist matched text only, so "status of 404" hid any missing
+  asset; the CSP was checked by substring (now directive sets equal to a
+  written-out policy, for the app and the docs, in pytest and Playwright);
+  suppressed cells now must hold nothing but their place, size and reason;
+  the `unknown` partition is held out like `test`; the long-ID check measures
+  the text itself (it found defect 2); a fixed 600 ms wait became the
+  address the settled draft writes; the explorer range line is computed from
+  the response (the old matcher had been reading the summary's one-row
+  request); `tests/test_wording.py` fails instead of skipping when CI says a
+  build exists.
+- Controls: each new guard rule failed a planted violation and passed a
+  reload. Application mutants (explain without an abort signal, exports
+  without defusing) were caught; sources restored and checked by sha.
+
+**Checks (2026-11-05):** `make lint`; pytest 1,541 passed; Vitest 1,020 with no
+act warnings, typecheck, lint, Prettier; build; Playwright 70 passed (2
+opt-in skipped) in 1.0 min, and `--repeat-each=3` 210 of 210 in 2.5 min;
+`artifacts/`, `reports/`, `data/` (27 files) and `audit-reports/` unchanged by
+sha256.
+
+### Decisions
+
+- Visual regression is structural (overflow at 320–1440 px, the longest ID,
+  a visible focus ring); screenshots are for review only and never committed.
+- Batch → Explorer is not offered: the API cannot list a batch's rows.
+
+### Limitations
+
+- Chromium only; WebKit and Firefox are not run.
+- The model is cached with `staleTime: Infinity`; only Performance and
+  Explainability compare the served model's sha, so a model swapped under an
+  open tab shows on the other pages after a reload.
+- Performance → Simulator does not carry the chosen cut (`t`).
+- The explorer lists training and validation outcomes row by row by design;
+  suppression applies to the breakdowns (page level).
+- `workers: 2`, because the server allows three explanations at once.
+- The new jobs are not required checks until the ruleset lists them;
+  `actionlint` was not run, and CI has not run on GitHub (not pushed). CodeQL's
+  default setup may need JavaScript added (repository settings, untouched).
+- The temporary folder is left behind only if the server is killed with
+  SIGKILL. `make e2e` builds first, since the server serves `frontend/dist`.
+
+## Remediation after the final audit (2026-11-06)
+
+A limited pass over the audit's findings, on top of Phase 4. Nothing was committed
+in it, `make evaluate` was not run, and `reports/` was not touched.
+
+### What changed
+
+- **Held-out figures** (`evaluation/disclosure.py`, used by the API on every record
+  it reads and by the writer): a recorded figure over the listed test customers is
+  published only if each side of its two-by-two table is empty, or holds at least
+  20 customers with both outcomes. A reader of one dimension holds a table of flagged
+  and unflagged by level, tied to the partition's totals and bounded by each published
+  churn count, so `_fixed_counts` works out what still follows and siblings are
+  withheld until nothing does.
+- **Reliability bins are all or nothing.** The calibration error and any count at a
+  score are further equations over the bins, so one bin that fails withholds every
+  rate, the error and the counts at 0.50. The writer also reads each bin on both sides
+  of the threshold and of 0.50 (`score_parts`). A real `make evaluate` may therefore
+  publish no test calibration; validation's stays on the Performance page.
+- **A partition whose totals fail** publishes no figure: a short report, a record with
+  `metrics: null` that the API reads as withheld, and no test figures.
+- **Retention queue:** `at_risk` is null for recorded churners, `exclude_churned` is a
+  server filter, and `BandSummary.flagged_not_churned` gives each chip the number its
+  list shows. Test customers count, since nothing here reads their outcomes.
+- **Copy:** Overview's causal lines, Patterns ("display rule, not privacy protection"),
+  the histogram's validation-only points, and flagged/stayed wording in place of
+  offer/reached on measured counts.
+- **Elsewhere:** repeated axis labels (`lib/format.tickLabels`), the router and Reload
+  link, `Campaign.peak_gain` and `Selection.leader_gap` in place of front-end sums.
+- **Documents:** `docs/MODEL_CARD.md` and `docs/INTERVIEW_PREPARATION.md` follow the same
+  rule on their test segment tables.
+
+### Limitations
+
+- Each dimension is protected on its own: two dimensions read together are not solved.
+- The scores over the whole partition (Brier, ROC-AUC, PR-AUC, simulated value) stay when
+  a bin is withheld, on purpose. Each is one more equation, but over individual customers
+  rather than a few bins, so it pins nobody while scores differ. In an invented table with
+  nearly all scores tied (1,000 at 0.10, 5 at 0.95), Brier, ROC-AUC and PR-AUC did give the
+  small group's count back. Withholding them would remove what a held-out evaluation exists
+  to report whenever one bin is small.
+- The API cannot read a bin on both sides of a cut, having no scores with outcomes: an
+  older record with passing bins and failing parts still serves its calibration error.
+- The test precision-recall figure is no longer drawn: its steps are outcomes in score
+  order. It was a local file, gitignored, and no document used it.
+- When one level holds every flagged customer, its flagged churners are the partition's
+  own published total. What stays withheld is its churn count, so its unflagged side
+  stays open.
+- `reports/final_evaluation.md`, `reports/eda_report.md` and git history keep their older
+  figures or text; `make evaluate` adds to the test history. (The artboards were cleaned
+  later: see "Release governance", below.)
+- Streamlit reads `meta.test_metrics` directly. A new evaluation writes it only when the
+  totals may be published, but its segment-free figures are outside the table rule.
+- `frontend/dist` was not rebuilt in this pass: run `make frontend`.
+- The dependency audit stays red on tornado until its own maintenance PR.
+
+## Disclosure remediation, second pass (2026-11-06)
+
+An independent review found the per-dimension rule of the first pass recoverable: a
+union of hidden levels by subtraction (flagged 480/1/1 said "1 churner among 2 named
+customers"), two dimensions read together, a reader who replays the rule, and tied
+scores through full-precision score metrics. Where this section and an earlier one
+disagree about the test partition, this one holds.
+
+**Why not a joint integer program.** Every outcome-dependent decision is itself an
+output, so a complementary suppression that is checked jointly still tells a reader
+who knows it which case applied. The listing also lets a reader cross any attributes,
+and the API holds no scores to check anything with. So what could only be protected
+that way is not published at all (`evaluation/disclosure.py`).
+
+| Held-out figure | Decision | Depends on |
+|---|---|---|
+| Segments, reliability bins, ECE, reliability and PR figures | never | nothing |
+| Metrics at 0.5, tuning table, test-optimal threshold | never | nothing |
+| Simulated money on the partition | never | nothing |
+| n, positives, tn/fp/fn/tp, precision, recall, F1, accuracy | all or none | each of the four cells >= 20 |
+| Brier, ROC-AUC, PR-AUC | all or none, beside the counts | score groups hold >= 200 bits |
+
+| Scalar | What its value says | With known scores | Ties | Precision | Combined | Null means |
+|---|---|---|---|---|---|---|
+| tn/fp/fn/tp | one table with known sides | one count per side | none | whole | nothing past the sides | some cell under 20 |
+| Brier | sum over labels weighted by known scores | one equation over score groups | groups become counts | 4 decimals | three figures can fix a few groups, hence the gate | scores tie, public |
+| ROC-AUC | rank sum of churners | one equation over ranks | the same | 4 decimals | the same | scores tie, public |
+| PR-AUC | a nonlinear function of the order | a further equation | the same | 4 decimals | the same | scores tie, public |
+
+**Decisions.** The floor counts every cell rather than purity, so withholding states a
+range and cannot be read as "everyone in that side churned"; it also rules out an AUC
+of exactly 0 or 1 (at least 400 pairs each way), so no separate AUC band is kept: a band
+would make a null beside released counts mean "extreme AUC". `FinalEvaluation` holds
+only the released figures, so no writer can reach a raw one. `released_metrics` is the
+one way to read them back, in the API and Streamlit: mark, whole counts, finite shares,
+an allow-list, and the rates recomputed from the counts.
+
+**Limitations, stated.** Test positives follow from a stratified split and the served
+train and validation counts, to within one. The dataset is public and the split
+reproducible, so this limits what the application says, not what can be found out by
+fetching the data. A withheld block is a weak signal that can't be removed. The gate's
+result on the real scores is unknown until an evaluation runs, and it is an argument
+about the average case, not a proof. Two artifacts with different flags, each evaluated,
+can be compared. The API trusts the mark on a record, since it has no scores.
+
+**History.** Old values stay in `reports/final_evaluation.md` and in Git history, and
+nothing here removes them. Regenerating the report means `make evaluate CONFIRM=yes`,
+which adds to the partition's history: a decision for the project's owner.
+
+**Retention queue.** `Segment.in_queue*` count flagged customers not recorded as churned,
+so a key figure equals the queue it opens by construction; `flagged.customers` stays
+for "See all", since the explorer lists churners too. `CustomerPage.band_counts` is
+`select()` without the band filter, so a chip says what choosing it would list under any
+partition or search. `current_monthly_charges` is what "recurring" now shows. A withheld
+outcome counts as current: nothing reads it. `/api/overview`'s band `flagged_not_churned`
+stays book-level for the default bands and the empty states.
+
+## Disclosure governance, third pass (2026-11-06)
+
+An independent review of the second pass returned FAIL. This section supersedes the
+parts of "Disclosure remediation, second pass" that describe `tie_bits`,
+`reports/final_evaluation.json`, the sidecar's `test_metrics` and `remove_test_figures`:
+none of them exists any more. Nothing here read the real held-out partition, and no
+final evaluation was run.
+
+**Decisions (the maintainer's).**
+
+- Held-out Brier, ROC-AUC and PR-AUC are withheld unconditionally. `tie_bits` measured
+  how many group-count vectors the scores allow, not how many label assignments fit
+  the figures; its 200 had no derivation, and jitter at a rounding edge could pass it.
+- No code reads or writes `reports/final_evaluation.md`, and the README no longer links
+  to it. It stays in the repository and in Git history with figures this policy does not
+  publish: an open governance issue, not a resolved one.
+- One frozen release per partition, enforced rather than documented
+  (`evaluation/release.py`, `SECURITY.md`, "The held-out release").
+- Customers have three states: `active`, `churned`, `unknown`.
+
+**Design choices.**
+
+- The ledger is the release: state, fingerprints and released figures in one file,
+  replaced in one step. Separate record and report files would have needed digests to
+  stay in step, and a digest of a small table can be brute-forced while a release is
+  unfinished. `reports/held_out_release.md` is rendered from the ledger, has no
+  authority, and comes back without scoring if lost.
+- A single ledger, not one per split: a changed seed overlaps the same customers.
+- Its path is a constant under the project root. `CHURNSENSE_CONFIG` can move every
+  configured path and `make clean` empties `reports/` and `artifacts/`, so neither could
+  hold it. The command also loads the default configuration by name.
+- It ships `open`, and a missing file refuses: deleting it cannot start a new release.
+- A reader told of a missing or damaged ledger reports "withheld", not "nothing recorded".
+- The evaluation fingerprint hashes plain data built from the AST, of `disclosure.py` and
+  of the definitions in `metrics.py` a figure comes from: `ast.dump` differs between
+  Python 3.12 and 3.13 (checked on both), and an unrelated function must not strand a
+  reservation.
+- `model_meta.json` is not rewritten by an evaluation any more, which removes the one
+  partial-write failure that could take the model down.
+- Unknown customers stay in the queue, named apart, because the alternative treats them
+  as churned; they count in neither recurring revenue nor revenue at risk.
+
+**Still open.**
+
+- A second clone does not see an uncommitted ledger; commit it right after a release.
+- Whether earlier tables in Git history differ from the eventual release is unverified
+  without running it.
+- `make clean` still deletes the tracked `reports/final_evaluation.md`, as it always has.
+- Existing `reports/figures/reliability.png` and `precision_recall.png` are local,
+  git-ignored and served nowhere; they are left alone rather than deleted.
+- A `ValueError` while scoring (a partition of one outcome, scores that are not
+  probabilities) publishes a withheld release, which is final. Fixing a broken model
+  would change the artifact and be refused anyway, so a retry could not help.
+- Streamlit's target list on the simulator page lists everyone flagged, churners included:
+  it reads scores only and claims no status. Streamlit has no retention queue.
+- Named by the review and outside this pass: `eda.py`'s prescriptive sentence, the
+  `TypeError` a text value raises in `reports.py`, and the SHAP cache reader's
+  `RecursionError`.
+
+## Release governance (2026-11-07)
+
+An independent audit failed the previous pass. This one replaces two of its choices: a `ValueError`
+while scoring no longer publishes a withheld release, and the evaluation fingerprint no longer
+hashes syntax trees. Where this differs from the sections above, this section stands. The
+procedure and the rules are in `SECURITY.md`, "The held-out release".
+
+- **Artboards.** All eight `docs/design/*.dc.html` carried held-out figures, not only
+  `Performance.dc.html`: each sidebar quoted test ROC-AUC and test ECE. All are clean, in the tree
+  and in this branch's unpublished history, whose sixteen commits were rewritten and re-signed
+  before it was first pushed. Figures already on `main` stay where they are.
+- **Scan.** `documentation_surface` is every Markdown, HTML and text file outside the protected
+  and generated folders. `html_violations` reads a page's visible text, where a label and its
+  value are separate elements. A failure names the file and a count, never the line.
+- **Scope of the rule.** The ledger and `flock` reach one working tree. One machine and one
+  operator make a release the project's, and `held-out-release-governance` is a best-effort
+  consistency check on pull requests. A calculation elsewhere on a public dataset is not
+  preventable and is not claimed to be.
+- **`open` to `published` is allowed by the check.** One run moves through `reserved` without
+  committing it, so this is what an ordinary release looks like in a pull request.
+- **Identity.** Source files are hashed by their bytes, for the evaluation, the data path and
+  the artifact's classes, with the runtime and the lock's digest. Editing one refuses even a run
+  that would only read a release back; readers are not affected.
+- **Tests needing tracked reports** are integration checks (`tests.conftest.tracked_report`):
+  failed in GitHub Actions when the file is absent, skipped elsewhere with a reason that tells a
+  generic CI from a local copy. They may ask only for the four validation and EDA reports it
+  lists, so none can come to need final evaluation data.
+
+**Governance hardening (after the focused verification).** That review reproduced five blockers.
+The maintainer's decisions: no `pull_request_target`, and the check is accepted as best-effort.
+
+- **The check is what it is.** `pull_request` lets a change edit its own workflow, and a merged
+  change can replace the script. It is not in the ruleset, and requiring it would not make it
+  tamper-resistant. The documents now say so, a test keeps them saying so, and
+  `test_known_limit_a_merged_change_can_weaken_the_check_for_the_next_one` holds the limit in code.
+- **Strict schema in both readers.** A closed set of fields per state, a table whose cells, totals
+  and rates are checked, the threshold of its identity, exact format and policy (only the
+  pull-request check lets an `open` ledger stand under a newer one), and only the bytes the writer
+  lays out. `evaluated_at` had been free text, and so a way round the allowlist. The two readers
+  share no code, since the script must run alone: `tests/ledger_payloads.py` goes through both, and
+  a seeded comparison holds them together. A valid shape is still not a true value: neither reader
+  can tell a real fingerprint or count from an invented one.
+- **A failure is not recorded as an answer.** Only a table under the floor is the rule's final
+  answer. A scorer's malformed output now raises and leaves the ledger `reserved`, where it used to
+  be recorded as a withheld release, and the writer checks its own output before replacing the file.
+  A failure that repeats stays reserved: see the next pass.
+- **No recovery.** `reserved` to `open` was guarded by a record nothing could verify, under a ruleset
+  requiring no approval. It is removed rather than disabled: a same-identity retry remains, a
+  different identity is refused, and a record is refused in any change. A reservation that can no
+  longer run stays reserved. `tests/test_release.py` no longer fails on a committed reservation,
+  which is how a failed run survives a local `git restore`.
+
+**Evaluation safety (after the next review).** That review reproduced a deterministic failure
+permanently consuming the release, and found the documents saying otherwise.
+
+- **A rehearsal before the reservation.** `report.rehearse` runs the scoring and the metrics on
+  validation rows and drops the results, then the description, summary, report, ledger and metadata on
+  one withheld evaluation and one invented table, with output in a temporary directory. A failure
+  stops the run with the ledger `open` and the held-out path not started. It reduces the risk of a
+  repeating failure and does not remove it.
+- **The boundary is the maintainer's decision.** Touching no held-out row or label at all cannot hold,
+  since `make_splits` loads the whole file and stratifies on every label. The decision: the rehearsal
+  gets `ValidationRows`, an object with nowhere to hold a test row, and a spy and an AST test show none
+  reaches the model or a metric before the reservation. The test rows are still in the process's
+  memory, as they are in `make dev`. The rehearsal has never run on the real artifact.
+- **After publication.** Everything between the publication and the printed summary is handled:
+  only the class of a failure is logged, the exit status is non-zero, the ledger is not touched and
+  nothing is scored again. The message says what the ledger holds, read and not assumed.
+- **Next policy.** An `open` ledger may stand one version ahead, only with `POLICY` moved in the script
+  and in `disclosure.py` in the same change. It used to take any larger integer.
+- **Retry tests.** A different scorer under an unchanged identity is not a source fix. Those tests now
+  separate a transient failure, a failure that repeats, and an edit to a real fingerprinted file,
+  which is refused.
+
+**Still open.**
+
+- `held-out-release-governance` has to run for the first time on GitHub, and may then be added to
+  the `Protect main` ruleset by hand. Neither has happened.
+- The rehearsal and preflight have not met the real artifact: `make evaluate` is what runs them.
+- A reservation that cannot finish has no recovery path until there is an approval that can be
+  verified (`SECURITY.md`, "A reservation has no way back").
+- The generated text of `eda.py` and `report.py` changed, so tracked `reports/eda_report.md` and
+  `reports/model_comparison.md` keep the old sentences until the next `make eda` and `make train`.
+- Local `src/churnsense.egg-info/PKG-INFO` holds an old README with held-out figures. It is
+  git-ignored and outside the scan.
+
+## Completion pass (2026-11-08)
+
+An independent review of the pass above passed it with conditions. This pass closes them; where it
+differs from the sections above, it stands.
+
+- **No Git change mid-release.** "After a reservation" sent a failed run's operator to commit the
+  reservation on a new branch and open a pull request, while the same section forbade branch changes;
+  from a checkout carrying other work that pull request would also have carried it. Now nothing in Git
+  moves in that checkout until the ledger reads `published`: a transient failure is retried by the same
+  command, anything else stops for the maintainer, and the ledger is committed only after publication,
+  on a branch made from `main`. The uncommitted reservation can still be lost to a local rollback; that
+  is stated as the accepted price. `make all` is named among the forbidden commands. This supersedes
+  the "committed reservation" note above.
+- **The loader and the hash helpers are fingerprinted.** `models/train.py` joins the model's
+  sources: its `load_artifact` checks the artifact's bytes against the hash the identity records, and
+  an edit to it could have scored something else under the same identity. `data/download.py` joins the
+  data path's, since its `sha256_of` does that check and `verify_dataset` gives the dataset's hash
+  (found by the review of this pass). `config.py` stays out, since what it parses is fingerprinted by
+  value. A test checks that the scoring path's steps and both helpers sit in fingerprinted files; the
+  list is kept by hand, not derived from the calls.
+- **Wording.** A report rendered again after publication is drawn "without scoring the test partition
+  again": validation is scored again for the report's sweep.
+- **Two readers no longer crash on a damaged file**, closing the two named under "Still open" of the
+  disclosure pass: `reports.py` refuses text in a number column as `DataError` instead of raising
+  `TypeError` (association ranking) or passing it (model comparison); the SHAP cache reader reads
+  nesting past the recursion limit and an integer past the digit limit as "not cached".
+- **Tornado 6.6** in `requirements-dev.txt` (via the Jupyter stack only; the runtime lock has none),
+  through `make lock LOCK_ARGS="--upgrade-package tornado"`. No other pin moved. Both locks audit
+  clean, `pip check` passes, and a notebook kernel runs, on Python 3.12 and 3.13.
+

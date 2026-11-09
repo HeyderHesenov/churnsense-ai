@@ -71,8 +71,18 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
   const bands = state.bands ?? defaults;
   const listing = useCustomers(queueQuery(state, defaults));
   const page = listing.data;
+  // With no band chosen the listing asks nothing, but the chips still say what each
+  // would list: the counts do not depend on the bands asked for.
+  const scope = useCustomers(
+    bands.length > 0
+      ? queueQuery(state, defaults)
+      : queueQuery({ ...state, bands: null }, defaults),
+  );
+  const chipCount = (name: string) =>
+    scope.data && !scope.isPlaceholderData ? int(scope.data.band_counts[name] ?? 0) : '…';
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
-  const filtered = state.bands !== null || state.part !== null || state.q !== '';
+  const narrowed = state.part !== null || state.q !== '';
+  const filtered = state.bands !== null || narrowed;
   // A reset or a cleared search takes its button away: the reader continues at the queue's heading.
   const clear = (changes: Parameters<typeof set>[0]) => {
     set(changes);
@@ -87,7 +97,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
     bands.length === 0
       ? 'No band selected.'
       : page && !listing.isPlaceholderData
-        ? `${int(page.total)} flagged customers in scope.`
+        ? `${inScope(page)}, in scope.`
         : '';
 
   return (
@@ -108,14 +118,18 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
             <>
               Retention queue{' '}
               <span className={styles.count}>
-                {bands.length === 0 ? '0' : page ? int(page.total) : '…'} flagged in scope
+                {bands.length === 0
+                  ? '0 flagged'
+                  : page && !listing.isPlaceholderData
+                    ? inScope(page)
+                    : '…'}
               </span>
             </>
           }
-          subtitle="Which flagged customers carry the most monthly revenue at risk?"
+          subtitle="Which flagged customers carry the most monthly revenue at risk? It is known only for customers recorded active. Test customers stay listed, status unknown: neither confirmed current nor churned."
           aside={
             <Link to="/explorer?flagged=true" className={styles.arrowLink}>
-              See all {int(book.flagged.customers)} in the explorer
+              See all {int(book.flagged.customers)} flagged, churned included, in the explorer
               <icons.arrowRight size={14} />
             </Link>
           }
@@ -130,7 +144,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
               key={band.name}
               band={band.name}
               pressed={bands.includes(band.name)}
-              count={int(band.flagged)}
+              count={chipCount(band.name)}
               onToggle={() => set({ bands: toggleBand(bands, band.name, book), page: 1 })}
             >
               {band.name}
@@ -178,10 +192,10 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
         </div>
       ) : page.rows.length === 0 ? (
         <EmptyState
-          title={emptyTitle(bands, book)}
-          action={{ label: 'Reset filters', onClick: reset }}
+          title={emptyTitle(bands, book, narrowed)}
+          {...(filtered && { action: { label: 'Reset filters', onClick: reset } })}
         >
-          {emptyBody(bands, book)}
+          {emptyBody(bands, book, narrowed)}
         </EmptyState>
       ) : (
         <>
@@ -211,12 +225,38 @@ function unflaggedBand(bands: readonly BandName[], book: Overview) {
   return only && only.flagged === 0 ? only : undefined;
 }
 
-function emptyTitle(bands: readonly BandName[], book: Overview): string {
+/** "300 flagged: 225 active, 75 status unknown": the API's counts, never worked out here. */
+function inScope(page: { total: number; status_counts: { active: number; unknown: number } }) {
+  return `${int(page.total)} flagged: ${int(page.status_counts.active)} active, ${int(page.status_counts.unknown)} status unknown`;
+}
+
+/** The bands chosen, if everyone flagged in them is recorded as churned. */
+function churnedBands(bands: readonly BandName[], book: Overview) {
+  const chosen = book.bands.filter((b) => bands.includes(b.name as BandName));
+  const all =
+    chosen.length > 0 &&
+    chosen.every((b) => b.flagged_not_churned === 0) &&
+    chosen.some((b) => b.flagged > 0);
+  return all ? chosen : undefined;
+}
+
+function churnedName(chosen: readonly { name: string }[]): string {
+  return chosen.length === 1
+    ? `the ${chosen[0]?.name ?? ''} band`
+    : `the ${chosen.map((b) => b.name).join(' and ')} bands`;
+}
+
+function emptyTitle(bands: readonly BandName[], book: Overview, narrowed: boolean): string {
+  // Book-level counts say nothing of a partition or a search: those read as no match.
+  const churned = narrowed ? undefined : churnedBands(bands, book);
+  if (churned) return `Everyone flagged in ${churnedName(churned)} is recorded as churned`;
   const band = unflaggedBand(bands, book);
   return band ? `Nobody in the ${band.name} band is flagged` : 'No flagged customer matches';
 }
 
-function emptyBody(bands: readonly BandName[], book: Overview): string {
+function emptyBody(bands: readonly BandName[], book: Overview, narrowed: boolean): string {
+  if (!narrowed && churnedBands(bands, book))
+    return 'The explorer still lists them, with their outcomes.';
   const band = unflaggedBand(bands, book);
   if (!band) return 'Try another band, partition or ID; the explorer searches the whole book.';
   return unflaggedNote(band, book.threshold);
@@ -231,7 +271,7 @@ function BulkBar({ selected, onClear }: { selected: ReadonlySet<string>; onClear
     <div role="region" aria-label="Bulk actions" className={styles.bulk}>
       <span className={styles.bulkCount}>{int(ids.length)} selected</span>
       <span className={styles.bulkValue}>
-        {atRisk === undefined ? '…' : `${cents(atRisk)} / mo at risk`}
+        {atRisk === undefined ? '…' : `${cents(atRisk)} / mo at risk, recorded active`}
       </span>
       {ids.length >= MAX_SELECTED && (
         <span className={styles.bulkNote}>The most a selection can hold.</span>
@@ -397,6 +437,7 @@ function Row({ row, selected, disabled, onSelect, explanation, attributions }: R
       </div>
       <div role="cell" className={cx(styles.cell, styles.customer)}>
         <span className={styles.id}>{row.id}</span>
+        {row.status === 'unknown' && <span className={styles.statusTag}>Status unknown</span>}
         <span className={styles.profile}>
           {profile(row.contract, row.internet_service, row.payment_method)}
         </span>
@@ -414,7 +455,7 @@ function Row({ row, selected, disabled, onSelect, explanation, attributions }: R
         {cents(row.monthly_charges)}
       </div>
       <div role="cell" className={cx(styles.cell, styles.number, styles.strong)}>
-        {cents(row.at_risk)}
+        {row.at_risk === null ? '—' : cents(row.at_risk)}
       </div>
       <div role="cell" className={cx(styles.cell, styles.attributions)}>
         {attributions === 'loading' ? (

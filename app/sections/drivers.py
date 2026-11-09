@@ -142,8 +142,8 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
         if {0, 1} <= set(medians.index):
             st.caption(
                 f"Median tenure is {medians[1]:.0f} months for churned customers "
-                f"against {medians[0]:.0f} for retained ones. Risk is front-loaded, "
-                "which argues for onboarding interventions over uniform campaigns."
+                f"against {medians[0]:.0f} for those who stayed. Observed churn is "
+                "highest early in tenure; this snapshot does not say why."
             )
 
     with tabs[1]:
@@ -160,7 +160,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
             f"{peak['charge_band']} band at {peak['churn_rate']:.1%} and falls to "
             f"{rates.iloc[-1]['churn_rate']:.1%} among the highest-paying customers. "
             "The top band is dominated by long-tenure customers holding several "
-            "services, so price and commitment pull against each other there. A "
+            "services, so this snapshot cannot separate price from tenure there. A "
             "plain 'higher price drives churn' reading does not fit the shape."
         )
 

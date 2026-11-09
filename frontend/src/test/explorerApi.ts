@@ -42,7 +42,8 @@ export const BOOK: CustomerRow[] = Array.from({ length: 37 }, (_, i) => {
     flagged: p >= 0.36,
     partition,
     outcome: partition === 'test' ? 'withheld' : p >= 0.5 ? 'churned' : 'stayed',
-    at_risk: Number((p * monthly).toFixed(2)),
+    status: partition === 'test' ? 'unknown' : p >= 0.5 ? 'churned' : 'active',
+    at_risk: partition === 'test' || p >= 0.5 ? null : Number((p * monthly).toFixed(2)),
   });
 });
 
@@ -51,10 +52,11 @@ const SORT_KEY = {
   probability: (row: CustomerRow) => row.churn_probability,
   tenure: (row: CustomerRow) => row.tenure,
   monthly: (row: CustomerRow) => row.monthly_charges,
+  // The API sorts a customer with nothing at risk last in either direction; see ``byKey``.
   at_risk: (row: CustomerRow) => row.at_risk,
 } as const;
 
-function matches(row: CustomerRow, query: URLSearchParams): boolean {
+export function matches(row: CustomerRow, query: URLSearchParams): boolean {
   const q = query.get('q');
   const bands = query.getAll('bands');
   const ids = query.getAll('ids');
@@ -71,6 +73,7 @@ function matches(row: CustomerRow, query: URLSearchParams): boolean {
     (min === null || row.tenure >= Number(min)) &&
     (max === null || row.tenure <= Number(max)) &&
     (flagged === null || row.flagged === (flagged === 'true')) &&
+    (query.get('exclude_churned') !== 'true' || row.outcome !== 'churned') &&
     (!query.get('partition') || row.partition === query.get('partition'))
   );
 }
@@ -102,7 +105,8 @@ function summarise(rows: CustomerRow[], book: CustomerRow[], withheld: boolean) 
           ? { customers: seen.length, churned: null, rate: null }
           : { customers: seen.length, churned, rate: churned / seen.length },
     monthly_charges: sum((r) => r.monthly_charges),
-    at_risk: sum((r) => r.at_risk),
+    active_monthly_charges: sum((r) => (r.status === 'active' ? r.monthly_charges : 0)),
+    at_risk: sum((r) => r.at_risk ?? 0),
     histogram,
   };
 }
@@ -118,6 +122,10 @@ export function listing(url: URL, book = BOOK, withheld: string | null = null): 
     .sort((a, b) => {
       const ka = key(a);
       const kb = key(b);
+      if (ka === null || kb === null) {
+        if (ka !== kb) return ka === null ? 1 : -1;
+        return a.id < b.id ? -1 : 1;
+      }
       if (ka < kb) return -sign;
       if (ka > kb) return sign;
       return a.id < b.id ? -1 : 1;
@@ -131,6 +139,12 @@ export function listing(url: URL, book = BOOK, withheld: string | null = null): 
     page_size: size,
     pages,
     rows: rows.slice((page - 1) * size, page * size),
+    band_counts: {},
+    status_counts: {
+      active: rows.filter((row) => row.status === 'active').length,
+      churned: rows.filter((row) => row.status === 'churned').length,
+      unknown: rows.filter((row) => row.status === 'unknown').length,
+    },
     summary: summarise(rows, book, withheld !== null),
     withheld_reason: withheld,
   };

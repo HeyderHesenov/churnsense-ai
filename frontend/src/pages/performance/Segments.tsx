@@ -1,25 +1,16 @@
 /**
  * Does one cut serve every segment? Validation customers at the served cut,
- * with 95 % intervals, and the recorded test breakdown beside it when there
- * is one. A segment of fewer than 20 customers shows no outcome; a segment
- * nobody is flagged in though some churned is marked NOT SCANNED; precision
- * where nothing is flagged is "—", undefined rather than zero.
+ * with 95 % intervals. A segment of fewer than 20 customers shows no outcome; a
+ * segment nobody is flagged in though some churned is marked NOT SCANNED;
+ * precision where nothing is flagged is "—", undefined rather than zero. The test
+ * partition has no such table: its customers are listed, so no group's figure is
+ * published (`evaluation.disclosure`).
  */
-import { useState } from 'react';
 import type { Performance } from '../../api/queries';
 import { Card, CardHeader } from '../../components/ui/Surface';
-import { Segmented } from '../../components/ui/Toggle';
 import { cut, int, pct } from '../../lib/format';
 import { cssVars } from '../../lib/style';
-import {
-  GENDER,
-  segmentsSubtitle,
-  SMALL,
-  TEST_SEGMENTS,
-  UNAVAILABLE,
-  UNSCANNED,
-  withheld,
-} from './copy';
+import { GENDER, segmentsSubtitle, SMALL, UNAVAILABLE, UNSCANNED, withheld } from './copy';
 import {
   dimensionName,
   groups,
@@ -29,8 +20,6 @@ import {
   type SegmentRow,
 } from './performance';
 import styles from './Performance.module.css';
-
-type View = 'validation' | 'test';
 
 /** A rate with its interval, when the row carries one. */
 function withInterval(value: string, low?: number | null, high?: number | null): string {
@@ -49,7 +38,7 @@ function Row({ row }: { row: SegmentRow }) {
       )}
     </th>
   );
-  // The server nulls every outcome of a segment too small to report.
+  // The server nulls every outcome of a segment it may not report.
   if (row.churners === null) {
     return (
       <tr className={styles.smallRow}>
@@ -97,15 +86,8 @@ function Row({ row }: { row: SegmentRow }) {
 }
 
 export function Segments({ figures }: { figures: Performance }) {
-  const [view, setView] = useState<View>('validation');
-  const test = figures.test;
-  const shown: View = test ? view : 'validation';
-  const rows: readonly SegmentRow[] | null =
-    shown === 'test' && test ? test.segments : (figures.validation_evaluation?.segments ?? null);
-  const threshold =
-    shown === 'test' && test
-      ? test.metrics.threshold
-      : (figures.validation_evaluation?.metrics.threshold ?? figures.threshold);
+  const rows: readonly SegmentRow[] | null = figures.validation_evaluation?.segments ?? null;
+  const threshold = figures.validation_evaluation?.metrics.threshold ?? figures.threshold;
 
   return (
     <Card titleId="segments-title">
@@ -113,20 +95,6 @@ export function Segments({ figures }: { figures: Performance }) {
         id="segments-title"
         title="Does one cut serve every segment?"
         subtitle={segmentsSubtitle(threshold)}
-        aside={
-          test && (
-            <Segmented
-              label="Partition for the segments"
-              small
-              options={[
-                { value: 'validation', label: 'Validation' },
-                { value: 'test', label: 'Test · recorded' },
-              ]}
-              value={shown}
-              onChange={setView}
-            />
-          )
-        }
       />
       {rows === null ? (
         <p className={styles.unavailable}>
@@ -140,9 +108,7 @@ export function Segments({ figures }: { figures: Performance }) {
           {/* eslint-disable-next-line jsx-a11y-x/no-noninteractive-tabindex */}
           <div role="region" aria-label="Segment table" tabIndex={0} className={styles.scroll}>
             <table className={styles.segmentTable}>
-              <caption className="sr">
-                Segments at {cut(threshold)}, {shown === 'test' ? 'recorded test' : 'validation'}
-              </caption>
+              <caption className="sr">Segments at {cut(threshold)}, validation</caption>
               <thead>
                 <tr>
                   <th scope="col">Segment</th>
@@ -173,7 +139,6 @@ export function Segments({ figures }: { figures: Performance }) {
           {rows.some((row) => row.dimension === 'gender') && (
             <p className={styles.note}>{GENDER}</p>
           )}
-          {shown === 'test' && <p className={styles.note}>{TEST_SEGMENTS}</p>}
         </>
       )}
     </Card>

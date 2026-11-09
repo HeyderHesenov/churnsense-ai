@@ -148,12 +148,12 @@ export function Results({ status, sweep, selected, error, onRetry }: ResultsProp
                 {int(point.flagged)}
                 <span className={styles.of}> of {int(sweep.customers)}</span>
               </Figure>
-              <Figure term="Churners reached">
+              <Figure term="Churners flagged">
                 {int(point.true_positives)}
                 <span className={styles.of}> of {int(sweep.churners)}</span>
               </Figure>
               <Figure term="Churners missed">{int(point.false_negatives)}</Figure>
-              <Figure term="Offers to customers who stayed">{int(point.false_positives)}</Figure>
+              <Figure term="Flagged customers who stayed">{int(point.false_positives)}</Figure>
               <Figure term="Precision">{precisionText(point)}</Figure>
               <Figure term="Recall">{recallText(point, sweep.churners)}</Figure>
             </dl>

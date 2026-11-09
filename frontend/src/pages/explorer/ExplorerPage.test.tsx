@@ -4,6 +4,7 @@ import type { HttpHandler } from 'msw';
 import { http, HttpResponse } from 'msw/http';
 import type { Schemas } from '../../api/client';
 import { App } from '../../app/App';
+import { customerApi } from '../../test/customerApi';
 import { explorerApi, listing } from '../../test/explorerApi';
 import { entriesAdded } from '../../test/history';
 import { press } from '../../test/keyboard';
@@ -215,7 +216,21 @@ describe('Explorer: loading the book', () => {
     expect(within(summaryTile('Observed churn')).getByText('53.3%')).toBeVisible();
     expect(within(summaryTile('Observed churn')).getByText('16 of 30 train + val')).toBeVisible();
     expect(within(summaryTile('Monthly charges')).getByText('$2,198')).toBeVisible();
-    expect(within(summaryTile('Monthly charges')).getByText('$1,065 / mo at risk')).toBeVisible();
+    expect(
+      within(summaryTile('Monthly charges')).getByText(
+        '$209 / mo at risk, customers recorded active only',
+      ),
+    ).toBeVisible();
+  });
+
+  it('shows nothing at risk for a customer recorded as churned', async () => {
+    showExplorer();
+    const table = await screen.findByRole('table', { name: 'Customers' });
+    const rows = await within(table).findAllByRole('row');
+    const churned = rows.find((row) => within(row).queryByText(/^Churned/));
+    if (!churned) throw new Error('the first page holds no churned customer');
+    const cells = within(churned).getAllByRole('cell');
+    expect(cells.some((cell) => cell.textContent === '—')).toBe(true);
   });
 
   it('gives no observed rate for fewer than 20 customers with outcomes', async () => {
@@ -925,6 +940,45 @@ describe('Explorer: one customer', () => {
     showExplorer('/explorer?id=NOPE-1');
     await table();
     expect(await screen.findByText('There is no customer NOPE-1 in the book.')).toBeInTheDocument();
+    expect(within(detail()).queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('links a loaded customer to its own page, and only once it has loaded', async () => {
+    let release: () => void = () => undefined;
+    const loaded = new Promise<void>((resolve) => (release = resolve));
+    gates.push(() => release());
+    // Holds the customer's detail, then lets the book's own answer through.
+    showExplorer('/explorer?id=DEMO-0002', {}, [
+      http.get('/api/customers/:customer_id', async () => {
+        await loaded;
+      }),
+    ]);
+    await table();
+    expect(await within(detail()).findByText('Loading the customer')).toBeInTheDocument();
+    expect(within(detail()).queryByRole('link')).not.toBeInTheDocument();
+
+    release();
+    const link = await within(detail()).findByRole('link', {
+      name: 'Open DEMO-0002 on the Single customer page',
+    });
+    expect(link).toHaveAttribute('href', '/customer?id=DEMO-0002');
+
+    server.use(...customerApi());
+    await userEvent.click(link);
+    expect(window.location.pathname).toBe('/customer');
+    expect(search().get('id')).toBe('DEMO-0002');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'What moved this estimate' }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers no link to a customer that could not be loaded', async () => {
+    showExplorer('/explorer?id=DEMO-0002', {}, [
+      refuse('get', '/api/customers/{customer_id}', 500, 'internal_error'),
+    ]);
+    await table();
+    expect(await within(detail()).findByRole('alert')).toBeInTheDocument();
+    expect(within(detail()).queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('explains a customer on request, strongest seven first, in the server’s own terms', async () => {

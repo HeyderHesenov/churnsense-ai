@@ -41,9 +41,10 @@ async function showExplain(path = '/explainability', handlers: Parameters<typeof
 }
 
 const rows = () => within(screen.getByRole('group', { name: 'Attributes' })).getAllByRole('button');
+/** A swarm row by its label: its name is the label and then its figure. */
 const row = (label: string) =>
   within(screen.getByRole('group', { name: 'Attributes' })).getByRole('button', {
-    name: (name) => name.startsWith(`${label},`),
+    name: (name) => name.startsWith(label) && /^\d/.test(name.slice(label.length)),
   });
 const card = (name: string | RegExp) => screen.getByRole('region', { name });
 const customerCard = () => card('One customer');
@@ -66,13 +67,17 @@ function holdExplain(id: string) {
 describe('the cached attributions', () => {
   it('lists every attribute in the served ranking, each with its served figure and rank', async () => {
     await showExplain();
-    const names = rows().map((b) => b.getAttribute('aria-label'));
     const served = globalExplanation().importance;
-    expect(names).toHaveLength(18);
-    expect(names[0]).toBe(
-      `Tenure, mean absolute contribution ${((served[0]?.mean_abs_shap ?? 0) * 100).toFixed(1)} percentage points, rank 1`,
+    const figure = ((served[0]?.mean_abs_shap ?? 0) * 100).toFixed(1);
+    expect(rows()).toHaveLength(18);
+    // Label in name (WCAG 2.5.3): a row is named by what it shows, and described in full.
+    expect(rows()[0]).toHaveAccessibleName(`Tenure${figure}`);
+    expect(rows()[0]).toHaveAccessibleDescription(
+      `Mean absolute contribution ${figure} percentage points, rank 1`,
     );
-    expect(names.map((n) => n?.split(',')[0])).toEqual(served.map((r) => r.label));
+    expect(rows().map((row) => row.querySelector('span')?.textContent)).toEqual(
+      served.map((r) => r.label),
+    );
   });
 
   it('states the method in the served figures', async () => {

@@ -90,7 +90,7 @@ export default function PatternsPage() {
       <Header section="Book" page="Churn patterns" />
       <Page density="dense">
         <PageHeader eyebrow="Churn patterns" title={TITLE} size="md">
-          {lede(query.data?.min_customers ?? MIN_CUSTOMERS)}
+          {lede(query.data?.min_customers ?? MIN_CUSTOMERS, query.isError && withheld(query.error))}
         </PageHeader>
         <Controls
           view={view}

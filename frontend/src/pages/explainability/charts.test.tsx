@@ -80,6 +80,23 @@ describe('the dependence chart', () => {
     render(<Dependence global={global} feature={feature} ringed={ringed} />);
   const slider = () => screen.getByRole('slider', { name: 'Group' });
 
+  it.each([
+    ['a narrow range', [-0.006, 0.006], ['−0.6', '−0.4', '−0.2', '0', '+0.2', '+0.4', '+0.6']],
+    ['an uneven narrow range', [-0.0032, 0.0066], ['−0.4', '−0.2', '0', '+0.2', '+0.4', '+0.6']],
+    ['a wide range', [-0.2, 0.14], ['−20', '−10', '0', '+10']],
+  ])('labels each gridline distinctly over %s', (_, [low, high], labels) => {
+    const j = GLOBAL.features.indexOf('tenure');
+    const values = GLOBAL.values.map((row, i) =>
+      row.map((v, k) => (k === j ? (i % 2 ? (high ?? 0) : (low ?? 0)) : v)),
+    );
+    const { container } = show('tenure', undefined, { ...GLOBAL, values });
+    const ticks = [...container.querySelectorAll('svg text[text-anchor="end"]')].map(
+      (tick) => tick.textContent,
+    );
+    expect(ticks).toEqual(labels);
+    expect(new Set(ticks).size).toBe(ticks.length);
+  });
+
   it.each(['tenure', 'PaperlessBilling'])(
     'colours each dot by the sign its contribution shows, not by its raw sign (%s)',
     (feature) => {

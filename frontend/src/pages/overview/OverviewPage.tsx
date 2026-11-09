@@ -12,7 +12,7 @@ import { int } from '../../lib/format';
 import { ErrorState, Skeleton } from '../../components/ui/States';
 import { OverviewHeader } from './OverviewHeader';
 import { Associations } from './Associations';
-import { riskiestLink } from './copy';
+import { riskiestBands } from './copy';
 import { CampaignCard } from './Campaign';
 import { Distribution } from './Distribution';
 import { QUEUE_PARAMS } from './queue';
@@ -55,9 +55,9 @@ export default function OverviewPage() {
               book={book.data}
               info={info.data}
               links={{
-                // A key figure's count is the queue's only with no other filter on.
+                // A key figure's count is the queue's with no other filter on, so none is.
                 riskiest: queueHref({
-                  bands: riskiestLink(book.data).bands.filter(isBandName),
+                  bands: riskiestBands(book.data).filter(isBandName),
                   part: null,
                   q: '',
                   page: 1,

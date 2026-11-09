@@ -40,7 +40,7 @@ export interface paths {
      * @description One page of the scored book, filtered and sorted, with a summary of every match.
      *
      *     A page past the end is clamped to the last one, so a stale link still
-     *     shows rows. ``outcome`` is ``"withheld"`` for every test customer. With
+     *     shows rows. ``outcome`` is ``"withheld"`` and ``status`` is ``"unknown"`` for every test customer. With
      *     ``ids``, the summary totals exactly those customers (a page's selection).
      */
     get: operations['customers_api_customers_get'];
@@ -488,6 +488,8 @@ export interface components {
       customers: number;
       /** Flagged */
       flagged: number;
+      /** Flagged Not Churned */
+      flagged_not_churned: number;
       /** Max */
       max: number;
       /** Min */
@@ -668,6 +670,8 @@ export interface components {
       intervention_cost: number;
       /** Net Benefit */
       net_benefit: number;
+      /** Peak Gain */
+      peak_gain: number;
       /** Peak Net Benefit */
       peak_net_benefit: number;
       /** Peak Threshold */
@@ -873,6 +877,10 @@ export interface components {
     };
     /** CustomerPage */
     CustomerPage: {
+      /** Band Counts */
+      band_counts: {
+        [key: string]: number;
+      };
       /** Page */
       page: number;
       /** Page Size */
@@ -881,6 +889,7 @@ export interface components {
       pages: number;
       /** Rows */
       rows: components['schemas']['CustomerRow'][];
+      status_counts: components['schemas']['StatusCounts'];
       summary: components['schemas']['SelectionSummary'];
       /** Total */
       total: number;
@@ -890,7 +899,7 @@ export interface components {
     /** CustomerRow */
     CustomerRow: {
       /** At Risk */
-      at_risk: number;
+      at_risk: number | null;
       /** Churn Probability */
       churn_probability: number;
       /** Contract */
@@ -917,6 +926,11 @@ export interface components {
       payment_method: string;
       /** Risk Band */
       risk_band: string;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'active' | 'churned' | 'unknown';
       /** Tenure */
       tenure: number;
     };
@@ -1071,37 +1085,35 @@ export interface components {
       /** Monthly Charges */
       monthly_charges: number;
       observed: components['schemas']['Observed'] | null;
+      /** Observed Mean */
+      observed_mean: number | null;
     };
     /**
      * HoldoutEvaluation
      * @description Recorded by ``make evaluate CONFIRM=yes``; no page computes it.
+     *
+     *     No breakdown, bin or calibration error of this partition exists to serve: its
+     *     customers are listed, so each would be read against known people.
      */
     HoldoutEvaluation: {
       /** Churn Rate */
-      churn_rate: number | null;
-      /** Ece */
-      ece: number | null;
+      churn_rate: number;
       /** Evaluated At */
       evaluated_at: string;
       metrics: components['schemas']['HoldoutMetrics'];
       /** No Skill Accuracy */
       no_skill_accuracy: number;
-      /** Segments */
-      segments: components['schemas']['HoldoutSegment'][];
-      /** Test Optimal Threshold */
-      test_optimal_threshold: number;
     };
     /**
      * HoldoutMetrics
-     * @description The recorded test evaluation's metrics.
+     * @description The test release's figures, to four decimals (``evaluation.disclosure``).
+     *
+     *     One two-by-two table and the rates it gives. This partition has no Brier score,
+     *     ROC-AUC or PR-AUC to serve: they are withheld whatever their value.
      */
     HoldoutMetrics: {
       /** Accuracy */
       accuracy: number;
-      /** Average Precision */
-      average_precision: number;
-      /** Brier */
-      brier: number;
       /** F1 */
       f1: number;
       /** Fn */
@@ -1116,8 +1128,6 @@ export interface components {
       precision: number;
       /** Recall */
       recall: number;
-      /** Roc Auc */
-      roc_auc: number;
       /** Threshold */
       threshold: number;
       /** Tn */
@@ -1126,56 +1136,16 @@ export interface components {
       tp: number;
     };
     /**
-     * HoldoutSegment
-     * @description One segment of the recorded test evaluation; rates are null below 20 customers.
-     *
-     *     Records written before intervals were kept have none: those fields are null.
-     */
-    HoldoutSegment: {
-      /** Churn Rate */
-      churn_rate: number | null;
-      /** Churners */
-      churners: number | null;
-      /** Customers */
-      customers: number;
-      /** Dimension */
-      dimension: string;
-      /** Flagged */
-      flagged: number;
-      /** Flagged Rate */
-      flagged_rate: number | null;
-      /** Precision */
-      precision: number | null;
-      /** Precision High */
-      precision_high?: number | null;
-      /** Precision Low */
-      precision_low?: number | null;
-      /** Recall */
-      recall: number | null;
-      /** Recall High */
-      recall_high?: number | null;
-      /** Recall Low */
-      recall_low?: number | null;
-      /** Roc Auc */
-      roc_auc?: number | null;
-      /** Segment */
-      segment: string;
-      /** Unscanned */
-      unscanned: boolean | null;
-    };
-    /**
      * HoldoutSummary
      * @description The recorded test evaluation of the served artifact, from ``make evaluate``.
      */
     HoldoutSummary: {
-      /** Ece */
-      ece: number | null;
       /** Evaluated At */
       evaluated_at: string;
+      /** Precision */
+      precision: number;
       /** Recall */
       recall: number;
-      /** Roc Auc */
-      roc_auc: number;
     };
     /** Importance */
     Importance: {
@@ -1342,6 +1312,8 @@ export interface components {
       /** Bands */
       bands: components['schemas']['BandSummary'][];
       campaign: components['schemas']['Campaign'] | null;
+      /** Current Monthly Charges */
+      current_monthly_charges: number | null;
       /** Customers */
       customers: number;
       flagged: components['schemas']['Segment'];
@@ -1359,6 +1331,10 @@ export interface components {
       segments: components['schemas']['SegmentTab'][];
       /** Threshold */
       threshold: number;
+      /** Unknown Customers */
+      unknown_customers: number;
+      /** Unknown Monthly Charges */
+      unknown_monthly_charges: number;
       /** Withheld Reason */
       withheld_reason: string | null;
     };
@@ -1502,6 +1478,16 @@ export interface components {
     Segment: {
       /** Customers */
       customers: number;
+      /** In Queue */
+      in_queue: number;
+      /** In Queue Active */
+      in_queue_active: number;
+      /** In Queue Monthly */
+      in_queue_monthly: number;
+      /** In Queue Share */
+      in_queue_share: number | null;
+      /** In Queue Unknown */
+      in_queue_unknown: number;
       /** Monthly Charges */
       monthly_charges: number;
       /** Share */
@@ -1569,6 +1555,8 @@ export interface components {
       folds: number;
       /** Leader */
       leader: string;
+      /** Leader Gap */
+      leader_gap?: number | null;
       /** Leader Name */
       leader_name: string;
       /** Metric */
@@ -1580,6 +1568,8 @@ export interface components {
     };
     /** SelectionSummary */
     SelectionSummary: {
+      /** Active Monthly Charges */
+      active_monthly_charges: number;
       /** At Risk */
       at_risk: number;
       /** Customers */
@@ -1616,11 +1606,25 @@ export interface components {
       threshold: number;
     };
     /**
+     * StatusCounts
+     * @description How many customers match, by what is known of them; these add up to the total.
+     */
+    StatusCounts: {
+      /** Active */
+      active: number;
+      /** Churned */
+      churned: number;
+      /** Unknown */
+      unknown: number;
+    };
+    /**
      * SuppressedCell
      * @description A group whose churn is hidden: its size only, never a rate or a churn count.
      *
      *     ``too_few``: fewer than 20 customers. ``complementary``: enough customers,
-     *     but showing its churn would let a smaller group's be worked out.
+     *     but showing its churn would let a smaller group's be worked out from this
+     *     table. A rule for this report, not privacy protection: training customers'
+     *     own outcomes are listed by ``GET /api/customers``.
      */
     SuppressedCell: {
       /** Column */
@@ -1964,6 +1968,7 @@ export interface operations {
         tenure_max?: number | null;
         flagged?: boolean | null;
         partition?: ('train' | 'validation' | 'test' | 'unknown') | null;
+        exclude_churned?: boolean;
       };
       header?: never;
       path?: never;
@@ -2114,6 +2119,7 @@ export interface operations {
         tenure_max?: number | null;
         flagged?: boolean | null;
         partition?: ('train' | 'validation' | 'test' | 'unknown') | null;
+        exclude_churned?: boolean;
       };
       header?: never;
       path?: never;

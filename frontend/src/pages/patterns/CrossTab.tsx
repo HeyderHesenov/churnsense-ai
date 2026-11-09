@@ -4,6 +4,7 @@
  * each margin in its header. Every cell is a button: pointing or focusing it
  * describes it above the table, pressing it pins it, Escape lets go.
  */
+import { useId } from 'react';
 import type { Cell, Segments } from '../../api/queries';
 import { int, pct } from '../../lib/format';
 import { level } from '../../lib/labels';
@@ -44,7 +45,7 @@ export function CrossTab({
     <CellButton
       key={`${cell.row}|${cell.column ?? ''}`}
       cell={cell}
-      label={focusText(view, cell, data)}
+      description={focusText(view, cell, data)}
       measure={measure}
       scale={scale}
       minimum={data.min_customers}
@@ -120,7 +121,8 @@ export function CrossTab({
 
 interface CellProps {
   cell: Cell;
-  label: string;
+  /** The cell's whole sentence; its visible figures are its name (WCAG 2.5.3). */
+  description: string;
   measure: Measure;
   scale: Scale;
   minimum: number;
@@ -133,7 +135,7 @@ interface CellProps {
 
 function CellButton({
   cell,
-  label,
+  description,
   measure,
   scale,
   minimum,
@@ -143,11 +145,12 @@ function CellButton({
   onUnpin,
 }: CellProps) {
   const shade = shadeOf(cell, scale);
+  const descriptionId = useId();
   return (
     <button
       type="button"
       className={cx(styles.cell, cell.suppressed && measure !== 'customers' && styles.hidden)}
-      aria-label={label}
+      aria-describedby={descriptionId}
       aria-pressed={pinned}
       data-measure={measure}
       data-side={shade !== null && shade < 0 ? 'below' : 'above'}
@@ -166,6 +169,9 @@ function CellButton({
         {cell.suppressed && measure !== 'customers'
           ? hiddenMark(cell, minimum)
           : `n ${int(cell.n)}`}
+      </span>
+      <span id={descriptionId} hidden>
+        {description}
       </span>
     </button>
   );

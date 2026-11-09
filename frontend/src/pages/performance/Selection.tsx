@@ -132,7 +132,7 @@ export function Selection({ figures }: { figures: Performance }) {
         </tbody>
       </table>
       <p className={styles.note}>
-        {selectionNote(leader, chosen, modelName)} {CANDIDATES_NOTE}
+        {selectionNote(leader, chosen, selection.leader_gap, modelName)} {CANDIDATES_NOTE}
       </p>
     </Card>
   );

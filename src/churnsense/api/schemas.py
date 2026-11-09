@@ -297,6 +297,5 @@ class HoldoutSummary(BaseModel):
     """The recorded test evaluation of the served artifact, from ``make evaluate``."""
 
     evaluated_at: str
-    roc_auc: float
+    precision: float
     recall: float
-    ece: float | None

@@ -186,7 +186,8 @@
 .count {
   font-family: var(--font-mono);
   font-size: 10.5px;
-  color: var(--ink-2);
+  /* The cell's own ink: legible on its darkest shade (WCAG 1.4.3), muted in a hidden cell. */
+  color: inherit;
 }
 
 /* --- the legend ---------------------------------------------------------------- */

@@ -30,8 +30,7 @@ that answers "what if the offer only works 20 % of the time".
 
 ### Q3. How do you know it is worth anything?
 
-Measured on the held-out test partition: PR-AUC **0.6251** against a no-skill
-baseline of **0.265** — a **2.4× lift**. At the chosen threshold it catches
+Measured on the held-out test partition, at the chosen threshold, it catches
 **70 %** of churners while flagging a third of the book.
 
 I will not claim a dollar figure. The dataset contains no campaign outcomes,
@@ -134,7 +133,7 @@ pre-calibration metrics while `model.joblib` held the *calibrated* pipeline —
 one set of numbers describing two different models. Found by reading the
 artifact, not from a failing test.
 
-Not cosmetic: precision 0.5095 → **0.6723**, recall 0.7888 → **0.5321**.
+Not cosmetic, on validation: precision 0.5095 → **0.6723**, recall 0.7888 → **0.5321**.
 `class_weight="balanced"` inflates raw scores, so an uncalibrated 0.5 flags far
 more customers than a calibrated 0.5. Publishing the candidate's numbers would
 have overstated recall by 48 % relative. Fixed by scoring the shipped pipeline
@@ -161,7 +160,7 @@ on validation, so they depend on where the cut falls rather than on the scale �
 a distinction I got wrong in an earlier version of these notes.)
 
 Isotonic calibration cut expected calibration error from **0.1441 to 0.0274**
-on validation, and it holds on test at **0.0275**. I fitted it, measured it,
+on validation. No calibration error is published for the test partition. I fitted it, measured it,
 and kept it *because* it helped — the code keeps the uncalibrated model
 otherwise.
 
@@ -199,9 +198,9 @@ the noise-chasing mistake once, recognised it the second time.
 
 ### Q11. False positives versus false negatives — how do you reason about it?
 
-- A **false negative** is a customer who leaves without ever being offered
-  anything. Cost: their remaining margin, hundreds of dollars.
-- A **false positive** is an offer to someone who was staying. Cost: one offer,
+- A **false negative** is a churner the model did not flag. Simulated cost: their
+  remaining margin, hundreds of dollars.
+- A **false positive** is a flagged customer who stayed. Simulated cost: one assumed offer,
   $50 by default — plus any discount they keep, which the simulation does not
   model.
 
@@ -214,8 +213,9 @@ stay anyway — that is the honest price of 70 % recall.
 
 ### Q12. Your test and validation numbers differ. Why?
 
-Validation PR-AUC 0.6441, test 0.6251; validation ROC-AUC 0.8375, test 0.8422.
-Different directions, both small — ordinary sampling variation across two
+Validation keeps PR-AUC 0.6441 and ROC-AUC 0.8375.
+The test partition publishes only its counts and the rates they give, at one threshold. Where the two can be compared, the differences
+are small: ordinary sampling variation across two
 1,409-row partitions.
 
 What matters is that nothing was tuned on test, so the gap is an estimate of
@@ -281,18 +281,12 @@ some low-risk ones are the ones an offer would actually move. Closing that gap
 needs experimental data this dataset does not contain.
 
 **Operationally: one global threshold leaves whole segments unscanned.**
-Measured on test at 0.36:
-
-| Segment | n | Churn rate | Flagged | Recall |
-|---|---|---|---|---|
-| Month-to-month | 773 | 42.6 % | 467 | 0.787 |
-| One year | 300 | 12.0 % | 9 | 0.111 |
-| Two year | 336 | 2.7 % | **0** | **0.000** |
-| No internet | 312 | 8.0 % | **0** | **0.000** |
-
-The headline recall of 0.70 is almost entirely month-to-month recall. The model
-flags **not one** two-year-contract customer; its 9 churners are invisible to
-any campaign driven by this score. That is the optimiser behaving correctly —
+On validation the model flags **not one** two-year-contract customer and no customer
+without internet, and 35 churners sit between those two segments, invisible to any
+campaign driven by this score. The test partition has no such table: its customers
+are listed with their flags and scores, so a figure about a group of them would be
+read against known people (docs/MODEL_CARD.md has the reason, and says what older
+reports and Git history still hold). That is the optimiser behaving correctly —
 low base rates mean few true positives per offer — but it is an emergent
 targeting decision rather than a stated one. No flags means *not scanned*, not
 *no risk*. Per-segment thresholds are one option, not a fix: they would decide
@@ -418,6 +412,5 @@ byte-identical. The history is written down in the model card.
 | Selected model | Logistic Regression (`C=10`), isotonic-calibrated |
 | Selection rule | One-standard-error on 5-fold CV PR-AUC (cutoff 0.6646), tie broken on simplicity |
 | Threshold | 0.36, chosen on validation by `make train`, one-offer indifference band |
-| Test (re-used holdout, recorded 2026-10-09) | P 0.5525 · R 0.7032 · F1 0.6188 · ROC-AUC 0.8422 · PR-AUC 0.6251 · ECE 0.0275 |
-| Baseline | PR-AUC 0.2654, ROC-AUC 0.500 |
+| Test (re-used holdout, recorded 2026-10-09) | P 0.5525 · R 0.7032 · F1 0.6188 |
 | Tests | 497 passing (483 without data), Python 3.12.13 |

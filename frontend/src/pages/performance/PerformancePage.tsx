@@ -140,15 +140,6 @@ export default function PerformancePage() {
         >
           Model card <icons.arrowUpRight size={14} />
         </ButtonLink>
-        <ButtonLink
-          variant="ghost"
-          size="lg"
-          href={`${REPO}/reports/final_evaluation.md`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Final evaluation (archival) <icons.arrowUpRight size={14} />
-        </ButtonLink>
       </Header>
       <Page>{body}</Page>
     </>
