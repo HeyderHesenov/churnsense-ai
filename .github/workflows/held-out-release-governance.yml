@@ -1,0 +1,72 @@
+name: Held-out release governance
+
+# What a change would do to the held-out release ledger, against the target branch as it
+# is when this runs. Read-only, with no dataset, no dependency and no evaluation. The rules
+# are in scripts/check_release_ledger.py and the procedure in SECURITY.md.
+#
+# A best-effort consistency check, not a security boundary. On pull_request GitHub takes this
+# file from the change itself, so a change can edit it: it catches accidents and ordinary
+# mistakes. The maintainer has to read every change to it, and nothing enforces that. It is
+# not in the ruleset today.
+#
+# No path filter: should it be added to the ruleset, a listed check that does not run stays
+# pending for ever.
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  held-out-release-governance:
+    name: held-out-release-governance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # The whole history, so the proposal can be merged with the target as it is now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Compare the ledger with the target branch
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "merge_group" ]; then
+            # A queue tests exactly what it will merge, on the base it will merge onto.
+            target="$GROUP_BASE_SHA"
+            proposed="$GROUP_HEAD_SHA"
+          else
+            # An old base proves nothing: fetch the branch as it is now, and judge what
+            # merging this pull request into it would leave, not the pull request alone.
+            git fetch --no-tags "$SERVER_URL/$REPOSITORY" "+refs/heads/$PR_BASE_REF:refs/remotes/target/$PR_BASE_REF"
+            target="refs/remotes/target/$PR_BASE_REF"
+            if ! proposed="$(git merge-tree --write-tree "$target" "$PR_HEAD_SHA")"; then
+              echo "refused: this pull request conflicts with the target branch" >&2
+              exit 1
+            fi
+          fi
+          # The script is read from the target, so an edit to it in this same change is not
+          # what judges this change. That is a convenience and not a guarantee: this file can
+          # be edited too, and a merged edit judges the next change. With no script on the
+          # target this change's own copy runs: for the change that first adds it, and for
+          # every change after one that deleted it.
+          checker="$RUNNER_TEMP/check_release_ledger.py"
+          if ! git show "$target:scripts/check_release_ledger.py" > "$checker" 2>/dev/null; then
+            cp scripts/check_release_ledger.py "$checker"
+          fi
+          python3 -I "$checker" --target "$target" --proposed "$proposed"

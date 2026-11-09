@@ -121,24 +121,39 @@ def evaluate(
     )
 
 
-def reliability_table(y_true: ArrayLike, y_proba: ArrayLike, n_bins: int = 10) -> pd.DataFrame:
+def reliability_bin(y_proba: ArrayLike, n_bins: int = 10) -> np.ndarray:
+    """Each probability's bin; bins are ``(low, high]``, and the first also holds 0."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    # `right=True` with a clip keeps p == 0.0 in the first bin instead of bin -1.
+    return np.clip(np.digitize(y_proba, edges[1:-1], right=True), 0, n_bins - 1)
+
+
+def reliability_table(
+    y_true: ArrayLike, y_proba: ArrayLike, n_bins: int = 10, *, with_edges: bool = False
+) -> pd.DataFrame:
     """Observed churn rate against mean predicted probability, per bin.
 
     Empty bins are dropped rather than returned as NaN rows: a reliability
-    curve should not plot a point where no customer was predicted.
+    curve should not plot a point where no customer was predicted. Bins are
+    right-closed, ``(low, high]``, except the first, which also holds 0.
+    ``with_edges`` adds each bin's ``low`` and ``high``, which cannot be told
+    from a row's position once empty bins are gone.
     """
     y, p = _validated(y_true, y_proba)
     edges = np.linspace(0.0, 1.0, n_bins + 1)
-    # `right=True` with a clip keeps p == 0.0 in the first bin instead of bin -1.
-    index = np.clip(np.digitize(p, edges[1:-1], right=True), 0, n_bins - 1)
 
-    frame = pd.DataFrame({"bin": index, "y": y, "p": p})
+    frame = pd.DataFrame({"bin": reliability_bin(p, n_bins), "y": y, "p": p})
     table = (
         frame.groupby("bin", observed=True)
         .agg(mean_predicted=("p", "mean"), observed_rate=("y", "mean"), count=("y", "size"))
-        .reset_index(drop=True)
+        .reset_index()
     )
     table["gap"] = table["observed_rate"] - table["mean_predicted"]
+    if not with_edges:
+        return table.drop(columns="bin")
+    bins = table.pop("bin").to_numpy()
+    table.insert(0, "high", edges[bins + 1])
+    table.insert(0, "low", edges[bins])
     return table
 
 

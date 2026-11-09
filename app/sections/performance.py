@@ -2,9 +2,9 @@
 
 This page computes nothing from the test partition. Everything computed live
 here is on the validation partition, which development may re-read freely; the
-test result is shown only as the figure ``make evaluate CONFIRM=yes`` recorded
-in the artifact's metadata, never recomputed. How outcomes reach a page is set
-out in ``app/data.py``.
+test result is shown only as the partition's official release, read from its ledger
+(``evaluation.release``), never recomputed. How outcomes reach a page is set out
+in ``app/data.py``.
 """
 
 from __future__ import annotations
@@ -26,9 +26,7 @@ from churnsense.evaluation.metrics import (
     reliability_table,
     segment_table,
 )
-
-#: Who the segment table is shown for; the same breakdown `make train` publishes.
-SEGMENTS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen", "gender")
+from churnsense.evaluation.release import published_release
 
 
 def _comparison_chart(table: pd.DataFrame) -> go.Figure:
@@ -207,30 +205,29 @@ def _segment_frame(segments: pd.DataFrame) -> pd.DataFrame:
 
 
 def _recorded_test_result(meta: dict) -> None:
-    """The final evaluation as recorded in the metadata - shown, never recomputed."""
+    """The partition's official release, shown and never recomputed."""
     st.subheader("Recorded test-set result")
-    test = meta.get("test_metrics")
-    if not test:
+    recorded, _ = published_release(meta.get("model_sha256"), meta["threshold"])
+    if recorded is None:
         st.info(
-            "No final test evaluation is recorded for this artifact. The published "
-            "figures, and the history of that partition, are in "
-            "`reports/final_evaluation.md` and `docs/MODEL_CARD.md`. This dashboard "
-            "computes no performance figure from the test partition."
+            "No final test evaluation can be shown for this artifact: none is recorded, or "
+            "it was withheld. The partition's history is in `docs/MODEL_CARD.md`. This "
+            "dashboard computes no performance figure from the test partition."
         )
         return
-    when = meta.get("test_evaluated_at", "before evaluation dates were recorded")
+    test = recorded.metrics
     st.caption(
-        f"Recorded by `make evaluate CONFIRM=yes` ({str(when)[:10]}) at threshold "
-        f"{test['threshold']:.2f} and stored with this artifact; not recomputed here. "
-        "The test partition has been scored more than once in this project's history: "
-        'see docs/MODEL_CARD.md, "Evaluation history".'
+        f"Recorded by `make evaluate CONFIRM=yes` ({recorded.evaluated_at[:10]}) at threshold "
+        f"{test['threshold']:.2f}, the partition's official release; not recomputed here. Brier, "
+        "ROC-AUC and PR-AUC are not published for this partition. It was scored more than "
+        'once before this release: see docs/MODEL_CARD.md, "Evaluation history".'
     )
     ui.kpi_row(
         [
             ("Precision", f"{test['precision']:.3f}", "recorded on test", ""),
             ("Recall", f"{test['recall']:.3f}", "recorded on test", ""),
-            ("ROC-AUC", f"{test['roc_auc']:.3f}", "recorded on test", ""),
-            ("PR-AUC", f"{test['average_precision']:.3f}", "recorded on test", ""),
+            ("F1", f"{test['f1']:.3f}", "recorded on test", ""),
+            ("Accuracy", f"{test['accuracy']:.3f}", "recorded on test", ""),
         ]
     )
 
@@ -335,7 +332,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:  # noqa: ARG001 - dispatch
     st.divider()
     st.subheader("Who the threshold reaches")
     ui.question("Does one global threshold serve every segment?")
-    segments = segment_table(y_val, proba, validation, SEGMENTS, model.threshold)
+    segments = segment_table(y_val, proba, validation, schema.VALIDATION_SEGMENTS, model.threshold)
     st.dataframe(_segment_frame(segments), hide_index=True, width="stretch")
     unscanned = segments[segments["flagged"].eq(0) & segments["churners"].gt(0)]
     if not unscanned.empty:

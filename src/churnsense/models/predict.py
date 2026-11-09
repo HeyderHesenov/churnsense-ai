@@ -21,7 +21,7 @@ import csv
 import io
 import logging
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -88,7 +88,7 @@ class Predictor:
     def model_key(self) -> str:
         return str(self.meta["model_key"])
 
-    def _validated(self, df: pd.DataFrame) -> pd.DataFrame:
+    def model_inputs(self, df: pd.DataFrame) -> pd.DataFrame:
         """Check ``df`` against the column contract and select the trained columns.
 
         Validation lives here, on the one path every consumer shares, so the
@@ -124,7 +124,7 @@ class Predictor:
         if not 0.0 <= cut <= 1.0:  # also false for NaN
             raise ValueError(f"threshold must lie in [0, 1], got {threshold!r}")
         # Already clamped by the artifact itself; see calibration_clamp.
-        probabilities = self.model.predict_proba(self._validated(df))[:, 1]
+        probabilities = self.model.predict_proba(self.model_inputs(df))[:, 1]
 
         bands = assign_risk_bands(probabilities, self.config)
         return pd.DataFrame(
@@ -245,11 +245,53 @@ def _read_contract_columns(payload: bytes, cfg: Config, limit: int) -> pd.DataFr
     return pd.DataFrame(rows, columns=[name for _, name in keep], dtype=str)
 
 
+def upload_rules(columns: Iterable[str]) -> list[str]:
+    """What ``validate_upload`` holds a file to for a model scoring ``columns``,
+    beyond the column list, the bounds and the categories.
+
+    A value rule is given only under the condition ``schema._inconsistencies``
+    checks it on, so a model scored without its columns is not described by it.
+    The blank TotalCharges ``clean_frame`` reads as 0 depends on the file's
+    tenure, scored or not.
+    """
+    scored = set(columns)
+    labels = (schema.ID_COLUMN, schema.TARGET)
+    unscored = [c for c in schema.RAW_COLUMNS if c not in scored and c not in labels]
+    *named, last = ["the model's columns", schema.ID_COLUMN, *unscored, schema.TARGET]
+    rules = [
+        "Comma-separated UTF-8 with one header row; names match exactly, case included.",
+        f"No column of the data contract appears twice: {', '.join(named)} and {last}. "
+        "Any other column is ignored, however often it appears.",
+        "No data row has more fields than the header; missing trailing fields read as blank.",
+        "A file with any problem is not scored; the problems in its values are all listed.",
+        "Every data row is scored in file order, duplicates included.",
+        "Blank lines are skipped, and a refusal counts data rows from 1.",
+        "A blank in a column the model scores is refused, never filled in"
+        + (
+            "; the one exception is a blank TotalCharges where the file's tenure is 0, read as 0."
+            if "TotalCharges" in scored
+            else "."
+        ),
+    ]
+    if "InternetService" in scored and scored.intersection(schema.ADDON_COLUMNS):
+        rules.append("Add-ons are 'No internet service' exactly when InternetService is 'No'.")
+    if {"PhoneService", "MultipleLines"} <= scored:
+        rules.append("MultipleLines is 'No phone service' exactly when PhoneService is 'No'.")
+    if {"tenure", "TotalCharges"} <= scored:
+        rules.append("TotalCharges is 0 exactly when tenure is 0.")
+    return [
+        *rules,
+        f"{schema.ID_COLUMN} is optional and not used to score.",
+        f"{schema.TARGET} is optional: each value Yes, No, 0 or 1, never blank; not used to score.",
+    ]
+
+
 def validate_upload(
     payload: bytes,
     cfg: Config | None = None,
     *,
     max_rows: int | None = None,
+    columns: Iterable[str] | None = None,
 ) -> pd.DataFrame:
     """Parse and validate an uploaded CSV before it reaches the model.
 
@@ -257,6 +299,11 @@ def validate_upload(
     file is read, by ``_read_contract_columns`` - the column count, row widths
     and row count, then the values. Reader errors are caught and rewritten,
     because their text can carry internal state that should not reach a user.
+
+    ``columns`` are the ones the file is scored on: pass the served model's
+    ``feature_columns``, which ``upload_rules`` and every template describe.
+    The config's are the default, and can drift from the artifact until the
+    next training run.
     """
     cfg = cfg or load_config()
     limit = max_rows if max_rows is not None else cfg.api.max_batch_rows
@@ -282,8 +329,12 @@ def validate_upload(
     if len(frame) == 0:
         raise SchemaValidationError("file contains a header but no data rows")
 
-    required = schema.model_input_columns(
-        cfg.features.drop_columns, cfg.features.include_total_charges
+    required = (
+        list(columns)
+        if columns is not None
+        else schema.model_input_columns(
+            cfg.features.drop_columns, cfg.features.include_total_charges
+        )
     )
 
     # Clean *before* validating values. The real IBM file stores a blank for

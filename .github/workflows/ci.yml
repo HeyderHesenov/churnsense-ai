@@ -53,8 +53,8 @@ jobs:
 
       - name: Lint
         run: |
-          ruff check src app tests
-          ruff format --check src app tests
+          ruff check src app tests scripts
+          ruff format --check src app tests scripts
 
       # No dataset download and no network: the suite runs entirely on the
       # seeded synthetic fixture in tests/conftest.py, which reproduces the
@@ -109,7 +109,11 @@ jobs:
           from fastapi.testclient import TestClient
           from churnsense.api import main
 
-          with TestClient(main.app, base_url="http://localhost") as client:
+          # The API answers loopback peers only; TestClient's default peer is
+          # the placeholder "testclient", so give it this machine's address.
+          with TestClient(
+              main.app, base_url="http://localhost", client=("127.0.0.1", 50000)
+          ) as client:
               body = client.get("/health").json()
               assert body["status"] in {"ok", "degraded"}, body
               print(f"OK  /health -> {body}")
@@ -262,3 +266,122 @@ jobs:
             exit 1
           fi
           echo "OK  no .env, raw data or model artifact in the index"
+
+  # The front end on its own: no Python and no data. npm ci installs exactly
+  # frontend/package-lock.json, and frontend/.npmrc keeps install scripts off
+  # and makes a Node outside package.json's engines an error.
+  frontend:
+    name: frontend (node 22)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the lock
+        run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # What ships in dist/ is audited at every severity. The dev toolchain
+      # blocks at high and above; a moderate dev-only advisory is assessed and
+      # listed in SECURITY.md ("Dependency audits"), GHSA-g3hv-75wg-m249 today.
+      - name: npm audit (runtime)
+        run: npm audit --omit=dev
+
+      - name: npm audit (dev toolchain, high and above)
+        run: npm audit --audit-level=high
+
+  # The built app in Chromium against scripts/e2e_server.py: the real API on a
+  # synthetic book, model and SHAP cache made in a temporary folder. No
+  # dataset is downloaded, and no artifact or test partition is read.
+  e2e:
+    name: e2e (chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install the dev lock with make setup
+        run: make setup PYTHON=python
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install the front end's lock
+        working-directory: frontend
+        run: npm ci
+
+      # The browser's types are generated from the server's schema; a stale copy
+      # would let the two disagree unseen (scripts/export_openapi.py).
+      - name: OpenAPI types match the API
+        working-directory: frontend
+        run: |
+          npm run openapi
+          git diff --exit-code -- src/api/schema.d.ts
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      # tests/test_wording.py skips without a build; here one is required.
+      - name: No causal claim in the built bundle
+        env:
+          CHURNSENSE_REQUIRE_FRONTEND_BUILD: "1"
+        run: .venv/bin/python -m pytest tests/test_wording.py
+
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Browser tests (Playwright and axe)
+        working-directory: frontend
+        run: npx --no-install playwright test
+
+      # Traces and screenshots hold synthetic data only (scripts/e2e_server.py).
+      - name: Keep the report of a failed run
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
+          if-no-files-found: ignore

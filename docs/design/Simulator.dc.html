@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Retention simulator</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-current="page" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Act</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Retention simulator</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<button type="button" class="ghost" onClick="{{pin}}" disabled="{{pinFull}}" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: rgba(201,133,0,0.1); border: 1px solid #5a4316; border-radius: 10px; color: #f6c873; font-family: inherit; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 6 4 4H6l4-4z"></path><path d="M12 14v7"></path></svg>
+{{pinLabel}}</button>
+<button type="button" class="ghost" onClick="{{reset}}" style="height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-family: inherit; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap">Reset to config defaults</button>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1400px; padding: 26px 28px 40px; display: flex; flex-direction: column; gap: 16px">
+
+<section style="display: flex; flex-direction: column; gap: 10px; max-width: 780px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #f0b54a">Retention simulator</span>
+<h1 style="margin: 0; font-size: 32px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">Where should the cut-off sit?</h1>
+<p style="margin: 0; font-size: 14.5px; color: #adb7c2; text-wrap: pretty">A model that ranks customers well is useless until someone decides where to draw the line. Set what an offer costs and how often it works; the curve and the recommended threshold follow. Validation partition: 1,409 customers, 374 churners.</p>
+</section>
+
+<div role="note" style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border: 1px solid #5a4316; background: rgba(201,133,0,0.08); border-radius: 12px; font-size: 13px; color: #e9d3a6">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0b54a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4M12 17h.01"></path></svg>
+<span><b style="color: #f6c873; font-weight: 600">Simulated, not measured.</b> The dataset holds no retention-campaign outcomes, so the offer success rate is an assumption you supply, not an estimate. The model estimates risk, not what an offer would change.</span>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+
+<!-- Controls -->
+<section aria-label="Assumptions" style="flex: 1 1 290px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 20px 22px; display: flex; flex-direction: column; gap: 18px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Business assumptions</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Defaults come from configs/config.yaml.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="cost" style="font-size: 13px; color: #adb7c2">Cost of one offer</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px">{{costLabel}}</span></div>
+<input id="cost" type="range" min="5" max="200" step="5" value="{{cost}}" onChange="{{onCost}}" style="accent-color: #f0b54a">
+<div style="display: flex; justify-content: space-between; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e"><span>$5</span><span>$200</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="succ" style="font-size: 13px; color: #adb7c2">Offer success rate</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px">{{succLabel}}</span></div>
+<input id="succ" type="range" min="5" max="60" step="1" value="{{succ}}" onChange="{{onSucc}}" style="accent-color: #f0b54a">
+<div style="display: flex; justify-content: space-between; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e"><span>5%</span><span>cannot be measured here</span><span>60%</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="hor" style="font-size: 13px; color: #adb7c2">Revenue horizon</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px">{{horLabel}}</span></div>
+<input id="hor" type="range" min="3" max="36" step="1" value="{{hor}}" onChange="{{onHor}}" style="accent-color: #f0b54a">
+<div style="display: flex; justify-content: space-between; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e"><span>3 mo</span><span>36 mo</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="mar" style="font-size: 13px; color: #adb7c2">Gross margin</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px">{{marLabel}}</span></div>
+<input id="mar" type="range" min="20" max="90" step="5" value="{{mar}}" onChange="{{onMar}}" style="accent-color: #f0b54a">
+<div style="display: flex; justify-content: space-between; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e"><span>20%</span><span>90%</span></div>
+</div>
+<div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.75; color: #adb7c2; background: #0d1117; border: 1px solid #1f2730; border-radius: 10px; padding: 12px 14px">
+<div><span style="color: #8b949e">value&#160;&#160;&#160;</span> = monthly × horizon × margin</div>
+<div><span style="color: #8b949e">retained</span> = Σ true positives × value × success</div>
+<div><span style="color: #8b949e">cost&#160;&#160;&#160;&#160;</span> = flagged × offer</div>
+<div style="color: #e6edf3"><span style="color: #8b949e">net&#160;&#160;&#160;&#160;&#160;</span> = retained − cost</div>
+</div>
+<div style="border-top: 1px solid #1f2730; padding-top: 16px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="thr" style="font-size: 13px; font-weight: 550">Decision threshold</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 18px">{{selLabel}}</span></div>
+<input id="thr" type="range" min="1" max="97" step="1" value="{{sel}}" onChange="{{onThr}}" style="accent-color: #e6edf3">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 6px">
+<span style="font-size: 12px; color: #8b949e">{{followNote}}</span>
+<button type="button" class="ghost" onClick="{{useRec}}" disabled="{{isFollowing}}" style="flex: none; min-height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #5a4316; background: rgba(201,133,0,0.1); color: #f6c873; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer">Use recommended</button>
+</div>
+<p style="margin: 6px 0 0; font-size: 12px; color: #8b949e">Tip: click anywhere on the chart to set the threshold there.</p>
+</div>
+</section>
+
+<!-- Results -->
+<div style="flex: 2.3 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<section aria-label="Result at the selected threshold" aria-live="polite" style="display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(2, minmax(0, 1fr)); gap: 12px">
+<div style="grid-row: span 2; background: linear-gradient(180deg, rgba(201,133,0,0.09), rgba(201,133,0,0) 70%), #10151c; border: 1px solid #3a2e17; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Net benefit at {{selLabel}}</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #f0b54a; border: 1px solid #5a4316; border-radius: 5px; padding: 1px 6px">SIMULATED</span></div>
+<div style="font-size: 40px; font-weight: 600; letter-spacing: -0.03em; color: #f6c873; line-height: 1.15; margin-top: 4px">{{netLabel}}</div>
+<div style="font-size: 12.5px; color: #adb7c2">{{deltaNote}}</div>
+<div style="margin-top: auto; padding-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px">
+<div style="display: flex; justify-content: space-between"><span style="color: #8b949e">Retained value</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">{{retained}}</span></div>
+<div style="display: flex; justify-content: space-between"><span style="color: #8b949e">Campaign cost</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">−{{costTotal}}</span></div>
+<div style="height: 6px; border-radius: 3px; background: #1c232c; overflow: hidden; display: flex"><div class="bar" style="width: {{costShare}}; background: #6e5a33"></div><div class="bar" style="width: {{netShare}}; background: #f0b54a"></div></div>
+<span style="font-size: 11.5px; color: #8b949e">{{costShareNote}}</span>
+</div>
+</div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Flagged</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25">{{flagged}}</div><div style="font-size: 12px; color: #8b949e">{{flaggedShare}} of 1,409 would get an offer</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Churners reached</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25">{{tp}} <span style="font-size: 14px; color: #8b949e; font-weight: 400">/ 374</span></div><div style="font-size: 12px; color: #8b949e">{{missed}} would leave unoffered</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Precision</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25">{{prec}}</div><div style="font-size: 12px; color: #8b949e">{{wasted}} offers to stayers</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Recall</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25">{{rec}}</div><div style="font-size: 12px; color: #8b949e">share of churners flagged</div></div>
+</section>
+
+<section style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Net benefit across every threshold</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Where does the campaign pay, and how flat is the top? Hover to read any cut; click to select it.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: #adb7c2">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #f0b54a"></span>net benefit</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 14px; height: 9px; background: rgba(240,181,74,0.22); border-radius: 2px"></span>within one offer of the peak</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 2px; height: 12px; background: #e6edf3"></span>selected</span>
+</div>
+</div>
+<div style="position: relative">
+<svg viewBox="0 0 760 262" role="img" aria-label="{{chartLabel}}" style="width: 100%; height: auto; display: block; overflow: visible">
+<line x1="60" x2="744" y1="{{yt0}}" y2="{{yt0}}" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="{{yt1}}" y2="{{yt1}}" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="{{yt2}}" y2="{{yt2}}" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="{{yt3}}" y2="{{yt3}}" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="{{yt4}}" y2="{{yt4}}" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="{{zeroY}}" y2="{{zeroY}}" stroke="#4a5664"></line>
+<rect x="60" width="684" y="{{bandY}}" height="{{bandH}}" fill="rgba(240,181,74,0.16)"></rect>
+<path d="{{areaPath}}" fill="rgba(240,181,74,0.07)"></path>
+<path d="{{netPath}}" fill="none" stroke="#f0b54a" stroke-width="2.2" stroke-linejoin="round"></path>
+<line x1="{{selX}}" x2="{{selX}}" y1="14" y2="232" stroke="#e6edf3" stroke-width="1.5"></line>
+<circle cx="{{peakX}}" cy="{{peakY}}" r="5" fill="#10151c" stroke="#f0b54a" stroke-width="2"></circle>
+<circle cx="{{recX}}" cy="{{recY}}" r="6" fill="#f0b54a" stroke="#10151c" stroke-width="2"></circle>
+<text x="60" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0</text>
+<text x="196.8" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.2</text>
+<text x="333.6" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.4</text>
+<text x="470.4" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.6</text>
+<text x="607.2" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.8</text>
+<text x="744" y="252" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">1.0</text>
+<g opacity="{{hOp}}" pointer-events="none">
+<line x1="{{hX}}" x2="{{hX}}" y1="14" y2="232" stroke="#adb7c2" stroke-dasharray="3 3"></line>
+<circle cx="{{hX}}" cy="{{hY}}" r="4.5" fill="#e6edf3"></circle>
+
+</g>
+<rect x="60" y="14" width="684" height="218" fill="transparent" onMouseMove="{{onHover}}" onMouseLeave="{{onLeave}}" onClick="{{onPick}}" style="cursor: crosshair"></rect>
+</svg>
+<span aria-hidden="true" style="position: absolute; left: 6.842%; top: {{ytp0}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{yl0}}</span>
+<span aria-hidden="true" style="position: absolute; left: 6.842%; top: {{ytp1}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{yl1}}</span>
+<span aria-hidden="true" style="position: absolute; left: 6.842%; top: {{ytp2}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{yl2}}</span>
+<span aria-hidden="true" style="position: absolute; left: 6.842%; top: {{ytp3}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{yl3}}</span>
+<span aria-hidden="true" style="position: absolute; left: 6.842%; top: {{ytp4}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{yl4}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{recXp}}; top: {{recYp}}; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 400; color: #f6c873; white-space: nowrap; pointer-events: none">recommended {{recLabel}}</span>
+<div role="status" style="position: absolute; left: {{tipL}}; top: {{tipTp}}; opacity: {{hOp}}; width: max-content; transform: translateX({{tipX}}); box-sizing: border-box; padding: 8px 12px; border-radius: 8px; background: #e6edf3; box-shadow: 0 10px 24px rgba(0,0,0,0.45); pointer-events: none; display: flex; flex-direction: column; gap: 2px; transition: opacity .12s ease"><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; color: #0a0d12; white-space: nowrap">t = {{hLabel}} · {{hNet}}</span><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 400; color: #30363d; white-space: nowrap">flagged {{hFlag}} · P {{hPrec}}</span><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 400; color: #30363d; white-space: nowrap">reached {{hTp}} · R {{hRec}}</span></div>
+</div>
+
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-top: 8px; padding-top: 12px; border-top: 1px solid #1c232c">
+<h3 style="margin: 0; font-size: 13.5px; font-weight: 600">What the cut buys</h3>
+<div style="display: flex; gap: 14px; font-size: 12px; color: #adb7c2">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #5cc8dc"></span>precision</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 14px; height: 2px; background: #b7aff4"></span>recall</span>
+</div>
+</div>
+<svg viewBox="0 0 760 150" role="img" aria-label="Precision rises and recall falls as the threshold increases" style="width: 100%; height: auto; display: block; overflow: visible">
+<line x1="60" x2="744" y1="12" y2="12" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="66" y2="66" stroke="#1c232c"></line>
+<line x1="60" x2="744" y1="120" y2="120" stroke="#4a5664"></line>
+<text x="52" y="16" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">1.0</text>
+<text x="52" y="70" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.5</text>
+<text x="52" y="124" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0</text>
+<path d="{{precPath}}" fill="none" stroke="#5cc8dc" stroke-width="2" stroke-linejoin="round"></path>
+<path d="{{recPath}}" fill="none" stroke="#b7aff4" stroke-width="2" stroke-linejoin="round"></path>
+<line x1="{{selX}}" x2="{{selX}}" y1="8" y2="120" stroke="#e6edf3" stroke-width="1.5"></line>
+<circle cx="{{selX}}" cy="{{selPY}}" r="4" fill="#5cc8dc" stroke="#10151c" stroke-width="1.5"></circle>
+<circle cx="{{selX}}" cy="{{selRY}}" r="4" fill="#b7aff4" stroke="#10151c" stroke-width="1.5"></circle>
+<line x1="{{hX}}" x2="{{hX}}" y1="8" y2="120" stroke="#adb7c2" stroke-dasharray="3 3" opacity="{{hOp}}"></line>
+<text x="60" y="140" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0</text>
+<text x="333.6" y="140" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.4</text>
+<text x="607.2" y="140" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.8</text>
+<rect x="60" y="8" width="684" height="112" fill="transparent" onMouseMove="{{onHover}}" onMouseLeave="{{onLeave}}" onClick="{{onPick}}" style="cursor: crosshair"></rect>
+</svg>
+</section>
+
+<section aria-label="Pinned scenarios" style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 0 8px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 0 20px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Compare scenarios</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Pin up to four sets of assumptions and compare them against what is on screen now.</p>
+</div>
+<button type="button" class="ghost" onClick="{{pin}}" disabled="{{pinFull}}" style="min-height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #2a3440; background: #121821; color: #e6edf3; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer">Pin current</button>
+</div>
+<sc-if value="{{hasPins}}" hint-placeholder-val="{{ false }}">
+<div style="overflow-x: auto; position: relative">
+<div role="table" aria-label="Pinned scenarios" style="min-width: 724px; font-size: 13px">
+<div role="row" style="display: grid; grid-template-columns: 44px minmax(170px, 1.5fr) 60px 70px 70px 96px 96px 118px; padding: 0 20px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e; white-space: nowrap">
+<span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730">Pin</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730">Assumptions</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730; text-align: right">Cut</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730; text-align: right">Flagged</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730; text-align: right">Recall</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730; text-align: right">Net</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730; text-align: right">vs now</span><span role="columnheader" style="padding: 6px 0; border-bottom: 1px solid #1f2730"><span class="sr">Actions</span></span>
+</div>
+<sc-for list="{{pins}}" as="p" hint-placeholder-count="2">
+<div role="row" class="trow" style="display: grid; grid-template-columns: 44px minmax(170px, 1.5fr) 60px 70px 70px 96px 96px 118px; align-items: center; padding: 0 20px; min-height: 48px; border-bottom: 1px solid #182029; white-space: nowrap">
+<span role="cell"><span style="display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; border-radius: 6px; background: rgba(201,133,0,0.14); color: #f6c873; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600">{{p.tag}}</span></span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; color: #adb7c2">{{p.assume}}</span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{p.cut}}</span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{p.flagged}}</span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{p.recall}}</span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right; color: #f6c873">{{p.net}}</span>
+<span role="cell" style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right; color: {{p.deltaFg}}">{{p.delta}}</span>
+<span role="cell" style="display: flex; justify-content: flex-end; gap: 6px">
+<button type="button" class="ghost" onClick="{{p.apply}}" aria-label="{{p.applyLabel}}" style="min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; font-family: inherit; font-size: 12px; cursor: pointer">Apply</button>
+<button type="button" class="ghost" onClick="{{p.remove}}" aria-label="{{p.removeLabel}}" style="width: 32px; min-height: 32px; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #adb7c2; cursor: pointer; display: inline-flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{noPins}}" hint-placeholder-val="{{ true }}">
+<div style="margin: 0 20px 10px; padding: 18px; border: 1px dashed #2a3440; border-radius: 12px; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #adb7c2">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M9 4h6l-1 6 4 4H6l4-4z"></path><path d="M12 14v7"></path></svg>
+<span>No scenarios pinned yet. Try pinning the defaults, then drag the success rate to 15% and pin again: the recommended cut moves, and so does what the campaign is worth.</span>
+</div>
+</sc-if>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+<section style="flex: 1 1 300px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Why not simply take the peak?</h2>
+<p style="margin: 0; font-size: 13px; color: #adb7c2">The peak sits at <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">{{peakLabel}}</b> ({{peakNet}}). The recommended cut, <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #f6c873">{{recLabel}}</b>, is <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">{{gap}}</b> lower: less than one offer ({{costLabel}}), on a figure built from an assumed success rate.</p>
+<p style="margin: 0; font-size: 13px; color: #adb7c2">Cuts within one offer's cost of the maximum are treated as indistinguishable, and the tie breaks toward the highest threshold: the one that spends least and disturbs the fewest customers.</p>
+</section>
+<section style="flex: 1 1 300px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">If the success rate were…</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Recommended cut at your other assumptions. Select one to apply it.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px">
+<sc-for list="{{sens}}" as="s" hint-placeholder-count="5">
+<button type="button" class="pill" onClick="{{s.pick}}" aria-pressed="{{s.pressed}}" style="min-height: 60px; border-radius: 10px; border: 1px solid {{s.border}}; background: {{s.bg}}; color: #e6edf3; font-family: inherit; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 4px">
+<span style="font-size: 11.5px; color: #adb7c2">{{s.label}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 16px">{{s.thr}}</span>
+</button>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8b949e">Under the defaults the cut moves from 0.88 at 10% to 0.22 at 50%: the threshold is a business decision, not a modelling constant.</p>
+</section>
+</div>
+
+</div>
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1500}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+const F = [1409,1293,1233,1112,1073,1047,981,952,920,903,857,830,809,791,774,771,765,762,742,731,710,680,667,619,606,596,555,540,536,521,511,505,497,485,478,471,448,443,409,385,371,363,356,343,336,327,322,315,311,301,296,284,261,244,239,235,226,210,191,186,171,152,142,134,131,126,120,112,111,108,102,95,86,79,77,73,67,65,55,55,49,47,37,32,31,27,24,19,18,16,14,14,12,9,9,7,6,6,0,0,0];
+const T = [374,372,371,366,366,364,362,358,350,348,343,343,340,336,334,333,331,331,328,327,322,318,317,307,301,300,287,283,282,282,280,278,274,270,266,264,260,258,246,234,228,224,221,217,215,211,207,206,204,200,199,193,181,170,168,166,163,151,139,134,126,113,107,100,99,97,92,85,84,82,79,74,66,60,59,55,51,49,41,41,37,36,30,26,25,23,21,17,16,14,12,12,10,9,9,7,6,6,0,0,0];
+const S = [28354.9,28269.85,28249.05,28003.4,28003.4,27880.65,27835.55,27401.45,26827.75,26688.8,26334.15,26334.15,26159.05,25958.15,25827.0,25758.15,25634.0,25634.0,25488.55,25432.05,25126.85,24816.85,24797.2,24093.7,23671.75,23567.15,22774.85,22495.45,22383.5,22383.5,22277.35,22080.1,21805.75,21553.7,21285.6,21207.25,20917.5,20768.3,19963.7,19152.05,18719.8,18389.15,18143.05,17962.55,17841.7,17488.7,17120.05,17014.75,16886.55,16623.8,16548.85,16064.15,15104.6,14280.7,14096.35,13948.0,13723.15,12761.8,11763.7,11430.9,10693.3,9631.85,9094.3,8593.6,8525.1,8360.1,7916.1,7317.4,7219.0,7030.65,6802.15,6369.35,5788.5,5275.1,5190.15,4837.15,4489.95,4332.35,3692.1,3692.1,3368.55,3319.3,2738.15,2377.6,2286.5,2102.85,1932.75,1594.45,1500.55,1304.35,1127.5,1127.5,951.55,851.8,851.8,663.3,574.75,574.75,0.0,0.0,0.0];
+const POS = 374;
+const X0 = 60, X1 = 744, Y0 = 18, Y1 = 232;
+const DEFAULTS = { cost: 50, succ: 30, hor: 12, mar: 65 };
+
+function money(v) { const s = '$' + Math.round(Math.abs(v)).toLocaleString('en-US'); return v < 0 ? '−' + s : s; }
+function signedMoney(v) { return (v >= 0 ? '+' : '−') + '$' + Math.round(Math.abs(v)).toLocaleString('en-US'); }
+function short(v) { const a = Math.abs(v); const s = a >= 1000 ? '$' + (Math.round(a / 100) / 10).toString().replace(/\.0$/, '') + 'k' : '$' + Math.round(a); return v < 0 ? '−' + s : s; }
+function niceStep(range) { const raw = range / 4; const mag = Math.pow(10, Math.floor(Math.log10(raw))); const n = raw / mag; return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag; }
+function curve(a) {
+  const k = a.hor * (a.mar / 100) * (a.succ / 100);
+  const net = S.map((s, i) => s * k - F[i] * a.cost);
+  const max = Math.max.apply(null, net);
+  const peak = net.indexOf(max);
+  let rec = peak;
+  for (let i = 0; i < net.length; i++) if (net[i] >= max - a.cost) rec = i;
+  return { net, max, peak, rec, k };
+}
+const num = (e, fallback, lo, hi) => { const v = Math.round(Number(e.target.value)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback; };
+const label = (i) => (i / 100).toFixed(2);
+const xScale = (i) => X0 + (i / 100) * (X1 - X0);
+const idxFromEvent = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  return Math.max(0, Math.min(100, Math.round(((e.clientX - r.left) / r.width) * 100)));
+};
+
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const a = { cost: st.cost ?? DEFAULTS.cost, succ: st.succ ?? DEFAULTS.succ, hor: st.hor ?? DEFAULTS.hor, mar: st.mar ?? DEFAULTS.mar };
+    const follow = st.follow ?? true;
+    const c = curve(a);
+    const sel = follow ? c.rec : (st.t ?? 36);
+    const h = st.h ?? -1;
+    const pins = st.pins ?? [];
+
+    const top = Math.max(c.max, 1000);
+    const bottom = Math.min(0, Math.min.apply(null, c.net));
+    const step = niceStep(top - bottom);
+    const lo = Math.floor(bottom / step) * step;
+    const hi = lo + step * 4 >= top ? lo + step * 4 : Math.ceil(top / step) * step;
+    const yScale = (v) => Y1 - ((v - lo) / (hi - lo)) * (Y1 - Y0);
+    const ticks = [0, 1, 2, 3, 4].map((j) => lo + ((hi - lo) * j) / 4);
+    const pts = c.net.map((v, i) => xScale(i).toFixed(1) + ' ' + yScale(v).toFixed(1));
+    const netPath = 'M' + pts.join(' L');
+    const areaPath = netPath + ' L' + X1 + ' ' + yScale(0).toFixed(1) + ' L' + X0 + ' ' + yScale(0).toFixed(1) + ' Z';
+    const bandTop = yScale(c.max), bandBottom = yScale(c.max - a.cost);
+
+    const pY = (v) => 120 - v * 108;
+    const precPts = [], recPts = [];
+    for (let i = 0; i <= 100; i++) {
+      if (F[i] > 0) precPts.push(xScale(i).toFixed(1) + ' ' + pY(T[i] / F[i]).toFixed(1));
+      recPts.push(xScale(i).toFixed(1) + ' ' + pY(T[i] / POS).toFixed(1));
+    }
+
+    const fl = F[sel], tp = T[sel], netSel = c.net[sel];
+    const retainedV = S[sel] * c.k, costV = fl * a.cost;
+    const hi2 = h >= 0 ? h : sel;
+    const hX = xScale(hi2), hY = yScale(c.net[hi2]);
+
+    let deltaNote;
+    if (sel === c.rec) deltaNote = 'The recommended cut under these assumptions';
+    else {
+      const d = c.net[c.rec] - netSel;
+      deltaNote = d > 0 ? money(d) + ' below the recommended cut (' + label(c.rec) + ')' : money(-d) + ' above the recommended cut, but for more offers per customer kept';
+    }
+
+    const sens = [10, 20, 30, 40, 50].map((r) => {
+      const cc = curve(Object.assign({}, a, { succ: r }));
+      const on = r === a.succ;
+      return { label: r + '%', thr: label(cc.rec), pressed: on ? 'true' : 'false', border: on ? '#f0b54a' : '#2a3440', bg: on ? 'rgba(201,133,0,0.14)' : '#0d1117', pick: () => set({ succ: r, follow: true }) };
+    });
+
+    const pinRows = pins.map((p, i) => {
+      const pc = curve(p);
+      const ps = p.follow ? pc.rec : p.t;
+      const d = pc.net[ps] - netSel;
+      const tag = String.fromCharCode(65 + i);
+      return {
+        tag, assume: '$' + p.cost + ' · ' + p.succ + '% · ' + p.hor + ' mo · ' + p.mar + '%',
+        cut: label(ps), flagged: F[ps].toLocaleString('en-US'), recall: (T[ps] / POS).toFixed(3),
+        net: money(pc.net[ps]), delta: Math.abs(d) < 0.5 ? 'same' : signedMoney(d), deltaFg: Math.abs(d) < 0.5 ? '#8b949e' : '#e6edf3',
+        applyLabel: 'Apply scenario ' + tag, removeLabel: 'Remove scenario ' + tag,
+        apply: () => set({ cost: p.cost, succ: p.succ, hor: p.hor, mar: p.mar, follow: p.follow, t: p.t }),
+        remove: () => set({ pins: pins.filter((_, j) => j !== i) }),
+      };
+    });
+
+    const sh = shell(this);
+    return Object.assign(sh, {
+      cost: a.cost, succ: a.succ, hor: a.hor, mar: a.mar, sel,
+      costLabel: '$' + a.cost, succLabel: a.succ + '%', horLabel: a.hor + ' mo', marLabel: a.mar + '%',
+      selLabel: label(sel), recLabel: label(c.rec), peakLabel: label(c.peak),
+      peakNet: money(c.max), gap: money(c.net[c.peak] - c.net[c.rec]),
+      netLabel: money(netSel), deltaNote,
+      flagged: fl.toLocaleString('en-US'), flaggedShare: ((fl / 1409) * 100).toFixed(1) + '%',
+      prec: fl ? (tp / fl).toFixed(3) : '—', rec: (tp / POS).toFixed(3), tp, missed: POS - tp, wasted: (fl - tp).toLocaleString('en-US'),
+      costTotal: money(costV), retained: money(retainedV),
+      costShare: retainedV > 0 ? Math.min(100, (costV / retainedV) * 100) + '%' : '100%',
+      netShare: retainedV > 0 ? Math.max(0, 100 - (costV / retainedV) * 100) + '%' : '0%',
+      costShareNote: retainedV > 0 ? 'Offers consume ' + Math.round((costV / retainedV) * 100) + '% of the value they retain' : 'No value retained at this cut',
+      followNote: follow ? 'Following the recommendation' : 'Set by hand', isFollowing: follow,
+      netPath, areaPath, precPath: 'M' + precPts.join(' L'), recPath: 'M' + recPts.join(' L'),
+      selPY: fl ? pY(tp / fl) : pY(0), selRY: pY(tp / POS),
+      bandY: Math.min(bandTop, bandBottom), bandH: Math.max(1.5, Math.abs(bandBottom - bandTop)),
+      zeroY: yScale(0),
+      selX: xScale(sel), peakX: xScale(c.peak), peakY: yScale(c.max),
+      recX: xScale(c.rec), recY: yScale(c.net[c.rec]), recLabelY: Math.max(12, yScale(c.net[c.rec]) - 14),
+      yt0: yScale(ticks[0]), yt1: yScale(ticks[1]), yt2: yScale(ticks[2]), yt3: yScale(ticks[3]), yt4: yScale(ticks[4]),
+      yl0: short(ticks[0]), yl1: short(ticks[1]), yl2: short(ticks[2]), yl3: short(ticks[3]), yl4: short(ticks[4]),
+      chartLabel: 'Simulated net benefit by threshold. Peak ' + money(c.max) + ' at ' + label(c.peak) + '; recommended ' + label(c.rec) + '.',
+      hOp: h >= 0 ? 1 : 0, hX, hY: hY,
+      tipL: ((hX > 540 ? hX - 14 : hX + 14) / 760) * 100 + '%', tipX: hX > 540 ? '-100%' : '0', tipTp: (Math.max(16, Math.min(160, hY - 70)) / 262) * 100 + '%',
+      ytp0: ((yScale(ticks[0]) + 4) / 262) * 100 + '%', ytp1: ((yScale(ticks[1]) + 4) / 262) * 100 + '%', ytp2: ((yScale(ticks[2]) + 4) / 262) * 100 + '%', ytp3: ((yScale(ticks[3]) + 4) / 262) * 100 + '%', ytp4: ((yScale(ticks[4]) + 4) / 262) * 100 + '%',
+      recXp: (xScale(c.rec) / 760) * 100 + '%', recYp: (Math.max(12, yScale(c.net[c.rec]) - 14) / 262) * 100 + '%',
+      hLabel: label(hi2), hNet: short(c.net[hi2]), hFlag: F[hi2].toLocaleString('en-US'),
+      hPrec: F[hi2] ? (T[hi2] / F[hi2]).toFixed(2) : '—', hTp: T[hi2], hRec: (T[hi2] / POS).toFixed(2),
+      onHover: (e) => { const i = idxFromEvent(e); if (i !== h) set({ h: i }); },
+      onLeave: () => set({ h: -1 }),
+      onPick: (e) => set({ t: Math.max(1, Math.min(97, idxFromEvent(e))), follow: false }),
+      sens,
+      pins: pinRows, hasPins: pins.length > 0, noPins: pins.length === 0,
+      pinFull: pins.length >= 4, pinLabel: pins.length ? 'Pin scenario (' + pins.length + '/4)' : 'Pin scenario',
+      pin: () => { if (pins.length < 4) set({ pins: pins.concat([{ cost: a.cost, succ: a.succ, hor: a.hor, mar: a.mar, follow, t: sel }]) }); },
+      onCost: (e) => set({ cost: num(e, a.cost, 5, 200) }),
+      onSucc: (e) => set({ succ: num(e, a.succ, 5, 60) }),
+      onHor: (e) => set({ hor: num(e, a.hor, 3, 36) }),
+      onMar: (e) => set({ mar: num(e, a.mar, 20, 90) }),
+      onThr: (e) => set({ t: num(e, sel, 1, 97), follow: false }),
+      useRec: () => set({ follow: true }),
+      reset: () => set(Object.assign({ follow: true }, DEFAULTS)),
+    });
+  }
+}
+</script>
+</body>
+</html>

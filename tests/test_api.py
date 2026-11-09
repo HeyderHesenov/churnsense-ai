@@ -8,6 +8,9 @@ dashboard and batch path return.
 
 from __future__ import annotations
 
+import subprocess
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -17,10 +20,12 @@ from churnsense.data.split import make_splits
 from churnsense.exceptions import ModelNotAvailableError
 from churnsense.models.predict import load_predictor
 from churnsense.models.train import save_artifact, train_all
-from tests.conftest import DROP, edit_sidecar
+from tests.conftest import DROP, SWEEP_ASSUMPTIONS, edit_sidecar
 
 #: TestClient's default host, "testserver", is not an allowed host.
 LOCAL = "http://localhost"
+#: TestClient's default peer, "testclient", is not this machine; the service answers no one else.
+LOOPBACK = ("127.0.0.1", 50000)
 
 
 @pytest.fixture(scope="module")
@@ -36,9 +41,11 @@ def artifacts(clean_frame, cfg: Config, tmp_path_factory):
 @pytest.fixture(scope="module")
 def client(artifacts, monkeypatch_session):
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch_session.setattr(api_main, "ARTIFACTS_DIR", artifacts)
-    with TestClient(api_main.app, base_url=LOCAL) as test_client:
+    monkeypatch_session.setattr(api_state, "ARTIFACTS_DIR", artifacts)
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as test_client:
         yield test_client
 
 
@@ -188,6 +195,60 @@ def test_batch_rejects_a_non_csv_upload(client):
     assert "Traceback" not in response.text
 
 
+@pytest.mark.parametrize("path", ["/predict/batch", "/api/batch/score"])
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        (lambda _: b"", "file is empty"),
+        (lambda _: b"tenure;Contract\n1;One year\n", "semicolon-separated"),
+        (
+            lambda cfg: ",".join(f"c{i}" for i in range(cfg.api.max_upload_columns + 1)).encode(),
+            "columns; the limit is",
+        ),
+        (lambda _: b"tenure\n1,2\n", "data row 1 has 2 fields"),
+        (lambda cfg: b"tenure\n" + b"1\n" * (cfg.api.max_batch_rows + 1), "data rows"),
+    ],
+    ids=["empty", "semicolons", "too wide", "row wider than header", "too many rows"],
+)
+def test_a_refused_file_names_its_reason_in_the_problems(
+    client, cfg: Config, path, payload, reason: str
+):
+    """A file-level refusal has no per-column problems; the page shows only
+    `problems`, so without its one reason there it said "refused" and nothing else."""
+    response = client.post(path, files={"file": ("c.csv", payload(cfg), "text/csv")})
+    body = response.json()
+    assert response.status_code == 422
+    assert body["problems"] == [body["detail"]]
+    assert reason in body["detail"]
+
+
+@pytest.mark.parametrize(
+    ("path", "module"), [("/predict/batch", "main"), ("/api/batch/score", "dashboard")]
+)
+def test_a_file_of_the_served_columns_is_scored_when_the_config_asks_for_more(
+    client, cfg: Config, demo_csv, monkeypatch, path, module
+):
+    """The batch page's template holds the served model's columns. A config that
+    drifted after training (here gender is no longer dropped) must not refuse
+    it: the model scores the file, so the model decides what it must hold."""
+    import dataclasses
+    from importlib import import_module
+
+    import pandas as pd
+
+    from churnsense.data import schema
+
+    features = dataclasses.replace(cfg.features, drop_columns=(schema.ID_COLUMN,))
+    drifted = dataclasses.replace(cfg, features=features)
+    monkeypatch.setattr(import_module(f"churnsense.api.{module}"), "load_config", lambda: drifted)
+    served = client.get("/model-info").json()["feature_columns"]
+    assert "gender" not in served
+    demo = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    template = demo[[schema.ID_COLUMN, *served]].to_csv(index=False).encode()
+    response = client.post(path, files={"file": ("template.csv", template, "text/csv")})
+    assert response.status_code == 200, response.text
+
+
 def test_batch_rejects_an_oversized_upload(client, cfg: Config):
     payload = b"a," * (cfg.api.max_upload_bytes // 2 + 10)
     response = client.post("/predict/batch", files={"file": ("big.csv", payload, "text/csv")})
@@ -198,20 +259,22 @@ def test_batch_rejects_an_oversized_upload(client, cfg: Config):
 def test_service_reports_unavailable_rather_than_guessing(tmp_path, monkeypatch):
     """With no artifact the API must fail loudly, never return a default score."""
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
-    api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", tmp_path / "empty")
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as unloaded:
         assert unloaded.get("/health").json()["model_loaded"] is False
         assert unloaded.post("/predict", json={}).status_code in (422, 503)
 
 
 def test_unavailable_model_is_a_503_in_the_documented_shape(tmp_path, monkeypatch, payload):
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", tmp_path / "empty")
-    api_main.get_predictor.cache_clear()
-    with TestClient(api_main.app, base_url=LOCAL) as unloaded:
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", tmp_path / "empty")
+    api_state.reset()
+    with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as unloaded:
         response = unloaded.post("/predict", json=payload)
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
@@ -233,14 +296,15 @@ def test_a_sidecar_no_model_can_be_served_with_is_a_503(
     import shutil
 
     from churnsense.api import main as api_main
+    from churnsense.api import state as api_state
 
     edited = tmp_path / "edited"
     shutil.copytree(artifacts, edited)
     edit_sidecar(edited, **changes)
-    monkeypatch.setattr(api_main, "ARTIFACTS_DIR", edited)
-    api_main.get_predictor.cache_clear()
+    monkeypatch.setattr(api_state, "ARTIFACTS_DIR", edited)
+    api_state.reset()
     try:
-        with TestClient(api_main.app, base_url=LOCAL) as served:
+        with TestClient(api_main.app, base_url=LOCAL, client=LOOPBACK) as served:
             health = served.get("/health").json()
             response = (
                 served.post(route, json=payload) if route == "/predict" else served.get(route)
@@ -248,9 +312,9 @@ def test_a_sidecar_no_model_can_be_served_with_is_a_503(
         # The edited sidecar is what was refused, not a missing model: in CI
         # there is none, and a 503 alone would pass without the edit.
         with pytest.raises(ModelNotAvailableError, match=next(iter(changes))):
-            api_main.get_predictor()
+            api_state.get_predictor()
     finally:
-        api_main.get_predictor.cache_clear()
+        api_state.reset()
     assert health["model_loaded"] is False
     assert response.status_code == 503
     assert response.json()["error"] == "model_unavailable"
@@ -270,7 +334,7 @@ def test_body_limit_refuses_a_declared_oversized_body_unread():
     """The declared length alone decides; nothing behind the limit is entered."""
     import asyncio
 
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     entered, sent = [], []
 
@@ -335,7 +399,7 @@ def test_body_limit_counts_a_streamed_body_across_messages():
     """TestClient sends a body as one message, so the running count is tested here."""
     from starlette.exceptions import HTTPException
 
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     chunks = [{"type": "http.request", "body": b"a" * 1024, "more_body": True}] * 8
     chunks.append({"type": "http.request", "body": b"", "more_body": False})
@@ -353,7 +417,7 @@ def test_body_limit_counts_a_streamed_body_across_messages():
 
 def test_body_limit_refuses_an_absurdly_long_content_length():
     """Regression: past 4,300 digits int() raised and the request became a 500."""
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     headers = [(b"content-length", b"9" * 5000)]
     body = [{"type": "http.request", "body": b"", "more_body": False}]
@@ -364,22 +428,23 @@ def test_body_limit_refuses_an_absurdly_long_content_length():
 
 def test_a_request_without_a_body_does_not_need_the_config(monkeypatch):
     """GET /docs must not fail because a config file is missing."""
-    from churnsense.api import main as api_main
+    from churnsense.api import middleware
+    from churnsense.api.middleware import BodySizeLimit
 
     def missing_config():
         raise AssertionError("the body limit read the config for a request with no body")
 
-    monkeypatch.setattr(api_main, "load_config", missing_config)
+    monkeypatch.setattr(middleware, "load_config", missing_config)
     scope = {"type": "http", "method": "GET", "path": "/docs", "headers": []}
     body = [{"type": "http.request", "body": b"", "more_body": False}]
-    _, raised = _drive(api_main.BodySizeLimit, scope, body)
+    _, raised = _drive(BodySizeLimit, scope, body)
     assert raised is None
 
 
 @pytest.mark.parametrize("declared", ["²", "1e9", "-1", " 12", ""])
 def test_body_limit_ignores_a_content_length_it_cannot_read(declared: str):
     """Not a crash: the streamed count still applies. h11 rejects these first anyway."""
-    from churnsense.api.main import BodySizeLimit
+    from churnsense.api.middleware import BodySizeLimit
 
     headers = [(b"content-length", declared.encode("latin-1"))]
     body = [{"type": "http.request", "body": b"{}", "more_body": False}]
@@ -389,7 +454,7 @@ def test_body_limit_ignores_a_content_length_it_cannot_read(declared: str):
 
 
 def test_body_limit_defaults_to_the_configured_upload_limit(cfg: Config):
-    from churnsense.api.main import MULTIPART_OVERHEAD_BYTES, BodySizeLimit
+    from churnsense.api.middleware import MULTIPART_OVERHEAD_BYTES, BodySizeLimit
 
     limit = BodySizeLimit(lambda *_: None).max_bytes
     assert limit == cfg.api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
@@ -545,11 +610,25 @@ def test_a_browser_request_from_another_site_is_refused(client, payload, origin:
     assert response.headers["x-content-type-options"] == "nosniff"
 
 
-@pytest.mark.parametrize("origin", [None, "http://localhost:8000", "http://127.0.0.1:8501"])
-def test_requests_without_or_from_a_local_origin_are_served(client, payload, origin):
-    """curl and Python send no Origin; the Swagger UI on /docs sends its own."""
+@pytest.mark.parametrize("origin", [None, "http://localhost", "http://LOCALHOST:80"])
+def test_requests_without_or_from_this_origin_are_served(client, payload, origin):
+    """curl and Python send no Origin; the Swagger UI on /docs sends this site's own."""
     headers = {"origin": origin} if origin else {}
     assert client.post("/predict", json=payload, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://localhost:8000", "http://127.0.0.1", "https://localhost"]
+)
+def test_a_post_from_another_local_site_is_refused(client, payload, origin):
+    """Every local program is "localhost": an allowed host name, but not this site.
+
+    A page another local server hands out (the Streamlit dashboard, a dev
+    server, anything on another port) must not change state here.
+    """
+    response = client.post("/predict", json=payload, headers={"origin": origin})
+    assert response.status_code == 403
+    assert response.json()["error"] == "cross_origin"
 
 
 @pytest.mark.parametrize(
@@ -581,8 +660,130 @@ def test_numeric_bounds_match_the_training_contract():
         assert next(m.le for m in metadata if isinstance(m, Le)) == high, column
 
 
+def test_model_info_serves_the_numeric_bounds(client):
+    """A form refuses what /predict would from these, not from a copy that could drift."""
+    from churnsense.data import schema
+
+    assert client.get("/model-info").json()["numeric_bounds"] == {
+        column: {"min": low, "max": high} for column, (low, high) in schema.NUMERIC_BOUNDS.items()
+    }
+
+
+def test_model_info_serves_the_bounds_the_sweep_enforces(client):
+    """The simulator refuses what the sweep would from these, not from a copy that could drift."""
+    operation = client.app.openapi()["paths"]["/api/threshold/sweep"]["get"]
+    enforced = {}
+    for parameter in operation["parameters"]:
+        (accepted,) = [s for s in parameter["schema"]["anyOf"] if s["type"] != "null"]
+        enforced[SWEEP_ASSUMPTIONS[parameter["name"]]] = {
+            "min": accepted["minimum"],
+            "max": accepted["maximum"],
+            "integer": accepted["type"] == "integer",
+        }
+    assert client.get("/model-info").json()["assumption_bounds"] == enforced
+    assert len(enforced) == len(SWEEP_ASSUMPTIONS)
+
+
+def test_the_configured_assumptions_lie_inside_the_served_bounds(client):
+    """``Business`` caps neither the cost nor the horizon: a default outside the bounds
+    would leave the simulator unable to send the figures it starts from."""
+    info = client.get("/model-info").json()
+    for field, bounds in info["assumption_bounds"].items():
+        assert bounds["min"] <= info["business_defaults"][field] <= bounds["max"], field
+
+
+def test_the_configured_assumptions_are_as_precise_as_the_simulator_shows(cfg: Config):
+    """The simulator shows rates in whole percents and money in its currency's
+    minor unit (cents, for the configured USD), and sends only what it shows: a
+    default finer than that would leave it unable to send its own starting point."""
+    business = cfg.business
+    assert business.currency == "USD", "cents are USD's minor unit; check the new currency's"
+    for value in (
+        business.offer_success_rate * 100,
+        business.gross_margin * 100,
+        business.retention_offer_cost * 100,
+    ):
+        assert abs(value - round(value)) < 1e-9, value
+
+
+def test_the_served_assumption_bounds_are_the_documented_contract(client):
+    """The bounds are part of the API (docs/frontend/PLAN.md): one source keeps the
+    sweep and /model-info agreeing, and this keeps a change to it a decision."""
+    assert client.get("/model-info").json()["assumption_bounds"] == {
+        "retention_offer_cost": {"min": 0, "max": 10_000, "integer": False},
+        "offer_success_rate": {"min": 0, "max": 1, "integer": False},
+        "expected_horizon_months": {"min": 1, "max": 120, "integer": True},
+        "gross_margin": {"min": 0, "max": 1, "integer": False},
+    }
+
+
+def test_model_info_echoes_configured_defaults_the_sweep_would_refuse(client, monkeypatch):
+    """The echo holds ``Business``'s invariants, not the sweep's bounds: a default
+    outside them is the simulator's to refuse, never a 500 from /model-info."""
+    import dataclasses
+    from types import SimpleNamespace
+
+    from churnsense.api import main as api_main
+
+    predictor = api_main.require_predictor()
+    business = dataclasses.replace(
+        predictor.config.business, retention_offer_cost=20_000, expected_horizon_months=240
+    )
+    config = dataclasses.replace(predictor.config, business=business)
+    served = SimpleNamespace(meta=predictor.meta, config=config)
+    monkeypatch.setattr(api_main, "require_predictor", lambda: served)
+    response = client.get("/model-info")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["business_defaults"]["retention_offer_cost"] == 20_000
+    assert body["business_defaults"]["expected_horizon_months"] == 240
+    assert body["assumption_bounds"]["retention_offer_cost"]["max"] < 20_000
+    assert body["assumption_bounds"]["expected_horizon_months"]["max"] < 240
+
+
+def test_model_info_serves_the_upload_contract(client):
+    """The batch page says what a file must hold from this, not from a copy that could drift."""
+    from churnsense.data import schema
+    from churnsense.models.predict import upload_rules
+
+    info = client.get("/model-info").json()
+    served = info["feature_columns"]
+    categorical = [c for c in served if c in schema.ALLOWED_CATEGORIES]
+    contract = info["upload_contract"]
+    assert contract == {
+        "categories": {c: list(schema.ALLOWED_CATEGORIES[c]) for c in categorical},
+        "integer_columns": [c for c in schema.INTEGER_COLUMNS if c in served],
+        "id_column": schema.ID_COLUMN,
+        "rules": upload_rules(served),
+    }
+    assert list(contract["categories"]) == categorical
+
+
+def test_the_upload_contract_describes_only_the_columns_served():
+    from churnsense.api.schemas import UploadContract
+    from churnsense.data import schema
+
+    contract = UploadContract.of_served(["Contract", "MonthlyCharges"], ["a rule"])
+    assert contract.categories == {"Contract": list(schema.ALLOWED_CATEGORIES["Contract"])}
+    assert contract.integer_columns == []
+    assert contract.rules == ["a rule"]
+
+
+def test_the_api_schemas_load_without_the_model_stack():
+    """The middleware imports the schemas, so describing a response must not
+    load scikit-learn and the training code with it."""
+    code = (
+        "import sys, churnsense.api.schemas; "
+        "print(sorted(m for m in sys.modules if m.startswith(('churnsense.models', 'sklearn'))))"
+    )
+    loaded = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert loaded.stdout.strip() == "[]"
+
+
 def test_a_request_without_a_host_is_refused():
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     reached = []
 
@@ -605,7 +806,7 @@ def test_a_request_without_a_host_is_refused():
 def test_a_websocket_for_a_foreign_host_is_closed_unaccepted():
     import asyncio
 
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     reached, sent = [], []
 
@@ -626,7 +827,7 @@ def test_a_websocket_for_a_foreign_host_is_closed_unaccepted():
 
 def test_one_host_given_as_a_string_is_a_type_error():
     """Not a tuple of its letters, which would refuse every request."""
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     with pytest.raises(TypeError):
         TrustedHosts(lambda *_: None, "localhost")
@@ -636,7 +837,7 @@ def test_refusals_are_logged_sparsely(caplog):
     """A rebound page can loop requests; the log gets the 1st, 10th, 100th."""
     import asyncio
 
-    from churnsense.api.main import TrustedHosts
+    from churnsense.api.middleware import TrustedHosts
 
     async def app(scope, receive, send):
         pass

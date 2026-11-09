@@ -1,0 +1,125 @@
+.list {
+  flex: 999 1 640px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 0 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-16);
+}
+.list:focus {
+  outline: none;
+}
+.inset {
+  padding: 16px 20px;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+.table {
+  /* The artboard's 780, with room for the widest outcome pill ("Withheld · unverified"). */
+  min-width: 820px;
+  font-size: 13px;
+}
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns:
+    minmax(176px, 1.5fr) 116px 90px 62px 80px 84px minmax(150px, 1fr)
+    20px;
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+}
+.row:not(.head):hover {
+  background: var(--row-hover);
+}
+.row[data-open='true'] {
+  background: var(--selected-row);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+/* The row is the target, so the row shows the focus ring. */
+.row:has(.open:focus-visible) {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
+}
+/* A chevron in the last column, drawn with borders so it adds no text. */
+.row:not(.head)::after {
+  content: '';
+  align-self: center;
+  justify-self: start;
+  width: 6px;
+  height: 6px;
+  border-top: 1.5px solid var(--muted);
+  border-right: 1.5px solid var(--muted);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+.head {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.headCell {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line-row);
+}
+.last {
+  padding-right: 4px;
+}
+.number {
+  justify-content: flex-end;
+  font-family: var(--font-mono);
+}
+.strong {
+  font-weight: 500;
+}
+
+.open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.open:focus-visible {
+  outline: none;
+}
+/* The whole row opens the customer. */
+.open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+.id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.profile {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--muted);
+}

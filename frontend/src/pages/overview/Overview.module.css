@@ -1,0 +1,159 @@
+/* --- shared ----------------------------------------------------------------- */
+@media (max-width: 860px) {
+  .hideSm {
+    display: none !important;
+  }
+}
+
+/* --- header: provenance panel ------------------------------------------------ */
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+.facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.facts dt {
+  color: var(--muted);
+}
+.facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.facts .ok {
+  color: var(--ok-text);
+}
+.factsNote {
+  padding-top: 10px;
+  border-top: 1px solid var(--line-input);
+  font-size: 12px;
+  color: var(--muted);
+}
+.provenance {
+  color: var(--ink);
+}
+
+/* --- title and operating point ------------------------------------------------ */
+.intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 16px 24px;
+}
+.title {
+  flex: 1 1 400px;
+  justify-content: center;
+  padding: 4px 0;
+}
+.operating {
+  flex: 1 1 460px;
+  gap: 12px;
+  padding: 16px 20px 14px;
+}
+.operatingHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.operatingLabel {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.operatingValue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 2px;
+}
+.threshold {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.muted {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.note {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* The band scale: four spans in their bands' colours, the threshold marked. */
+.scale {
+  position: relative;
+  padding-top: 24px;
+}
+.marker {
+  position: absolute;
+  top: 0;
+  left: calc(var(--t) * 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+}
+.markerLabel {
+  padding: 0 6px;
+  border-radius: var(--radius-5);
+  background: var(--ink);
+  color: var(--on-light);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.markerStem {
+  width: 2px;
+  height: 22px;
+  background: var(--ink);
+}
+.bar {
+  display: flex;
+  gap: 2px;
+  height: 12px;
+  overflow: hidden;
+  border-radius: var(--radius-6);
+}
+.bar > span {
+  flex: var(--w) 1 0;
+  background: var(--band);
+}
+.legend {
+  display: flex;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.legend > span {
+  flex: var(--w) 1 0;
+  font-weight: 550;
+}
+.legend .range {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* --- key figures ------------------------------------------------------------ */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+.partitionTag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}

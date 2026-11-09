@@ -1,0 +1,388 @@
+/* The batch page: the steps, the upload and validation panels, the summary tiles and the rows. */
+
+.unsaved {
+  font-size: 12.5px;
+  color: var(--critical-ink);
+}
+
+/* --- steps ---------------------------------------------------------------------- */
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px 0 6px;
+  border: 1px solid var(--line-input);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.step[data-mark='done'] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+.step[data-mark='refused'] {
+  border-color: var(--critical-line);
+  background: var(--critical-soft);
+  color: var(--ink);
+}
+.mark {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--track-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.step[data-mark='done'] .mark {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.step[data-mark='refused'] .mark {
+  background: var(--critical);
+  color: var(--on-accent);
+}
+
+/* --- the two panels ------------------------------------------------------------- */
+.panels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 14px;
+}
+.panel {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-16);
+}
+.panel[data-tone='bad'] {
+  border-color: var(--critical-line);
+}
+.note {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 150px;
+  padding: 18px;
+  border: 1.5px dashed var(--line-dash);
+  border-radius: var(--radius-14);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.drop:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+/* The input is invisible, so its keyboard focus is drawn on the box, as everywhere else. */
+.drop:has(.input:focus-visible) {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+/* A browser without :has() (Firefox before 121) draws it on any focus. */
+@supports not selector(:has(*)) {
+  .drop:focus-within {
+    outline: 2px solid var(--accent-text);
+    outline-offset: 2px;
+  }
+}
+.dropIcon {
+  color: var(--accent-text);
+}
+.dropTitle {
+  font-weight: 600;
+}
+/* Invisible, over the whole box: the box is the control. */
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.demo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.disclosure {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.disclosure:hover {
+  background: var(--ghost-hover);
+}
+.disclosure[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+.contract {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+}
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.column {
+  color: var(--ink-2);
+}
+.rule {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.rules {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- validation ------------------------------------------------------------------ */
+.panelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.panelTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+.code {
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-6);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.code[data-tone='ok'] {
+  border-color: var(--ok-line);
+  color: var(--ok-text);
+}
+.code[data-tone='bad'] {
+  border-color: var(--critical-line);
+  color: var(--critical-ink);
+}
+.verdict {
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.body {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.problems,
+.notes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.problems {
+  color: var(--ink);
+}
+.problems li::marker {
+  color: var(--critical-ink);
+}
+.notes {
+  color: var(--muted);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+/* --- summary tiles --------------------------------------------------------------- */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+.bandsTile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+}
+.tileLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.bandBar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-5);
+  background: var(--track-2);
+}
+.bandPart {
+  flex: 0 0 calc(var(--share) * 100%);
+  background: var(--band);
+}
+/* The artboard's smaller figure: "P 0.571 · R 0.457" stays on one line. */
+.rates {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+.bandList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+/* --- scored rows ----------------------------------------------------------------- */
+.rowsHead {
+  padding: 0 20px 10px;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.scroll {
+  overflow-x: auto;
+}
+.table {
+  min-width: 820px;
+  font-size: 13px;
+}
+.row {
+  display: grid;
+  grid-template-columns: 56px minmax(150px, 1.2fr) 128px 96px minmax(200px, 2fr) 90px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+.table[data-labelled='true'] .row {
+  grid-template-columns: 56px minmax(150px, 1.2fr) 128px 96px minmax(200px, 2fr) 90px 96px;
+}
+.row:not(.head):hover {
+  background: var(--row-hover);
+}
+.head {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.headCell {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.end {
+  justify-content: flex-end;
+}
+.cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line-row);
+}
+.position,
+.id,
+.number {
+  font-family: var(--font-mono);
+}
+.position {
+  color: var(--muted);
+}
+.id,
+.profile {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.profile {
+  display: block;
+  line-height: 40px;
+  color: var(--ink-2);
+}
+.number {
+  justify-content: flex-end;
+}
+.label {
+  color: var(--muted);
+}
+.label[data-label='1'] {
+  color: var(--raises-text);
+}

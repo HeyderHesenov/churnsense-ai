@@ -1,0 +1,492 @@
+<!doctype html>
+<!-- Test figures the disclosure policy no longer publishes read "—" here. Older versions of this file remain in Git history. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Model performance</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-current="page" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Model</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Model performance</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<a href="https://github.com/HeyderHesenov/churnsense-ai/blob/main/docs/MODEL_CARD.md" class="ghost" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-size: 13px; font-weight: 550; white-space: nowrap">Model card
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg></a>
+<a href="https://github.com/HeyderHesenov/churnsense-ai/blob/main/docs/MODEL_CARD.md#evaluation-history" class="ghost" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-size: 13px; font-weight: 550; white-space: nowrap">Final evaluation
+<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg></a>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1400px; padding: 26px 28px 40px; display: flex; flex-direction: column; gap: 16px">
+
+<section style="display: flex; flex-direction: column; gap: 10px; max-width: 820px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5cc8dc">Model performance</span>
+<h1 style="margin: 0; font-size: 32px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">How good is the ranking, and where is it blind?</h1>
+<p style="margin: 0; font-size: 14.5px; color: #adb7c2; text-wrap: pretty">Selected by cross-validation on train, calibrated and thresholded on validation, and read on test only by the final evaluation. 1,409 test customers, 374 churned.</p>
+</section>
+
+<div role="note" style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; border: 1px solid #23395a; background: rgba(91,141,239,0.07); border-radius: 12px; font-size: 13px; color: #c6d6f5">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#93b4f6" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>
+<span><b style="color: #e6edf3; font-weight: 600">A re-used holdout, not an untouched one.</b> The test partition was scored for two model versions and re-read by reproducibility runs. Every run reproduced the same numbers and no choice was made on them; read them as a re-checked estimate.</span>
+</div>
+
+<!-- Test metrics -->
+<section aria-label="Test metrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
+<div style="grid-column: span 2; background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; box-shadow: inset 0 2px 0 #1897ae">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px"><span style="font-size: 12.5px; color: #adb7c2; font-weight: 500">PR-AUC <span style="color: #8b949e">· primary metric</span></span><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px">TEST</span></div>
+<div style="display: flex; align-items: baseline; gap: 12px; margin-top: 2px"><span style="font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.2">—</span><span style="font-size: 13px; color: #7fd3e3; font-weight: 550">not published for this partition</span></div>
+<div style="font-size: 12px; color: #8b949e; margin-top: 6px">Ranking metrics are measured on validation only.</div>
+</div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">ROC-AUC</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3">—</div><div style="font-size: 12px; color: #8b949e">not published for this partition</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Recall</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3">0.703</div><div style="font-size: 12px; color: #8b949e">263 of 374 churners</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Precision</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3">0.553</div><div style="font-size: 12px; color: #8b949e">263 of 476 flagged</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #adb7c2; font-weight: 500">Calibration error</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3">—</div><div style="font-size: 12px; color: #8b949e">not published for this partition</div></div>
+<div style="background: #0d1117; border: 1px dashed #2a3440; border-radius: 14px; padding: 14px 16px"><div style="font-size: 12.5px; color: #8b949e; font-weight: 500">Accuracy</div><div style="font-size: 26px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; color: #adb7c2">0.770</div><div style="font-size: 12px; color: #8b949e">listed last: "nobody churns" = 0.735</div></div>
+</section>
+
+<!-- Row: selection + confusion -->
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+
+<section style="flex: 1.45 1 520px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Model selection: the one-standard-error rule</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Which candidates are indistinguishable from the leader? 5-fold CV PR-AUC on train, ±1 SE.</p>
+</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px; white-space: nowrap">TRAIN · CV</span>
+</div>
+<div style="overflow-x: auto; padding-top: 2px">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 560px">
+<div style="display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: center">
+<span></span>
+<div style="position: relative; height: 18px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e">
+<span style="position: absolute; left: 0">0.645</span><span style="position: absolute; left: 25%; transform: translateX(-50%)">0.655</span><span style="position: absolute; left: 50%; transform: translateX(-50%)">0.665</span><span style="position: absolute; left: 75%; transform: translateX(-50%)">0.675</span><span style="position: absolute; right: 0">0.685</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: center; min-height: 44px">
+<span style="font-size: 13px; white-space: nowrap">Random forest <span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8b949e; font-size: 12px">0.6714</span></span>
+<div style="position: relative; height: 44px; border-left: 1px solid #1f2730; border-right: 1px solid #1f2730; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 1px), #182029 calc(25% - 1px), #182029 25%)">
+<div style="position: absolute; left: 49%; width: 35.5%; top: 21px; height: 2px; background: #6e7b8a"></div>
+<div style="position: absolute; left: 49%; top: 15px; height: 14px; border-left: 2px solid #6e7b8a"></div>
+<div style="position: absolute; left: 84.5%; top: 15px; height: 14px; border-left: 2px solid #6e7b8a"></div>
+<div style="position: absolute; left: 66%; top: 15px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #adb7c2"></div>
+<span style="position: absolute; left: 66%; top: -1px; transform: translateX(-50%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #adb7c2">leader</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: center; min-height: 44px">
+<span style="font-size: 13px; white-space: nowrap">Hist. gradient boosting <span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8b949e; font-size: 12px">0.6705</span></span>
+<div style="position: relative; height: 44px; border-left: 1px solid #1f2730; border-right: 1px solid #1f2730; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 1px), #182029 calc(25% - 1px), #182029 25%)">
+<div style="position: absolute; left: 47.25%; width: 33%; top: 21px; height: 2px; background: #6e7b8a"></div>
+<div style="position: absolute; left: 47.25%; top: 15px; height: 14px; border-left: 2px solid #6e7b8a"></div>
+<div style="position: absolute; left: 80.25%; top: 15px; height: 14px; border-left: 2px solid #6e7b8a"></div>
+<div style="position: absolute; left: 63.75%; top: 15px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: #adb7c2"></div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; align-items: center; min-height: 44px">
+<span style="font-size: 13px; font-weight: 600; white-space: nowrap">Logistic regression <span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #7fd3e3; font-size: 12px; font-weight: 400">0.6663</span></span>
+<div style="position: relative; height: 44px; border-left: 1px solid #1f2730; border-right: 1px solid #1f2730; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(25% - 1px), #182029 calc(25% - 1px), #182029 25%)">
+<div style="position: absolute; left: 49%; top: -88px; bottom: -6px; border-left: 1.5px dashed #f0b54a"></div>
+<div style="position: absolute; left: 26%; width: 54.5%; top: 21px; height: 2px; background: #1897ae"></div>
+<div style="position: absolute; left: 26%; top: 15px; height: 14px; border-left: 2px solid #1897ae"></div>
+<div style="position: absolute; left: 80.5%; top: 15px; height: 14px; border-left: 2px solid #1897ae"></div>
+<div style="position: absolute; left: 53.25%; top: 14px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%; background: #1897ae; border: 2px solid #10151c; box-sizing: border-box"></div>
+<span style="position: absolute; left: 26%; bottom: -2px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #7fd3e3">selected · simplest within 1 SE</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: 196px minmax(0, 1fr); gap: 14px; margin-top: 4px">
+<span></span>
+<span style="position: relative; height: 16px"><span style="position: absolute; left: 49%; transform: translateX(-50%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #f6c873; white-space: nowrap">cutoff 0.6646 = 0.6714 − 0.0068</span></span>
+</div>
+</div>
+</div>
+<div role="table" aria-label="Candidate scores" style="font-size: 12.5px; border-top: 1px solid #1f2730; padding-top: 6px">
+<div role="row" style="display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; padding: 6px 0; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e; white-space: nowrap"><span role="columnheader">Candidate</span><span role="columnheader" style="text-align: right">CV std</span><span role="columnheader" style="text-align: right">Val PR-AUC</span><span role="columnheader" style="text-align: right">Val ROC-AUC</span></div>
+<div role="row" style="display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; padding: 5px 0; border-top: 1px solid #182029"><span role="cell">Random forest</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.0152</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.6365</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.8380</span></div>
+<div role="row" style="display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; padding: 5px 0; border-top: 1px solid #182029"><span role="cell">Hist. gradient boosting</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.0148</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.6416</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.8369</span></div>
+<div role="row" style="display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; padding: 5px 0; border-top: 1px solid #182029; color: #7fd3e3"><span role="cell" style="font-weight: 600">Logistic regression</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.0244</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.6444</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.8373</span></div>
+<div role="row" style="display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 8px; padding: 5px 0; border-top: 1px solid #182029; color: #8b949e"><span role="cell">Baseline (prior)</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.0005</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.2654</span><span role="cell" style="text-align: right; font-family: 'Geist Mono', ui-monospace, monospace">0.5000</span></div>
+</div>
+<p style="margin: 0; font-size: 12.5px; color: #adb7c2">The three real models sit within 0.0051 of each other, so the nominal winner is sampling noise. All clear the cutoff; the tie breaks on simplicity, which is cheaper to serve and easier to explain to a retention team.</p>
+</section>
+
+<section style="flex: 1 1 380px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Confusion at a cut</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Which mistakes does the cut make, and what does each cost?</p>
+</div>
+<div role="tablist" aria-label="Partition" style="display: inline-flex; align-self: flex-start; padding: 3px; background: #0b0f14; border: 1px solid #222a34; border-radius: 10px; gap: 2px">
+<button type="button" role="tab" class="seg" onClick="{{modeTest}}" aria-selected="{{testSel}}" style="min-height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: {{testBg}}; color: {{testFg}}; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer; white-space: nowrap">Test · recorded at 0.36</button>
+<button type="button" role="tab" class="seg" onClick="{{modeVal}}" aria-selected="{{valSel}}" style="min-height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: {{valBg}}; color: {{valFg}}; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer; white-space: nowrap">Validation · explore</button>
+</div>
+<sc-if value="{{isVal}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><label for="vthr" style="font-size: 12.5px; color: #adb7c2">Threshold</label><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px">{{thrLabel}}</span></div>
+<input id="vthr" type="range" min="1" max="97" step="1" value="{{thr}}" onChange="{{onThr}}" style="accent-color: #1897ae">
+</div>
+</sc-if>
+<div aria-live="polite" style="display: grid; grid-template-columns: 76px repeat(2, minmax(0, 1fr)); gap: 6px; font-size: 12px">
+<span></span>
+<span style="text-align: center; color: #8b949e; white-space: nowrap">Predicted stay</span>
+<span style="text-align: center; color: #8b949e; white-space: nowrap">Predicted churn</span>
+<span style="display: flex; align-items: center; color: #8b949e">Stayed</span>
+<div style="min-height: 84px; border-radius: 10px; background: #141b24; border: 1px solid #1f2730; display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 24px; font-weight: 600">{{tn}}</span><span style="color: #8b949e">left alone</span></div>
+<div style="min-height: 84px; border-radius: 10px; background: rgba(91,141,239,0.1); border: 1px solid #23395a; display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 24px; font-weight: 600">{{fp}}</span><span style="color: #9dbaf5; white-space: nowrap">wasted offer · $50</span></div>
+<span style="display: flex; align-items: center; color: #8b949e">Churned</span>
+<div style="min-height: 84px; border-radius: 10px; background: rgba(236,131,90,0.1); border: 1px solid #5a3322; display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 24px; font-weight: 600">{{fn}}</span><span style="color: #f2a585; white-space: nowrap">missed · lost margin</span></div>
+<div style="min-height: 84px; border-radius: 10px; background: rgba(24,151,174,0.14); border: 1px solid #1d4c57; display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 24px; font-weight: 600">{{tp}}</span><span style="color: #7fd3e3">reached</span></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; font-size: 12px; background: #0d1117; border: 1px solid #1f2730; border-radius: 10px; padding: 10px 12px">
+<div><div style="color: #8b949e">Flagged</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">{{flagged}}</div></div>
+<div><div style="color: #8b949e">Precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">{{prec}}</div></div>
+<div><div style="color: #8b949e">Recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">{{rec}}</div></div>
+<div><div style="color: #8b949e">F1</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">{{f1}}</div></div>
+</div>
+<p style="margin: auto 0 0; font-size: 12.5px; color: #adb7c2">{{confNote}}</p>
+</section>
+</div>
+
+<!-- Row: PR curve + calibration -->
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: stretch">
+
+<section style="flex: 1 1 420px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Precision–recall trade-off</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">What does each extra churner reached cost in precision? Numbers on the curve are thresholds.</p>
+</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px; white-space: nowrap">VALIDATION SWEEP</span>
+</div>
+<div style="position: relative">
+<svg viewBox="0 0 560 330" role="img" aria-label="{{prLabel}}" style="width: 100%; height: auto; display: block; overflow: visible">
+<defs><linearGradient id="prfill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1897ae" stop-opacity="0.22"></stop><stop offset="1" stop-color="#1897ae" stop-opacity="0.02"></stop></linearGradient></defs>
+<line x1="56.0" x2="56.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="56.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.0</text>
+<line x1="152.0" x2="152.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="152.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.2</text>
+<line x1="248.0" x2="248.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="248.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.4</text>
+<line x1="344.0" x2="344.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="344.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.6</text>
+<line x1="440.0" x2="440.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="440.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.8</text>
+<line x1="536.0" x2="536.0" y1="18" y2="282" stroke="#1a212a"></line>
+<text x="536.0" y="300" text-anchor="middle" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">1.0</text>
+<line x1="56" x2="536" y1="282.0" y2="282.0" stroke="#1a212a"></line>
+<text x="48" y="286.0" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.2</text>
+<line x1="56" x2="536" y1="216.0" y2="216.0" stroke="#1a212a"></line>
+<text x="48" y="220.0" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.4</text>
+<line x1="56" x2="536" y1="150.0" y2="150.0" stroke="#1a212a"></line>
+<text x="48" y="154.0" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.6</text>
+<line x1="56" x2="536" y1="84.0" y2="84.0" stroke="#1a212a"></line>
+<text x="48" y="88.0" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0.8</text>
+<line x1="56" x2="536" y1="18.0" y2="18.0" stroke="#1a212a"></line>
+<text x="48" y="22.0" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">1.0</text>
+<line x1="56" x2="536" y1="282" y2="282" stroke="#4a5664"></line>
+<line x1="56" x2="56" y1="18" y2="282" stroke="#4a5664"></line>
+<path d="M216.8 22.9 L221.6 48.4 L226.4 69.1 L231.2 86.2 L236.0 100.5 L240.8 112.7 L245.6 123.3 L250.4 132.4 L255.2 140.5 L260.0 147.6 L264.8 154.0 L269.6 159.7 L274.4 164.9 L279.2 169.6 L284.0 173.8 L288.8 177.7 L293.6 181.3 L298.4 184.6 L303.2 187.7 L308.0 190.5 L312.8 193.1 L317.6 195.6 L322.4 197.9 L327.2 200.0 L332.0 202.0 L336.8 203.9 L341.6 205.7 L346.4 207.4 L351.2 209.0 L356.0 210.5 L360.8 211.9 L365.6 213.3 L370.4 214.6 L375.2 215.8 L380.0 217.0 L384.8 218.1 L389.6 219.2 L394.4 220.2 L399.2 221.1 L404.0 222.1 L408.8 223.0 L413.6 223.8 L418.4 224.7 L423.2 225.5 L428.0 226.2 L432.8 226.9 L437.6 227.7 L442.4 228.3 L447.2 229.0 L452.0 229.6 L456.8 230.2 L461.6 230.8 L466.4 231.4 L471.2 232.0 L476.0 232.5 L480.8 233.0 L485.6 233.5 L490.4 234.0 L495.2 234.5 L500.0 234.9 L504.8 235.4 L509.6 235.8 L514.4 236.2 L519.2 236.7 L524.0 237.1 L528.8 237.4 L533.6 237.8" fill="none" stroke="#3a4654" stroke-dasharray="2 4"></path>
+<text x="220.8" y="34.9" text-anchor="start" fill="#6e7b8a" font-size="10" font-family="Geist Mono, monospace">F1 0.5</text>
+<path d="M264.8 29.0 L269.6 44.2 L274.4 57.4 L279.2 69.0 L284.0 79.3 L288.8 88.5 L293.6 96.7 L298.4 104.1 L303.2 110.9 L308.0 117.0 L312.8 122.6 L317.6 127.8 L322.4 132.5 L327.2 136.9 L332.0 141.0 L336.8 144.8 L341.6 148.3 L346.4 151.6 L351.2 154.7 L356.0 157.6 L360.8 160.3 L365.6 162.9 L370.4 165.3 L375.2 167.6 L380.0 169.8 L384.8 171.9 L389.6 173.8 L394.4 175.7 L399.2 177.4 L404.0 179.1 L408.8 180.7 L413.6 182.3 L418.4 183.7 L423.2 185.1 L428.0 186.5 L432.8 187.8 L437.6 189.0 L442.4 190.2 L447.2 191.3 L452.0 192.4 L456.8 193.5 L461.6 194.5 L466.4 195.5 L471.2 196.4 L476.0 197.3 L480.8 198.2 L485.6 199.1 L490.4 199.9 L495.2 200.7 L500.0 201.5 L504.8 202.2 L509.6 203.0 L514.4 203.7 L519.2 204.3 L524.0 205.0 L528.8 205.6 L533.6 206.3" fill="none" stroke="#3a4654" stroke-dasharray="2 4"></path>
+<text x="268.8" y="41.0" text-anchor="start" fill="#6e7b8a" font-size="10" font-family="Geist Mono, monospace">F1 0.6</text>
+<path d="M317.6 25.2 L322.4 35.3 L327.2 44.5 L332.0 52.8 L336.8 60.5 L341.6 67.5 L346.4 74.0 L351.2 80.0 L356.0 85.5 L360.8 90.7 L365.6 95.5 L370.4 100.0 L375.2 104.2 L380.0 108.1 L384.8 111.8 L389.6 115.3 L394.4 118.6 L399.2 121.7 L404.0 124.7 L408.8 127.5 L413.6 130.2 L418.4 132.7 L423.2 135.1 L428.0 137.4 L432.8 139.6 L437.6 141.7 L442.4 143.7 L447.2 145.6 L452.0 147.4 L456.8 149.1 L461.6 150.8 L466.4 152.5 L471.2 154.0 L476.0 155.5 L480.8 156.9 L485.6 158.3 L490.4 159.7 L495.2 161.0 L500.0 162.2 L504.8 163.4 L509.6 164.6 L514.4 165.7 L519.2 166.8 L524.0 167.8 L528.8 168.8 L533.6 169.8" fill="none" stroke="#3a4654" stroke-dasharray="2 4"></path>
+<text x="321.6" y="37.2" text-anchor="start" fill="#6e7b8a" font-size="10" font-family="Geist Mono, monospace">F1 0.7</text>
+<line x1="56" x2="536" y1="260.4" y2="260.4" stroke="#8b949e" stroke-dasharray="5 4"></line>
+<text x="62" y="254.4" fill="#8b949e" font-size="10.5" font-family="Geist Mono, monospace">no skill · 0.265 churn rate</text>
+<path d="M536.0 260.4 L533.4 253.1 L532.1 248.7 L525.7 239.4 L525.7 235.4 L523.2 233.3 L520.6 226.2 L515.5 223.9 L505.2 222.5 L502.6 220.8 L496.2 215.9 L496.2 211.6 L492.4 209.3 L487.2 207.8 L484.7 205.6 L483.4 205.5 L480.8 205.2 L480.8 204.7 L477.0 202.1 L475.7 200.4 L469.3 198.3 L464.1 193.7 L462.8 191.2 L450.0 184.3 L442.3 184.1 L441.0 181.9 L424.3 177.4 L419.2 175.1 L417.9 174.4 L417.9 169.4 L415.4 167.2 L412.8 166.3 L407.7 166.1 L402.5 164.3 L397.4 164.4 L394.8 163.0 L389.7 156.5 L387.1 155.8 L371.7 149.5 L356.3 147.4 L348.6 145.2 L343.5 144.4 L339.6 143.1 L334.5 139.2 L331.9 136.8 L326.8 135.1 L321.7 135.9 L320.4 132.2 L317.8 131.5 L312.7 128.7 L311.4 126.1 L303.7 123.7 L288.3 119.1 L274.2 118.1 L271.6 116.0 L269.0 114.9 L265.2 110.0 L249.8 110.7 L234.4 107.8 L228.0 110.3 L217.7 104.8 L201.0 102.7 L193.3 99.3 L184.3 101.7 L183.1 98.6 L180.5 94.0 L174.1 95.0 L165.1 97.6 L163.8 98.3 L161.2 97.4 L157.4 92.4 L151.0 90.9 L140.7 94.7 L133.0 97.4 L131.7 95.1 L126.6 99.4 L121.5 96.8 L118.9 99.2 L108.6 102.0 L108.6 102.0 L103.5 98.8 L102.2 95.2 L94.5 80.4 L89.4 79.9 L88.1 81.9 L85.5 66.9 L83.0 59.2 L77.8 52.7 L76.5 54.7 L74.0 59.2 L74.0 282 L536.0 282 Z" fill="url(#prfill)"></path>
+<path d="M536.0 260.4 L533.4 253.1 L532.1 248.7 L525.7 239.4 L525.7 235.4 L523.2 233.3 L520.6 226.2 L515.5 223.9 L505.2 222.5 L502.6 220.8 L496.2 215.9 L496.2 211.6 L492.4 209.3 L487.2 207.8 L484.7 205.6 L483.4 205.5 L480.8 205.2 L480.8 204.7 L477.0 202.1 L475.7 200.4 L469.3 198.3 L464.1 193.7 L462.8 191.2 L450.0 184.3 L442.3 184.1 L441.0 181.9 L424.3 177.4 L419.2 175.1 L417.9 174.4 L417.9 169.4 L415.4 167.2 L412.8 166.3 L407.7 166.1 L402.5 164.3 L397.4 164.4 L394.8 163.0 L389.7 156.5 L387.1 155.8 L371.7 149.5 L356.3 147.4 L348.6 145.2 L343.5 144.4 L339.6 143.1 L334.5 139.2 L331.9 136.8 L326.8 135.1 L321.7 135.9 L320.4 132.2 L317.8 131.5 L312.7 128.7 L311.4 126.1 L303.7 123.7 L288.3 119.1 L274.2 118.1 L271.6 116.0 L269.0 114.9 L265.2 110.0 L249.8 110.7 L234.4 107.8 L228.0 110.3 L217.7 104.8 L201.0 102.7 L193.3 99.3 L184.3 101.7 L183.1 98.6 L180.5 94.0 L174.1 95.0 L165.1 97.6 L163.8 98.3 L161.2 97.4 L157.4 92.4 L151.0 90.9 L140.7 94.7 L133.0 97.4 L131.7 95.1 L126.6 99.4 L121.5 96.8 L118.9 99.2 L108.6 102.0 L108.6 102.0 L103.5 98.8 L102.2 95.2 L94.5 80.4 L89.4 79.9 L88.1 81.9 L85.5 66.9 L83.0 59.2 L77.8 52.7 L76.5 54.7 L74.0 59.2" fill="none" stroke="#5cc8dc" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"></path>
+<circle cx="469.3" cy="198.3" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="475.3" y="191.3" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.2</text>
+<circle cx="415.4" cy="167.2" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="421.4" y="160.2" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.3</text>
+<circle cx="348.6" cy="145.2" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="354.6" y="138.2" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.4</text>
+<circle cx="311.4" cy="126.1" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="317.4" y="119.1" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.5</text>
+<circle cx="217.7" cy="104.8" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="223.7" y="97.8" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.6</text>
+<circle cx="157.4" cy="92.4" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="163.4" y="85.4" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.7</text>
+<circle cx="103.5" cy="98.8" r="2.6" fill="#10151c" stroke="#7fd3e3" stroke-width="1.4"></circle>
+<text x="109.5" y="91.8" fill="#7fd3e3" font-size="10" font-family="Geist Mono, monospace">0.8</text>
+<circle cx="389.7" cy="156.5" r="6.5" fill="#10151c" stroke="#f0b54a" stroke-width="2.2"></circle>
+<line x1="{{hX}}" x2="{{hX}}" y1="18" y2="282" stroke="#adb7c2" stroke-dasharray="3 3" opacity="{{hOp}}"></line>
+<circle cx="{{curX}}" cy="{{curY}}" r="5.5" fill="#5cc8dc" stroke="#0a0d12" stroke-width="2"></circle>
+<circle cx="{{hX}}" cy="{{hY}}" r="5" fill="#e6edf3" stroke="#0a0d12" stroke-width="2" opacity="{{hOp}}"></circle>
+<text x="296.0" y="326" text-anchor="middle" fill="#adb7c2" font-size="11" font-family="Geist, sans-serif">Recall: share of churners flagged</text>
+<text x="14" y="150.0" text-anchor="middle" fill="#adb7c2" font-size="11" font-family="Geist, sans-serif" transform="rotate(-90 14 150.0)">Precision: flagged who churned</text>
+<rect x="56" y="18" width="480" height="264" fill="transparent" onMouseMove="{{onPrHover}}" onMouseLeave="{{onPrLeave}}" onClick="{{onPrPick}}" style="cursor: crosshair"></rect>
+</svg>
+<span aria-hidden="true" style="position: absolute; left: 67.802%; top: 51.055%; transform: translateX(-100%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #f6c873; white-space: nowrap; pointer-events: none">shipped 0.36</span>
+<div role="status" style="position: absolute; left: {{prTipL}}; top: {{prTipT}}; opacity: {{hOp}}; width: max-content; transform: translateX({{prTipX}}); box-sizing: border-box; padding: 8px 12px; border-radius: 8px; background: #e6edf3; box-shadow: 0 10px 24px rgba(0,0,0,0.45); pointer-events: none; display: flex; flex-direction: column; gap: 2px; transition: opacity .12s ease">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; color: #0a0d12">threshold {{tT}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #30363d">P {{tP}} · R {{tR}} · F1 {{tF}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #30363d">{{tN}} flagged · {{tTp}} churners reached</span>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 11.5px; color: #8b949e">
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; height: 2.5px; border-radius: 2px; background: #5cc8dc"></span>validation sweep, cuts with 15+ flagged</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 50%; border: 2px solid #f0b54a; box-sizing: border-box"></span>shipped cut 0.36</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 9px; height: 9px; border-radius: 50%; background: #5cc8dc"></span>{{curLabel}}</span>
+<span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 16px; border-top: 1.5px dashed #6e7b8a"></span>equal-F1 contours</span>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8b949e">Hover the curve to read any cut; select a point to load it into the confusion panel. Higher thresholds sit to the left: fewer customers flagged, more of them real churners.</p>
+</section>
+
+<section style="flex: 1 1 380px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Does a probability mean what it says?</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Observed churn inside each fixed band, train + validation customers.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 12px; align-items: center"><span style="font-size: 13px">Low</span><div style="position: relative; height: 18px; border-radius: 4px; background: #141b24"><div style="position: absolute; left: 0; width: 25%; top: 0; bottom: 0; border-radius: 4px; background: rgba(86,102,123,0.38)"></div><div style="position: absolute; left: 8%; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #e6edf3"></div></div><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right">8.0%</span></div>
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 12px; align-items: center"><span style="font-size: 13px">Moderate</span><div style="position: relative; height: 18px; border-radius: 4px; background: #141b24"><div style="position: absolute; left: 25%; width: 25%; top: 0; bottom: 0; border-radius: 4px; background: rgba(107,98,176,0.38)"></div><div style="position: absolute; left: 35.5%; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #e6edf3"></div></div><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right">35.5%</span></div>
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 12px; align-items: center"><span style="font-size: 13px">High</span><div style="position: relative; height: 18px; border-radius: 4px; background: #141b24"><div style="position: absolute; left: 50%; width: 25%; top: 0; bottom: 0; border-radius: 4px; background: rgba(163,94,201,0.38)"></div><div style="position: absolute; left: 60.8%; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #e6edf3"></div></div><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right">60.8%</span></div>
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 12px; align-items: center"><span style="font-size: 13px">Critical</span><div style="position: relative; height: 18px; border-radius: 4px; background: #141b24"><div style="position: absolute; left: 75%; width: 25%; top: 0; bottom: 0; border-radius: 4px; background: rgba(232,87,143,0.34)"></div><div style="position: absolute; left: 82%; top: 3px; width: 12px; height: 12px; margin-left: -6px; border-radius: 50%; background: #e6edf3"></div></div><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px; text-align: right">82.0%</span></div>
+<div style="display: grid; grid-template-columns: 76px minmax(0, 1fr) 54px; gap: 12px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e"><span></span><span style="display: flex; justify-content: space-between"><span>0</span><span>0.25</span><span>0.5</span><span>0.75</span><span>1</span></span><span></span></div>
+</div>
+<div role="table" aria-label="Validation calibration at threshold 0.50" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 8px; font-size: 12px; background: #0d1117; border: 1px solid #1f2730; border-radius: 10px; padding: 12px 14px">
+<span style="color: #8b949e">Validation at 0.50</span><span style="color: #8b949e">Uncalibrated</span><span style="color: #8b949e">Shipped</span>
+<span>Precision</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">0.510</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #7fd3e3">0.672</span>
+<span>Recall</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">0.789</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #7fd3e3">0.532</span>
+<span>Brier</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">0.168</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #7fd3e3">0.138</span>
+</div>
+<p style="margin: 0; font-size: 12.5px; color: #adb7c2">Isotonic calibration was kept because it helped: validation ECE fell from <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">0.144</b> to <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">0.027</b>. Probabilities are clamped to [ε, 1−ε], ε = 1.2e-4.</p>
+</section>
+</div>
+
+<!-- Segments -->
+<section style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 0 8px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 0 20px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Performance by segment</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Does an aggregate recall hide a segment the model never flags?</p>
+</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px">TEST</span>
+</div>
+<div style="overflow-x: auto; position: relative">
+<table style="width: 100%; min-width: 760px; border-collapse: collapse; font-size: 13px">
+<thead>
+<tr style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e; text-align: right; white-space: nowrap">
+<th scope="col" style="font-weight: 500; padding: 8px 12px 8px 20px; border-bottom: 1px solid #1f2730; text-align: left">Segment</th>
+<th scope="col" style="font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #1f2730">Customers</th>
+<th scope="col" style="font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #1f2730">Churners</th>
+<th scope="col" style="font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #1f2730">Churn rate</th>
+<th scope="col" style="font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #1f2730">Flagged</th>
+<th scope="col" style="font-weight: 500; padding: 8px 12px; border-bottom: 1px solid #1f2730">Precision</th>
+<th scope="col" style="font-weight: 500; padding: 8px 20px 8px 12px; border-bottom: 1px solid #1f2730; text-align: left">Recall</th>
+</tr>
+</thead>
+<tbody style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right; white-space: nowrap">
+<tr><td colspan="7" style="padding: 10px 20px 4px; text-align: left; font-family: 'Geist', sans-serif; font-size: 11.5px; color: #8b949e">Contract</td></tr>
+<tr class="trow"><td style="padding: 9px 12px 9px 20px; border-bottom: 1px solid #182029; text-align: left; font-family: 'Geist', sans-serif">Month-to-month</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 20px 9px 12px; border-bottom: 1px solid #182029; text-align: left">—</td></tr>
+<tr class="trow"><td style="padding: 9px 12px 9px 20px; border-bottom: 1px solid #182029; text-align: left; font-family: 'Geist', sans-serif">One year</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 20px 9px 12px; border-bottom: 1px solid #182029; text-align: left">—</td></tr>
+<tr class="trow" style="background: rgba(240,181,74,0.05)"><td style="padding: 9px 12px 9px 20px; border-bottom: 1px solid #182029; text-align: left; font-family: 'Geist', sans-serif">Two year</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029; color: #8b949e">—</td><td style="padding: 9px 20px 9px 12px; border-bottom: 1px solid #182029; text-align: left">—</td></tr>
+<tr><td colspan="7" style="padding: 12px 20px 4px; text-align: left; font-family: 'Geist', sans-serif; font-size: 11.5px; color: #8b949e">Internet service</td></tr>
+<tr class="trow"><td style="padding: 9px 12px 9px 20px; border-bottom: 1px solid #182029; text-align: left; font-family: 'Geist', sans-serif">Fiber optic</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 20px 9px 12px; border-bottom: 1px solid #182029; text-align: left">—</td></tr>
+<tr class="trow"><td style="padding: 9px 12px 9px 20px; border-bottom: 1px solid #182029; text-align: left; font-family: 'Geist', sans-serif">DSL</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 12px; border-bottom: 1px solid #182029">—</td><td style="padding: 9px 20px 9px 12px; border-bottom: 1px solid #182029; text-align: left">—</td></tr>
+<tr class="trow" style="background: rgba(240,181,74,0.05)"><td style="padding: 9px 12px 9px 20px; text-align: left; font-family: 'Geist', sans-serif">No internet</td><td style="padding: 9px 12px">—</td><td style="padding: 9px 12px">—</td><td style="padding: 9px 12px">—</td><td style="padding: 9px 12px">—</td><td style="padding: 9px 12px; color: #8b949e">—</td><td style="padding: 9px 20px 9px 12px; text-align: left">—</td></tr>
+</tbody>
+</table>
+</div>
+<p style="margin: 0; padding: 4px 20px 12px; font-size: 12.5px; color: #adb7c2">No figure of this table is published for the test partition: its customers are listed with their flags and scores (churnsense.evaluation.disclosure). Segments are measured on validation. Earlier reports keep older figures in Git history.</p>
+</section>
+
+<footer style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e">
+<span>make evaluate CONFIRM=yes · artifact 02b2466d…47a9 · threshold fixed on validation before test was read</span>
+<span>No page computes a performance figure from the test partition.</span>
+</footer>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1460}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+const F = [1409,1293,1233,1112,1073,1047,981,952,920,903,857,830,809,791,774,771,765,762,742,731,710,680,667,619,606,596,555,540,536,521,511,505,497,485,478,471,448,443,409,385,371,363,356,343,336,327,322,315,311,301,296,284,261,244,239,235,226,210,191,186,171,152,142,134,131,126,120,112,111,108,102,95,86,79,77,73,67,65,55,55,49,47,37,32,31,27,24,19,18,16,14,14,12,9,9,7,6,6,0,0,0];
+const T = [374,372,371,366,366,364,362,358,350,348,343,343,340,336,334,333,331,331,328,327,322,318,317,307,301,300,287,283,282,282,280,278,274,270,266,264,260,258,246,234,228,224,221,217,215,211,207,206,204,200,199,193,181,170,168,166,163,151,139,134,126,113,107,100,99,97,92,85,84,82,79,74,66,60,59,55,51,49,41,41,37,36,30,26,25,23,21,17,16,14,12,12,10,9,9,7,6,6,0,0,0];
+const POS = 374, NEG = 1035;
+const px = (r) => 48 + r * 376;
+const py = (p) => 256 - p * 240;
+const int = (v) => Math.round(v).toLocaleString('en-US');
+
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const mode = st.mode ?? 'test';
+    const thr = st.thr ?? 36;
+    const isVal = mode === 'val';
+    const on = (x) => ({ bg: x ? '#1c2530' : 'transparent', fg: x ? '#e6edf3' : '#8b949e', sel: x ? 'true' : 'false' });
+    const t = on(!isVal), v = on(isVal);
+
+    let tn, fp, fn, tp;
+    if (isVal) { tp = T[thr]; fp = F[thr] - T[thr]; fn = POS - tp; tn = NEG - fp; }
+    else { tn = 822; fp = 213; fn = 111; tp = 263; }
+    const flagged = tp + fp;
+    const prec = flagged ? tp / flagged : 0;
+    const rec = tp / POS;
+    const f1 = prec + rec ? (2 * prec * rec) / (prec + rec) : 0;
+
+    const PX = (r) => 56 + r * 480, PY = (q) => 282 - ((q - 0.2) / 0.8) * 264;
+    const VALID = []; for (let i = 0; i <= 100; i++) if (F[i] >= 15) VALID.push(i);
+    const ci = isVal ? thr : 36;
+    const curX = PX(T[ci] / POS), curY = PY(T[ci] / F[ci]);
+    const ph = st.ph ?? -1;
+    const hi = ph >= 0 ? ph : ci;
+    const hx = PX(T[hi] / POS), hy = PY(T[hi] / F[hi]);
+    const hP = T[hi] / F[hi], hR = T[hi] / POS;
+    const nearest = (e) => { const r = e.currentTarget.getBoundingClientRect(); const rr = (e.clientX - r.left) / r.width; let best = VALID[0], bd = 9; VALID.forEach((i) => { const d = Math.abs(T[i] / POS - rr); if (d < bd) { bd = d; best = i; } }); return best; };
+    return Object.assign(shell(this), {
+      isVal, thr, thrLabel: (thr / 100).toFixed(2),
+      modeTest: () => set({ mode: 'test' }), modeVal: () => set({ mode: 'val' }),
+      testBg: t.bg, testFg: t.fg, testSel: t.sel, valBg: v.bg, valFg: v.fg, valSel: v.sel,
+      onThr: (e) => { const n = Math.round(Number(e.target.value)); set({ thr: Number.isFinite(n) ? Math.max(1, Math.min(97, n)) : thr }); },
+      tn: int(tn), fp: int(fp), fn: int(fn), tp: int(tp),
+      flagged: int(flagged), prec: flagged ? prec.toFixed(3) : '—', rec: rec.toFixed(3), f1: f1.toFixed(3),
+      confNote: isVal
+        ? 'Validation sweep at ' + (thr / 100).toFixed(2) + ': ' + int(fp) + ' wasted offers against ' + int(fn) + ' missed churners. A miss costs hundreds of dollars of margin, an offer costs $50.'
+        : 'A missed churner costs their remaining margin, hundreds of dollars; a wasted offer costs one offer. At roughly 10:1, recall is worth buying with precision, which is why the cut sits well below 0.5.',
+      curX, curY, hX: hx, hY: hy, hOp: ph >= 0 ? 1 : 0,
+      prTipL: ((hx > 320 ? hx - 14 : hx + 14) / 560) * 100 + '%', prTipX: hx > 320 ? '-100%' : '0', prTipT: (Math.max(18, Math.min(212, hy - 76)) / 330) * 100 + '%',
+      tT: (hi / 100).toFixed(2), tP: hP.toFixed(3), tR: hR.toFixed(3), tF: ((2 * hP * hR) / (hP + hR)).toFixed(3), tN: F[hi].toLocaleString('en-US'), tTp: T[hi],
+      curLabel: (isVal ? 'selected cut ' : 'cut in the confusion panel ') + (ci / 100).toFixed(2),
+      onPrHover: (e) => { const i = nearest(e); if (i !== ph) set({ ph: i }); },
+      onPrLeave: () => set({ ph: -1 }),
+      onPrPick: (e) => set({ mode: 'val', thr: Math.max(1, Math.min(97, nearest(e))) }),
+      prLabel: 'Validation precision-recall curve across thresholds; the shipped cut 0.36 has precision ' + (T[36] / F[36]).toFixed(3) + ' and recall ' + (T[36] / POS).toFixed(3),
+    });
+  }
+}
+</script>
+</body>
+</html>

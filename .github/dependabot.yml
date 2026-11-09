@@ -41,3 +41,19 @@ updates:
       github-actions-minor-and-patch:
         patterns: ["*"]
         update-types: [minor, patch]
+
+  # frontend/package.json and its lock, which npm ci installs exactly. A bump
+  # of @playwright/test moves the browser too; the e2e job installs the one it
+  # needs on every run.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

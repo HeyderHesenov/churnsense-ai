@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Customer explorer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+<style>
+.rowbtn{transition:background-color .12s ease}
+.rowbtn:hover{background:#121820}
+.skel{background:linear-gradient(90deg,#141b24 0%,#1a222c 50%,#141b24 100%);background-size:200% 100%;animation:skel 1.4s ease-in-out infinite;border-radius:6px}
+@keyframes skel{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-current="page" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Book</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Customer explorer</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #8b949e; white-space: nowrap">{{exportNote}}</span>
+<button type="button" class="ghost" onClick="{{exportCsv}}" disabled="{{notReady}}" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-family: inherit; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>
+Export {{matchCount}} rows</button>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1480px; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 14px">
+
+<section style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 8px; max-width: 760px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5cc8dc">Customer explorer</span>
+<h1 style="margin: 0; font-size: 30px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">Every customer, scored and filterable</h1>
+<p style="margin: 0; font-size: 14px; color: #adb7c2; text-wrap: pretty">All 7,043 rows with their served probability. Outcomes appear for train and validation customers only; the test partition's are withheld.</p>
+</div>
+</section>
+
+<!-- Presets -->
+<div role="group" aria-label="Saved views" style="display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{presets}}" as="v" hint-placeholder-count="5">
+<button type="button" class="chip" onClick="{{v.apply}}" aria-pressed="{{v.pressed}}" style="display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; border-radius: 10px; border: 1px solid {{v.border}}; background: {{v.bg}}; color: {{v.fg}}; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer; white-space: nowrap">{{v.label}} <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e; font-weight: 400">{{v.n}}</span></button>
+</sc-for>
+</div>
+
+<!-- Filters -->
+<section aria-label="Filters" style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px">
+<div style="flex: 1 1 200px; display: flex; flex-direction: column; gap: 4px; min-width: 0">
+<label for="q" style="font-size: 11.5px; color: #8b949e">Customer ID</label>
+<input id="q" type="search" placeholder="e.g. 1234-ABCDE" value="{{q}}" onChange="{{onQ}}" autocomplete="off" style="height: 36px; box-sizing: border-box; padding: 0 10px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11.5px; color: #8b949e">Band</span>
+<div role="group" aria-label="Band" style="display: flex; gap: 4px">
+<sc-for list="{{bandChips}}" as="c" hint-placeholder-count="4">
+<button type="button" class="chip" onClick="{{c.toggle}}" aria-pressed="{{c.pressed}}" style="display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 9px; border: 1px solid {{c.border}}; background: {{c.bg}}; color: {{c.fg}}; font-family: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{c.color}}; opacity: {{c.dot}}"></span>{{c.k}}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="contract" style="font-size: 11.5px; color: #8b949e">Contract</label>
+<select id="contract" value="{{contract}}" onChange="{{onContract}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="all">Any</option><option>Month-to-month</option><option>One year</option><option>Two year</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="internet" style="font-size: 11.5px; color: #8b949e">Internet</label>
+<select id="internet" value="{{internet}}" onChange="{{onInternet}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="all">Any</option><option>Fiber optic</option><option>DSL</option><option value="No">None</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="payment" style="font-size: 11.5px; color: #8b949e">Payment</label>
+<select id="payment" value="{{payment}}" onChange="{{onPayment}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="all">Any</option><option>Electronic check</option><option>Mailed check</option><option>Bank transfer (automatic)</option><option>Credit card (automatic)</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11.5px; color: #8b949e">Tenure, months</span>
+<div style="display: flex; align-items: center; gap: 6px">
+<label for="tmin" class="sr">Minimum tenure</label><input id="tmin" type="number" min="0" max="72" value="{{tmin}}" onChange="{{onTmin}}" style="width: 62px; height: 36px; box-sizing: border-box; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">
+<span style="color: #8b949e">–</span>
+<label for="tmax" class="sr">Maximum tenure</label><input id="tmax" type="number" min="0" max="72" value="{{tmax}}" onChange="{{onTmax}}" style="width: 62px; height: 36px; box-sizing: border-box; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 11.5px; color: #8b949e">Decision at 0.36</span>
+<div role="group" aria-label="Flag" style="display: inline-flex; padding: 2px; background: #0b0f14; border: 1px solid #2a3440; border-radius: 9px; gap: 2px">
+<sc-for list="{{flagOpts}}" as="o" hint-placeholder-count="3">
+<button type="button" class="seg" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" style="height: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: {{o.bg}}; color: {{o.fg}}; font-family: inherit; font-size: 12px; font-weight: 550; cursor: pointer; white-space: nowrap">{{o.label}}</button>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="part" style="font-size: 11.5px; color: #8b949e">Partition</label>
+<select id="part" value="{{part}}" onChange="{{onPart}}" style="height: 36px; padding: 0 8px; background: #0d1117; border: 1px solid #2a3440; border-radius: 9px; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer"><option value="all">All</option><option value="0">Train</option><option value="1">Validation</option><option value="2">Test</option></select>
+</div>
+<button type="button" class="ghost" onClick="{{reset}}" disabled="{{noFilters}}" style="height: 36px; padding: 0 12px; border-radius: 9px; border: 1px solid #2a3440; background: transparent; color: #adb7c2; font-family: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap">Reset{{activeLabel}}</button>
+</section>
+
+<!-- Summary of current selection -->
+<section aria-label="Selection summary" aria-live="polite" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Customers</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{sumN}}</div><div style="font-size: 11.5px; color: #8b949e">{{sumShare}} of the book</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Flagged at 0.36</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{sumFlag}}</div><div style="font-size: 11.5px; color: #8b949e">{{sumFlagShare}} of selection</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Mean probability</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{sumMean}}</div><div style="font-size: 11.5px; color: #8b949e">expected churners {{sumExp}}</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Observed churn</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{sumObs}}</div><div style="font-size: 11.5px; color: #8b949e">{{sumObsN}}</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Monthly charges</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{sumMon}}</div><div style="font-size: 11.5px; color: #8b949e">{{sumRisk}} / mo at risk</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 10px 14px 8px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 12px; color: #8b949e">Probability spread</div>
+<svg viewBox="0 0 200 44" role="img" aria-label="Histogram of probability for the selection" style="width: 100%; height: auto; display: block">
+<path d="{{h0}}" fill="#56667b"></path><path d="{{h1}}" fill="#6b62b0"></path><path d="{{h2}}" fill="#a35ec9"></path><path d="{{h3}}" fill="#e8578f"></path>
+<line x1="72" x2="72" y1="0" y2="40" stroke="#f0b54a" stroke-width="1"></line>
+<line x1="0" x2="200" y1="40.5" y2="40.5" stroke="#2a3440"></line>
+</svg>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start">
+
+<!-- Table -->
+<section aria-label="Customers" style="flex: 999 1 640px; min-width: 0; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 6px 0 4px; display: flex; flex-direction: column">
+<sc-if value="{{loading}}" hint-placeholder-val="{{ true }}">
+<div role="status" aria-label="Loading customers" style="display: flex; flex-direction: column; gap: 10px; padding: 16px 18px">
+<div class="skel" style="height: 14px; width: 40%"></div>
+<div class="skel" style="height: 36px"></div><div class="skel" style="height: 36px"></div><div class="skel" style="height: 36px"></div><div class="skel" style="height: 36px"></div><div class="skel" style="height: 36px"></div><div class="skel" style="height: 36px"></div>
+<span style="font-size: 12px; color: #8b949e">Loading 7,043 scored customers…</span>
+</div>
+</sc-if>
+<sc-if value="{{failed}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="padding: 28px 20px; text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center">
+<div style="font-weight: 600">The customer book could not be loaded</div>
+<div style="font-size: 12.5px; color: #8b949e">{{failMsg}}</div>
+<button type="button" class="ghost" onClick="{{retry}}" style="min-height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid #2a3440; background: #121821; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer">Try again</button>
+</div>
+</sc-if>
+<sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
+<div style="overflow-x: auto; position: relative">
+<div style="min-width: 780px">
+<div style="display: grid; grid-template-columns: minmax(176px, 1.5fr) 116px 90px 62px 80px 84px minmax(116px, 1fr) 20px; padding: 6px 18px; border-bottom: 1px solid #1f2730; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e; white-space: nowrap; align-items: center">
+<button type="button" class="sortbtn" onClick="{{sId.on}}" aria-label="Sort by customer ID" style="justify-self: start; display: inline-flex; gap: 4px; min-height: 30px; align-items: center; padding: 0; border: 0; background: transparent; color: {{sId.fg}}; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer">Customer <span aria-hidden="true">{{sId.arrow}}</span></button>
+<button type="button" class="sortbtn" onClick="{{sP.on}}" aria-label="Sort by probability" style="justify-self: start; display: inline-flex; gap: 4px; min-height: 30px; align-items: center; padding: 0; border: 0; background: transparent; color: {{sP.fg}}; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer">Probability <span aria-hidden="true">{{sP.arrow}}</span></button>
+<span>Band</span>
+<button type="button" class="sortbtn" onClick="{{sT.on}}" aria-label="Sort by tenure" style="justify-self: end; display: inline-flex; gap: 4px; min-height: 30px; align-items: center; padding: 0; border: 0; background: transparent; color: {{sT.fg}}; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer">Tenure <span aria-hidden="true">{{sT.arrow}}</span></button>
+<button type="button" class="sortbtn" onClick="{{sM.on}}" aria-label="Sort by monthly charges" style="justify-self: end; display: inline-flex; gap: 4px; min-height: 30px; align-items: center; padding: 0; border: 0; background: transparent; color: {{sM.fg}}; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer">Monthly <span aria-hidden="true">{{sM.arrow}}</span></button>
+<button type="button" class="sortbtn" onClick="{{sE.on}}" aria-label="Sort by monthly revenue at risk" style="justify-self: end; display: inline-flex; gap: 4px; min-height: 30px; align-items: center; padding: 0; border: 0; background: transparent; color: {{sE.fg}}; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer">At risk <span aria-hidden="true">{{sE.arrow}}</span></button>
+<span style="padding-left: 12px">Outcome</span>
+<span></span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+<button type="button" class="rowbtn" onClick="{{r.open}}" aria-label="{{r.aria}}" aria-pressed="{{r.pressed}}" style="width: 100%; display: grid; grid-template-columns: minmax(176px, 1.5fr) 116px 90px 62px 80px 84px minmax(116px, 1fr) 20px; align-items: center; padding: 8px 16px; border: 0; border-bottom: 1px solid #182029; background: {{r.bg}}; box-shadow: {{r.shadow}}; color: #e6edf3; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; white-space: nowrap">
+<span style="display: flex; flex-direction: column; min-width: 0"><span style="font-family: 'Geist Mono', ui-monospace, monospace">{{r.id}}</span><span style="font-size: 11.5px; color: #8b949e; overflow: hidden; text-overflow: ellipsis">{{r.profile}}</span></span>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 50px; height: 5px; border-radius: 3px; background: #1c232c; overflow: hidden"><span style="display: block; width: {{r.pw}}; height: 100%; background: {{r.color}}"></span></span><span style="font-family: 'Geist Mono', ui-monospace, monospace">{{r.p}}</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px; color: {{r.ink}}"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{r.color}}"></span>{{r.band}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{r.tenure}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{r.monthly}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{r.ev}}</span>
+<span style="padding-left: 12px"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: {{r.oFg}}; border: 1px {{r.oBs}} {{r.oBorder}}; border-radius: 5px; padding: 2px 7px">{{r.outcome}}</span></span>
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+</button>
+</sc-for>
+</div>
+</div>
+<sc-if value="{{empty}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="padding: 32px 20px; text-align: center; display: flex; flex-direction: column; gap: 6px; align-items: center">
+<div style="font-weight: 600">No customer matches these filters</div>
+<div style="font-size: 12.5px; color: #8b949e">{{emptyHint}}</div>
+<button type="button" class="ghost" onClick="{{reset}}" style="margin-top: 4px; min-height: 36px; padding: 0 14px; border-radius: 9px; border: 1px solid #2a3440; background: #121821; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer">Reset filters</button>
+</div>
+</sc-if>
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 18px 8px">
+<span style="font-size: 12px; color: #8b949e">{{pageNote}}</span>
+<div style="display: flex; align-items: center; gap: 8px">
+<label for="psize" style="font-size: 12px; color: #8b949e">Rows</label>
+<select id="psize" value="{{psize}}" onChange="{{onPsize}}" style="height: 32px; padding: 0 6px; background: #0d1117; border: 1px solid #2a3440; border-radius: 8px; color: #e6edf3; font-family: inherit; font-size: 12px; cursor: pointer"><option value="15">15</option><option value="25">25</option><option value="50">50</option></select>
+<button type="button" class="pagebtn" onClick="{{prev}}" disabled="{{prevDis}}" aria-label="Previous page" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></button>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #adb7c2; min-width: 64px; text-align: center">{{pageLabel}}</span>
+<button type="button" class="pagebtn" onClick="{{next}}" disabled="{{nextDis}}" aria-label="Next page" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+</div>
+</div>
+</sc-if>
+</section>
+
+<!-- Detail panel -->
+<sc-if value="{{hasDetail}}" hint-placeholder-val="{{ false }}">
+<aside aria-label="Customer detail" style="flex: 1 1 330px; min-width: 0; max-width: 100%; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 14px">
+
+<sc-if value="{{hasDetail}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 15px; font-weight: 600">{{d.id}}</span>
+<div style="display: flex; gap: 6px">
+<button type="button" class="ghost" onClick="{{dPrev}}" aria-label="Previous customer in the list" style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer; display: inline-flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></button>
+<button type="button" class="ghost" onClick="{{dNext}}" aria-label="Next customer in the list" style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer; display: inline-flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+<button type="button" class="ghost" onClick="{{dClose}}" aria-label="Close detail" style="width: 32px; height: 32px; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #adb7c2; cursor: pointer; display: inline-flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+</div>
+<div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 10px">
+<div><div style="font-size: 12px; color: #8b949e">Churn probability</div><div style="font-size: 36px; font-weight: 600; letter-spacing: -0.03em; line-height: 1.1">{{d.pct}}</div></div>
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px">
+<span style="display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border-radius: 7px; background: {{d.soft}}; border: 1px solid {{d.line}}; color: {{d.ink}}; font-size: 12px; font-weight: 600"><span style="width: 7px; height: 7px; border-radius: 2px; background: {{d.color}}"></span>{{d.band}}</span>
+<span style="font-size: 12px; color: {{d.flagFg}}">{{d.flagText}}</span>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px">
+<sc-for list="{{d.attrs}}" as="t" hint-placeholder-count="10">
+<div style="display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid #182029; font-size: 12px; min-width: 0"><span style="color: #8b949e; white-space: nowrap">{{t.k}}</span><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{t.v}}</span></div>
+</sc-for>
+</div>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+<h3 style="margin: 0; font-size: 13.5px; font-weight: 600">What moved this score</h3>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e">{{d.shapMeta}}</span>
+</div>
+<sc-if value="{{d.needsShap}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{explain}}" style="min-height: 40px; border-radius: 10px; border: 0; background: #1897ae; color: #041217; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Explain this customer</button>
+</sc-if>
+<sc-if value="{{d.hasShap}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{d.shap}}" as="s" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 118px minmax(0, 1fr) 50px; gap: 8px; align-items: center; font-size: 12px">
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis" title="{{s.title}}">{{s.label}}</span>
+<span style="position: relative; height: 12px; background: #141b24; border-radius: 3px"><span style="position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: #3a4654"></span><span class="bar" style="position: absolute; top: 2px; height: 8px; left: {{s.left}}; width: {{s.width}}; border-radius: 2px; background: {{s.color}}"></span></span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right; color: {{s.fg}}">{{s.pp}}</span>
+</div>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 11.5px; color: #8b949e">Percentage points against an average customer; orange raises, blue lowers. Estimated with 12 orderings in your browser, so values can differ from the API's by about a point. Attributions, not causes.</p>
+</sc-if>
+</sc-if>
+</aside>
+</sc-if>
+</div>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1480}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+// In-browser copy of the shipped predictor: 5 calibrated folds averaged, then clamped.
+// Mirrors CalibratedClassifierCV(isotonic, ensemble) over Pipeline(ColumnTransformer -> LogisticRegression).
+function isoPredict(x, X, Y) {
+  if (x <= X[0]) return Y[0];
+  const n = X.length;
+  if (x >= X[n - 1]) return Y[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (X[mid] <= x) lo = mid; else hi = mid; }
+  const t = (x - X[lo]) / (X[hi] - X[lo]);
+  return Y[lo] + t * (Y[hi] - Y[lo]);
+}
+function scoreRecord(model, rec) {
+  let sum = 0;
+  for (const f of model.folds) {
+    let z = f.intercept, k = 0;
+    for (let j = 0; j < f.num.length; j++) {
+      let v = Number(rec[f.num[j]]);
+      if (!Number.isFinite(v)) v = f.median[j];
+      z += f.coef[k++] * ((v - f.mean[j]) / f.scale[j]);
+    }
+    for (let j = 0; j < f.cat.length; j++) {
+      const v = String(rec[f.cat[j]]);
+      const cats = f.cats[j];
+      for (let c = 0; c < cats.length; c++) { if (cats[c] === v) z += f.coef[k + c]; }
+      k += cats.length;
+    }
+    sum += isoPredict(z, f.isoX, f.isoY);
+  }
+  const p = sum / model.folds.length;
+  return Math.min(1 - model.epsilon, Math.max(model.epsilon, p));
+}
+function bandOf(model, p) {
+  for (const b of model.bands) if (p >= b.min && p < b.max) return b.name;
+  return model.bands[model.bands.length - 1].name;
+}
+
+// Permutation SHAP against a fixed background, antithetic orderings, seeded.
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function explainRecord(model, rec, background, permutations, seed) {
+  const cols = model.columns, n = cols.length, rand = mulberry32(seed || 42);
+  const phi = new Array(n).fill(0);
+  let base = 0; for (const b of background) base += scoreRecord(model, b); base /= background.length;
+  const evalOrder = (order) => {
+    for (const b of background) {
+      const cur = Object.assign({}, b);
+      let prev = scoreRecord(model, cur);
+      for (const j of order) { cur[cols[j]] = rec[cols[j]]; const now = scoreRecord(model, cur); phi[j] += now - prev; prev = now; }
+    }
+  };
+  for (let k = 0; k < permutations; k++) {
+    const order = cols.map((_, i) => i);
+    for (let i = n - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    evalOrder(order); evalOrder(order.slice().reverse());
+  }
+  const denom = permutations * 2 * background.length;
+  return { base, values: phi.map((v) => v / denom), p: scoreRecord(model, rec) };
+}
+const LABELS = { tenure: 'Tenure', MonthlyCharges: 'Monthly charges', TotalCharges: 'Total charges', SeniorCitizen: 'Senior citizen', Partner: 'Partner', Dependents: 'Dependents', PhoneService: 'Phone', MultipleLines: 'Multiple lines', InternetService: 'Internet', OnlineSecurity: 'Online security', OnlineBackup: 'Online backup', DeviceProtection: 'Device protection', TechSupport: 'Tech support', StreamingTV: 'Streaming TV', StreamingMovies: 'Streaming movies', Contract: 'Contract', PaperlessBilling: 'Paperless billing', PaymentMethod: 'Payment' };
+const SHORTPAY = { 'Electronic check': 'E-check', 'Mailed check': 'Mailed check', 'Bank transfer (automatic)': 'Bank transfer', 'Credit card (automatic)': 'Card' };
+const SHORTNET = { 'Fiber optic': 'Fiber', DSL: 'DSL', No: 'No internet' };
+const DEF = { q: '', bands: BAND_ORDER, contract: 'all', internet: 'all', payment: 'all', tmin: 0, tmax: 72, flag: 'all', part: 'all' };
+const PRESETS = [
+  { label: 'All customers', f: {} },
+  { label: 'Flagged · month-to-month', f: { flag: 'yes', contract: 'Month-to-month' } },
+  { label: 'First six months', f: { tmax: 6 } },
+  { label: 'Fiber + e-check', f: { internet: 'Fiber optic', payment: 'Electronic check' } },
+  { label: 'Two-year contracts (not scanned)', f: { contract: 'Two year' } },
+];
+const pct = (v, d) => (v * 100).toFixed(d === undefined ? 1 : d) + '%';
+const int = (v) => Math.round(v).toLocaleString('en-US');
+const money = (v) => '$' + Math.round(v).toLocaleString('en-US');
+function fmtVal(k, v) {
+  if (k === 'tenure') return v + ' mo';
+  if (k === 'MonthlyCharges' || k === 'TotalCharges') return '$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (k === 'SeniorCitizen') return v === '1' ? 'Yes' : 'No';
+  return String(v).replace(' (automatic)', ' (auto)');
+}
+function matches(r, f) {
+  if (!f.bands.includes(r.band)) return false;
+  if (f.contract !== 'all' && r.a.Contract !== f.contract) return false;
+  if (f.internet !== 'all' && r.a.InternetService !== f.internet) return false;
+  if (f.payment !== 'all' && r.a.PaymentMethod !== f.payment) return false;
+  if (r.tenure < f.tmin || r.tenure > f.tmax) return false;
+  if (f.flag === 'yes' && !r.flagged) return false;
+  if (f.flag === 'no' && r.flagged) return false;
+  if (f.part !== 'all' && String(r.part) !== f.part) return false;
+  if (f.q && !r.id.includes(f.q)) return false;
+  return true;
+}
+
+class Component extends DCLogic {
+  componentDidMount() { this.load(); }
+  load() {
+    this.setState({ status: 'loading' });
+    Promise.all([loadJson(ASSET.book), loadJson(ASSET.model), loadJson(ASSET.background)])
+      .then(([book, model, background]) => { this.ingest({ book, model, background }); this.setState({ status: 'ready' }); })
+      .catch((e) => this.setState({ status: 'error', err: String(e && e.message || e) }));
+  }
+  ingest({ book, model, background }) {
+    const F = book.fields, cat = book.cat;
+    this.model = model; this.bg = background; this.shapCache = {};
+    this.rows = book.rows.map((row) => {
+      const a = { tenure: row[1], MonthlyCharges: row[2], TotalCharges: row[3] };
+      cat.forEach((c, j) => { a[c] = book.values[c][row[4 + j]]; });
+      const p = row[F.indexOf('p')];
+      return { id: row[0], tenure: row[1], monthly: row[2], a, p, band: bandOf(model, p), flagged: p >= model.threshold, part: row[F.indexOf('part')], churn: row[F.indexOf('churn')], ev: p * row[2] };
+    });
+    this.byId = {}; this.rows.forEach((r) => { this.byId[r.id] = r; });
+    if (!this.state || !this.state.status) this.state = Object.assign({}, this.state, { status: 'ready' });
+  }
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const status = st.status ?? 'loading';
+    const ready = status === 'ready' && !!this.rows;
+    const f = { q: (st.q ?? '').trim().toUpperCase(), bands: st.bands ?? DEF.bands, contract: st.contract ?? 'all', internet: st.internet ?? 'all', payment: st.payment ?? 'all', tmin: st.tmin ?? 0, tmax: st.tmax ?? 72, flag: st.flag ?? 'all', part: st.part ?? 'all' };
+    const sort = st.sort ?? 'p', dir = st.dir ?? 'desc', page = st.page ?? 0, psize = st.psize ?? 15;
+    const setF = (p) => set(Object.assign({ page: 0 }, p));
+    const all = ready ? this.rows : [];
+    let list = all.filter((r) => matches(r, f));
+    const key = { id: (r) => r.id, p: (r) => r.p, tenure: (r) => r.tenure, monthly: (r) => r.monthly, ev: (r) => r.ev }[sort];
+    list = list.slice().sort((x, y) => { const a = key(x), b = key(y); const c = a < b ? -1 : a > b ? 1 : 0; return dir === 'desc' ? -c : c; });
+    const pages = Math.max(1, Math.ceil(list.length / psize));
+    const pg = Math.min(page, pages - 1);
+    const shown = list.slice(pg * psize, pg * psize + psize);
+    const openId = st.open ?? null;
+
+    const outcomeOf = (r) => (r.part === 2 ? { t: 'Withheld · test', fg: '#adb7c2', b: '#3a4654', bs: 'dashed' } : r.churn ? { t: 'Churned · ' + (r.part ? 'val' : 'train'), fg: '#f2a585', b: '#4a2e22', bs: 'solid' } : { t: 'Stayed · ' + (r.part ? 'val' : 'train'), fg: '#adb7c2', b: '#26303b', bs: 'solid' });
+    const rows = shown.map((r) => {
+      const o = outcomeOf(r), on = r.id === openId, R = RISK[r.band];
+      return {
+        id: r.id, profile: r.a.Contract + ' · ' + SHORTNET[r.a.InternetService] + ' · ' + SHORTPAY[r.a.PaymentMethod],
+        p: r.p > 0.999 ? r.p.toFixed(4) : r.p.toFixed(3), pw: r.p * 100 + '%', color: R.fill, ink: R.ink, band: r.band,
+        tenure: r.tenure + ' mo', monthly: '$' + r.monthly.toFixed(2), ev: '$' + r.ev.toFixed(2),
+        outcome: o.t, oFg: o.fg, oBorder: o.b, oBs: o.bs,
+        bg: on ? '#141c26' : 'transparent', shadow: on ? 'inset 3px 0 0 #1897ae' : 'none', pressed: on ? 'true' : 'false',
+        aria: 'Open ' + r.id + ', probability ' + (r.p > 0.999 ? r.p.toFixed(4) : r.p.toFixed(3)) + ', ' + r.band,
+        open: () => set({ open: r.id }),
+      };
+    });
+
+    // Summary
+    const n = list.length, flagged = list.filter((r) => r.flagged).length;
+    const seen = list.filter((r) => r.part !== 2), churned = seen.reduce((s, r) => s + r.churn, 0);
+    const sumP = list.reduce((s, r) => s + r.p, 0), sumMon = list.reduce((s, r) => s + r.monthly, 0), sumEv = list.reduce((s, r) => s + r.ev, 0);
+    const bins = new Array(20).fill(0); list.forEach((r) => { bins[Math.min(19, Math.floor(r.p * 20))]++; });
+    const bmax = Math.max(1, Math.max.apply(null, bins));
+    const hp = (from) => { let d = ''; for (let i = from; i < from + 5; i++) { const h = (bins[i] / bmax) * 38; if (h > 0) d += 'M' + (i * 10 + 1) + ' 40 v' + (-h).toFixed(1) + ' h8 v' + h.toFixed(1) + ' Z '; } return d || 'M0 0'; };
+
+    // Controls
+    const segBtn = (on) => ({ bg: on ? '#1c2530' : 'transparent', fg: on ? '#e6edf3' : '#8b949e', pressed: on ? 'true' : 'false' });
+    const bandChips = BAND_ORDER.map((k) => { const on = f.bands.includes(k); return { k, color: RISK[k].fill, pressed: on ? 'true' : 'false', border: on ? RISK[k].line : '#222a34', bg: on ? RISK[k].soft : 'transparent', fg: on ? '#e6edf3' : '#8b949e', dot: on ? 1 : 0.35, toggle: () => setF({ bands: on ? f.bands.filter((x) => x !== k) : BAND_ORDER.filter((x) => x === k || f.bands.includes(x)) }) }; });
+    const flagOpts = [['all', 'All'], ['yes', 'Flagged'], ['no', 'Not flagged']].map(([v, label]) => Object.assign(segBtn(f.flag === v), { label, pick: () => setF({ flag: v }) }));
+    const sameAsDef = (ff) => Object.keys(DEF).every((k) => (k === 'bands' ? ff.bands.length === 4 : k === 'q' ? ff.q === '' : ff[k] === DEF[k]));
+    const active = Object.keys(DEF).filter((k) => (k === 'bands' ? f.bands.length !== 4 : k === 'q' ? f.q !== '' : f[k] !== DEF[k])).length;
+    const presets = PRESETS.map((pr) => {
+      const ff = Object.assign({}, DEF, pr.f, { q: '' });
+      const on = Object.keys(DEF).every((k) => (k === 'bands' ? f.bands.length === ff.bands.length : k === 'q' ? f.q === '' : f[k] === ff[k]));
+      return { label: pr.label, n: ready ? int(all.filter((r) => matches(r, ff)).length) : '…', pressed: on ? 'true' : 'false', border: on ? '#1d4c57' : '#222a34', bg: on ? 'rgba(24,151,174,0.12)' : '#10151c', fg: on ? '#e6edf3' : '#adb7c2', apply: () => set(Object.assign({}, DEF, pr.f, { page: 0 })) };
+    });
+    const sortCol = (k) => ({ arrow: sort === k ? (dir === 'desc' ? '↓' : '↑') : '↕', fg: sort === k ? '#e6edf3' : '#8b949e', on: () => set(sort === k ? { dir: dir === 'desc' ? 'asc' : 'desc', page: 0 } : { sort: k, dir: k === 'id' || k === 'tenure' ? 'asc' : 'desc', page: 0 }) });
+
+    // Detail
+    const dr = openId && this.byId ? this.byId[openId] : null;
+    let d = { attrs: [], shap: [], id: '', pct: '', band: '', color: 'transparent', ink: '#e6edf3', soft: 'transparent', line: 'transparent', flagText: '', flagFg: '#8b949e', needsShap: false, hasShap: false, shapMeta: '' };
+    if (dr) {
+      const R = RISK[dr.band];
+      const cached = this.shapCache[dr.id];
+      const shap = cached ? cached.values.map((v, j) => [this.model.columns[j], v * 100]).sort((x, y) => Math.abs(y[1]) - Math.abs(x[1])).slice(0, 7) : [];
+      const smax = shap.length ? Math.max(1, Math.abs(shap[0][1])) : 1;
+      d = {
+        id: dr.id, pct: dr.p > 0.999 ? (dr.p * 100).toFixed(2) + '%' : pct(dr.p), band: dr.band, color: R.fill, ink: R.ink, soft: R.soft, line: R.line,
+        flagText: dr.flagged ? 'Flagged at 0.36' : 'Not flagged', flagFg: dr.flagged ? '#e6edf3' : '#8b949e',
+        attrs: ['tenure', 'Contract', 'MonthlyCharges', 'TotalCharges', 'InternetService', 'PaymentMethod', 'TechSupport', 'OnlineSecurity', 'PaperlessBilling', 'SeniorCitizen'].map((k) => ({ k: LABELS[k], v: fmtVal(k, dr.a[k]) })),
+        needsShap: !cached, hasShap: !!cached,
+        shapMeta: cached ? 'base ' + pct(cached.base) + ' → ' + pct(cached.p) : outcomeOf(dr).t,
+        shap: shap.map(([k, v]) => ({ label: LABELS[k], title: LABELS[k] + ': ' + fmtVal(k, dr.a[k]), left: (v < 0 ? 50 - (Math.abs(v) / smax) * 50 : 50) + '%', width: (Math.abs(v) / smax) * 50 + '%', color: v > 0 ? '#ec835a' : '#5b8def', fg: v > 0 ? '#f2a585' : '#9dbaf5', pp: (v > 0 ? '+' : '−') + Math.abs(v).toFixed(1) })),
+      };
+    }
+    const idx = dr ? list.findIndex((r) => r.id === dr.id) : -1;
+    const step = (k) => () => { if (!list.length) return; const i = idx < 0 ? 0 : (idx + k + list.length) % list.length; set({ open: list[i].id, page: Math.floor(i / psize) }); };
+
+    return Object.assign(shell(this), {
+      loading: status === 'loading', failed: status === 'error', ready, notReady: !ready,
+      failMsg: 'The request failed (' + (st.err || 'unknown error') + '). Nothing on this page is computed until it loads.',
+      retry: () => this.load(),
+      q: st.q ?? '', onQ: (e) => setF({ q: e.target.value }),
+      contract: f.contract, onContract: (e) => setF({ contract: e.target.value }),
+      internet: f.internet, onInternet: (e) => setF({ internet: e.target.value }),
+      payment: f.payment, onPayment: (e) => setF({ payment: e.target.value }),
+      part: f.part, onPart: (e) => setF({ part: e.target.value }),
+      tmin: f.tmin, tmax: f.tmax,
+      onTmin: (e) => { const v = Math.round(Number(e.target.value)); if (Number.isFinite(v)) setF({ tmin: Math.max(0, Math.min(72, v)) }); },
+      onTmax: (e) => { const v = Math.round(Number(e.target.value)); if (Number.isFinite(v)) setF({ tmax: Math.max(0, Math.min(72, v)) }); },
+      bandChips, flagOpts, presets,
+      noFilters: sameAsDef(f), activeLabel: active ? ' (' + active + ')' : '',
+      reset: () => set(Object.assign({}, DEF, { page: 0 })),
+      sumN: int(n), sumShare: pct(n / 7043), sumFlag: int(flagged), sumFlagShare: n ? pct(flagged / n) : '—',
+      sumMean: n ? (sumP / n).toFixed(3) : '—', sumExp: int(sumP),
+      sumObs: seen.length ? pct(churned / seen.length) : '—', sumObsN: seen.length ? int(churned) + ' of ' + int(seen.length) + ' train + val' : 'test outcomes withheld',
+      sumMon: money(sumMon), sumRisk: money(sumEv),
+      h0: hp(0), h1: hp(5), h2: hp(10), h3: hp(15),
+      rows, empty: ready && rows.length === 0,
+      emptyHint: f.bands.length === 0 ? 'No band is selected.' : (f.flag === 'yes' && f.bands.length === 1 && f.bands[0] === 'Low') ? 'Low tops out at 0.25, below the 0.36 threshold, so nobody in it is flagged.' : 'Loosen a filter or clear the ID search.',
+      sId: sortCol('id'), sP: sortCol('p'), sT: sortCol('tenure'), sM: sortCol('monthly'), sE: sortCol('ev'),
+      pageNote: n ? 'Showing ' + int(pg * psize + 1) + '–' + int(pg * psize + shown.length) + ' of ' + int(n) + (dr ? '' : ' · select a row to open its profile and explanation') : 'No rows',
+      pageLabel: (pg + 1) + ' / ' + int(pages), prevDis: pg === 0, nextDis: pg >= pages - 1,
+      prev: () => set({ page: Math.max(0, pg - 1) }), next: () => set({ page: Math.min(pages - 1, pg + 1) }),
+      psize: String(psize), onPsize: (e) => set({ psize: Number(e.target.value) || 15, page: 0 }),
+      matchCount: ready ? int(n) : '', exportNote: st.exported ?? '',
+      exportCsv: () => {
+        if (!this.model) return;
+        const cols = this.model.columns;
+        const head = ['customerID'].concat(cols, ['churn_probability', 'risk_band', 'flagged', 'partition', 'outcome']);
+        const lines = [head.join(',')].concat(list.map((r) => [r.id].concat(cols.map((c) => r.a[c]), [r.p.toFixed(6), r.band, r.flagged, ['train', 'validation', 'test'][r.part], r.part === 2 ? 'withheld' : r.churn ? 'Yes' : 'No']).map(csvCell).join(',')));
+        const ok = downloadText('churnsense_customers.csv', lines.join('\n'));
+        set({ exported: ok ? 'Exported ' + int(list.length) + ' rows' : 'Download blocked by the browser' });
+      },
+      noDetail: !dr, hasDetail: !!dr, d,
+      explain: () => { if (!dr || !this.model) return; this.shapCache[dr.id] = explainRecord(this.model, dr.a, this.bg, 12, 1 + idx); this.forceUpdate ? this.forceUpdate() : set({ tick: Date.now() }); },
+      dPrev: step(-1), dNext: step(1), dClose: () => set({ open: null }),
+    });
+  }
+}
+</script>
+</body>
+</html>

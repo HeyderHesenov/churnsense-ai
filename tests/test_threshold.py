@@ -8,6 +8,8 @@ any claim about real savings.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,8 +19,10 @@ from churnsense.evaluation.threshold import (
     ThresholdScenario,
     assign_risk_bands,
     recommend_threshold,
+    recommend_threshold_from,
     sweep_thresholds,
 )
+from tests.conftest import tracked_report
 
 Y = np.array([1, 1, 1, 1, 0, 0, 0, 0, 0, 0])
 P = np.array([0.9, 0.8, 0.6, 0.4, 0.7, 0.55, 0.3, 0.2, 0.1, 0.05])
@@ -264,3 +268,42 @@ def test_a_single_probability_can_be_banded(cfg: Config):
     """The scalar case goes through the same function as the vector case."""
     assert assign_risk_bands(np.array([0.9]), cfg).iloc[0] == "Critical"
     assert assign_risk_bands(np.array([0.01]), cfg).iloc[0] == "Low"
+
+
+# --- the published operating point, reproduced from the tracked sweep ---------------
+
+
+def _tracked_sweep(business: Business, defaults: Business) -> pd.DataFrame:
+    """``reports/threshold_sweep.csv`` (validation, at ``defaults``), re-priced for ``business``.
+
+    Retained value is linear in the offer success rate and nothing else in the
+    sweep depends on it, so the tracked file prices every other success rate
+    exactly - with no dataset, which no test reads.
+    """
+    sweep = pd.read_csv(tracked_report("threshold_sweep.csv"))
+    scale = business.offer_success_rate / defaults.offer_success_rate
+    retained = sweep["retained_value"] * scale
+    return sweep.assign(retained_value=retained, net_benefit=retained - sweep["intervention_cost"])
+
+
+def test_the_default_assumptions_recommend_the_shipped_threshold(cfg: Config):
+    point = recommend_threshold_from(_tracked_sweep(cfg.business, cfg.business), cfg.business)
+    assert point.threshold == pytest.approx(0.36)
+
+
+def test_the_recommendation_moves_with_the_success_rate_as_published(cfg: Config):
+    """0.88 / 0.50 / 0.36 / 0.23 / 0.22 for 10-50 %, the table in reports/model_comparison.md."""
+    published = {}
+    for line in tracked_report("model_comparison.md").read_text().splitlines():
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) == 6 and cells[0].endswith("%") and cells[0][:-1].isdigit():
+            published[int(cells[0][:-1]) / 100] = float(cells[1])
+    assert set(published) == {0.1, 0.2, 0.3, 0.4, 0.5}
+
+    measured = {}
+    for rate in published:
+        business = replace(cfg.business, offer_success_rate=rate)
+        sweep = _tracked_sweep(business, cfg.business)
+        measured[rate] = recommend_threshold_from(sweep, business).threshold
+    assert [round(measured[r], 2) for r in sorted(measured)] == [0.88, 0.50, 0.36, 0.23, 0.22]
+    assert measured == pytest.approx(published)

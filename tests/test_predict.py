@@ -24,6 +24,7 @@ from churnsense.models.predict import (
     _read_contract_columns,
     ignored_columns,
     load_predictor,
+    upload_rules,
     validate_upload,
 )
 from churnsense.models.train import save_artifact, train_all
@@ -353,6 +354,214 @@ def test_columns_the_served_model_needs_survive_a_config_ablation(cfg: Config, d
         cfg, features=dataclasses.replace(cfg.features, include_total_charges=False)
     )
     assert "TotalCharges" in validate_upload(demo_csv.read_bytes(), ablated).columns
+
+
+def test_an_upload_is_held_to_the_columns_it_is_scored_on(cfg: Config, demo_csv):
+    """``columns`` - the served model's - decide what a file must hold, not the
+    config, which can drift until the next training run."""
+    demo = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    without = _csv(demo.drop(columns="TotalCharges"))
+    assert "missing columns: TotalCharges" in _refusal(without, cfg)
+    served = [c for c in _served(cfg) if c != "TotalCharges"]
+    assert len(validate_upload(without, cfg, columns=served)) == len(demo)
+
+
+def test_the_upload_rules_describe_only_the_columns_a_model_scores():
+    """A value rule is checked only when its columns are required, so a model scored
+    without TotalCharges is not described by the rules on its values. The column
+    is still the contract's, so it may appear once at most."""
+    full = upload_rules(schema.model_input_columns(("gender",)))
+    ablated = upload_rules(schema.model_input_columns(("gender",), include_total_charges=False))
+    once = "No column of the data contract appears twice"
+
+    def on_values(rules: list[str]) -> list[str]:
+        return [rule for rule in rules if "TotalCharges" in rule and not rule.startswith(once)]
+
+    assert len(on_values(full)) == 2
+    assert on_values(ablated) == []
+    assert "TotalCharges" in next(rule for rule in ablated if rule.startswith(once))
+
+
+def test_a_blank_total_is_read_as_zero_by_the_file_s_tenure_even_if_tenure_is_not_scored(
+    cfg: Config, demo_csv
+):
+    """``clean_frame`` fills a blank TotalCharges at tenure 0 whenever the file has
+    tenure, so the rule names the exception for any model scoring TotalCharges."""
+    served = [c for c in _served(cfg) if c != "tenure"]
+    (blanks,) = [r for r in upload_rules(served) if r.startswith("A blank in a column")]
+    assert "TotalCharges where the file's tenure is 0" in blanks
+    demo = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    new = validate_upload(_first_row(demo, tenure="0", TotalCharges=""), cfg, columns=served)
+    assert new.loc[0, "TotalCharges"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("dropped", "rule"),
+    [
+        (("InternetService",), "Add-ons are"),
+        (schema.ADDON_COLUMNS, "Add-ons are"),
+        (("PhoneService",), "MultipleLines is"),
+        (("MultipleLines",), "MultipleLines is"),
+        (("tenure",), "TotalCharges is 0 exactly"),
+    ],
+    ids=["no InternetService", "no add-on", "no PhoneService", "no MultipleLines", "no tenure"],
+)
+def test_a_coherence_rule_is_given_only_when_its_columns_are_scored(dropped, rule: str):
+    """The same conditions ``schema._inconsistencies`` checks a rule under."""
+    full = upload_rules(schema.model_input_columns(("gender",)))
+    ablated = upload_rules(schema.model_input_columns(("gender", *dropped)))
+    assert sum(r.startswith(rule) for r in full) == 1
+    assert not any(r.startswith(rule) for r in ablated)
+
+
+# --- every upload rule, one file each, refused or accepted as its sentence says -------------
+
+
+def _served(cfg: Config) -> list[str]:
+    return schema.model_input_columns(cfg.features.drop_columns, cfg.features.include_total_charges)
+
+
+def _refusal(payload: bytes, cfg: Config) -> str:
+    """What the refusal of ``payload`` says, every problem included."""
+    with pytest.raises(SchemaValidationError) as excinfo:
+        validate_upload(payload, cfg)
+    return str(excinfo.value)
+
+
+def _lines(frame: pd.DataFrame) -> list[str]:
+    return _csv(frame).decode().splitlines()
+
+
+def _first_row(frame: pd.DataFrame, **values: str) -> bytes:
+    """``frame`` with the first row's ``values`` replaced."""
+    changed = frame.copy()
+    for column, value in values.items():
+        changed.loc[0, column] = value
+    return _csv(changed)
+
+
+def _format(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    assert "semicolon-separated" in _refusal(_csv(demo).replace(b",", b";"), cfg)
+    renamed = _csv(demo.rename(columns={"tenure": "Tenure"}))
+    assert "missing columns: tenure" in _refusal(renamed, cfg)
+    assert "could not be read" in _refusal(_csv(demo).decode().encode("utf-16"), cfg)
+
+
+def _once(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    served = _served(cfg)
+    named = [c for c in schema.RAW_COLUMNS if c not in served]
+    assert all(rule.count(name) == 1 for name in named)
+    for column in (served[0], *named):
+        doubled = pd.concat([demo, demo[[column]]], axis=1)
+        assert f"more than once: {column}" in _refusal(_csv(doubled), cfg)
+    noted = demo.assign(notes="x")
+    accepted = validate_upload(_csv(pd.concat([noted, noted[["notes"]]], axis=1)), cfg)
+    assert "notes" not in accepted.columns
+
+
+def _width(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    wide = _lines(demo)
+    wide[2] += ",surplus"
+    said = _refusal("\n".join(wide).encode(), cfg)
+    assert "data row 2 has 22 fields but the header has 21" in said
+    short = _lines(demo)
+    short[1] = short[1].rsplit(",", 1)[0]  # its last field, Churn, left out
+    assert "unexpected labels: ['']" in _refusal("\n".join(short).encode(), cfg)
+
+
+def _all_listed(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    broken = demo.copy()
+    broken.loc[0, "tenure"] = "abc"
+    broken.loc[1, "Contract"] = "Weekly"
+    said = _refusal(_csv(broken), cfg)
+    assert "'tenure' has 1 missing or non-numeric value(s)" in said
+    assert "'Contract' has unexpected value(s) ['Weekly']" in said
+
+
+def _in_order(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    upload = pd.concat([demo, demo.head(1), demo.head(1)], ignore_index=True)
+    scored = validate_upload(_csv(upload), cfg)
+    assert list(scored.index) == list(range(len(upload)))
+    assert scored[schema.ID_COLUMN].tolist() == upload[schema.ID_COLUMN].tolist()
+
+
+def _blank_lines(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    lines = _lines(demo.head(3))
+    assert len(validate_upload("\n\n".join(lines).encode(), cfg)) == 3
+    wide = [lines[0], "", lines[1] + ",surplus"]
+    assert "data row 1 has" in _refusal("\n".join(wide).encode(), cfg)
+
+
+def _blanks(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    assert "TotalCharges where the file's tenure is 0" in rule
+    assert "'MonthlyCharges' has 1 missing" in _refusal(_first_row(demo, MonthlyCharges=""), cfg)
+    assert "'Contract' has unexpected value(s) ['']" in _refusal(_first_row(demo, Contract=""), cfg)
+    billed = _first_row(demo, tenure="5", TotalCharges="")
+    assert "'TotalCharges' has 1 missing" in _refusal(billed, cfg)
+    new = validate_upload(_first_row(demo, tenure="0", TotalCharges=""), cfg)
+    assert new.loc[0, "TotalCharges"] == 0.0
+
+
+def _addons(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    online = demo[demo["InternetService"].ne("No")].reset_index(drop=True)
+    said = _refusal(_first_row(online, InternetService="No"), cfg)
+    assert "contradicts 'InternetService'" in said
+
+
+def _phone(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    calls = demo[demo["PhoneService"].eq("Yes")].reset_index(drop=True)
+    said = _refusal(_first_row(calls, PhoneService="No"), cfg)
+    assert "'MultipleLines' contradicts 'PhoneService'" in said
+
+
+def _billed(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    customers = demo[demo["tenure"].ne("0")].reset_index(drop=True)
+    assert "'TotalCharges' contradicts 'tenure'" in _refusal(_first_row(customers, tenure="0"), cfg)
+
+
+def _id_optional(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    assert schema.ID_COLUMN not in _served(cfg)
+    assert len(validate_upload(_csv(demo.drop(columns=schema.ID_COLUMN)), cfg)) == len(demo)
+
+
+def _label_optional(rule: str, demo: pd.DataFrame, cfg: Config) -> None:
+    assert schema.TARGET not in _served(cfg)
+    validate_upload(_csv(demo.drop(columns=schema.TARGET)), cfg)
+    validate_upload(_csv(demo.assign(Churn=demo[schema.TARGET].map({"Yes": "1", "No": "0"}))), cfg)
+    for label in ("Maybe", ""):
+        said = _refusal(_first_row(demo, Churn=label), cfg)
+        assert f"unexpected labels: [{label!r}]" in said
+
+
+#: Each rule's first words, and the file that shows it holds.
+_RULE_CASES = {
+    "Comma-separated UTF-8": _format,
+    "No column of the data contract appears twice": _once,
+    "No data row has more fields than the header": _width,
+    "A file with any problem is not scored": _all_listed,
+    "Every data row is scored in file order": _in_order,
+    "Blank lines are skipped": _blank_lines,
+    "A blank in a column the model scores is refused": _blanks,
+    "Add-ons are 'No internet service'": _addons,
+    "MultipleLines is 'No phone service'": _phone,
+    "TotalCharges is 0 exactly when tenure is 0": _billed,
+    f"{schema.ID_COLUMN} is optional": _id_optional,
+    f"{schema.TARGET} is optional": _label_optional,
+}
+
+
+def test_every_upload_rule_has_a_file_that_shows_it(cfg: Config):
+    """A rule added without a case, or a case left after its rule went, fails here."""
+    rules = upload_rules(_served(cfg))
+    shown = [[start for start in _RULE_CASES if rule.startswith(start)] for rule in rules]
+    assert shown == [[start] for start in _RULE_CASES]
+
+
+@pytest.mark.parametrize("start", list(_RULE_CASES))
+def test_every_upload_rule_holds_as_written(cfg: Config, demo_csv, start: str):
+    (rule,) = [r for r in upload_rules(_served(cfg)) if r.startswith(start)]
+    demo = pd.read_csv(demo_csv, dtype=str, keep_default_na=False)
+    _RULE_CASES[start](rule, demo, cfg)
 
 
 def test_a_file_of_only_unknown_columns_reports_the_missing_ones(cfg: Config):

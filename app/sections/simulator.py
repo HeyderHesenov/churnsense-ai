@@ -156,7 +156,7 @@ CONTACT_COLUMNS = [
 def _contact_list(frame: pd.DataFrame, threshold: float, currency: str) -> None:
     """Every customer at or above ``threshold``, and its CSV. Reads scores only."""
     st.divider()
-    st.subheader("Which customers would be contacted")
+    st.subheader("Which customers would be flagged")
     scored = frame[frame["churn_probability"] >= threshold].sort_values(
         "churn_probability", ascending=False
     )
@@ -290,7 +290,7 @@ def render(frame: pd.DataFrame, cfg: Config) -> None:
             _economics_chart(sweep, threshold, business, band), height=330, key="sim_economics"
         )
     with right:
-        ui.question("What does moving the threshold do to who gets contacted?")
+        ui.question("What does moving the threshold do to who gets flagged?")
         ui.chart(_tradeoff_chart(sweep, threshold), height=330, key="sim_tradeoff")
 
     if shaded:

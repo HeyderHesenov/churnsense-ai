@@ -1,0 +1,123 @@
+/* Page-wide rules from the artboards' shared <helmet> block. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  color: var(--link-hover);
+}
+/* A link within running text is told apart by more than its colour (WCAG 1.4.1). */
+p a {
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+select,
+input {
+  color-scheme: dark;
+}
+input::placeholder {
+  color: var(--placeholder);
+}
+button:disabled {
+  cursor: default;
+}
+
+h1,
+h2,
+h3,
+p,
+figure {
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+/* Visually hidden, still read by assistive technology. */
+.sr {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/*
+ * A risk band's colours, for any element that names one: data-band="High"
+ * gives it and its children --band (the fill), --band-ink (text), --band-soft
+ * (a selected ground) and --band-line (a selected border).
+ */
+[data-band='Low'] {
+  --band: var(--low);
+  --band-ink: var(--low-ink);
+  --band-soft: var(--low-soft);
+  --band-line: var(--low-line);
+}
+[data-band='Moderate'] {
+  --band: var(--moderate);
+  --band-ink: var(--moderate-ink);
+  --band-soft: var(--moderate-soft);
+  --band-line: var(--moderate-line);
+}
+[data-band='High'] {
+  --band: var(--high);
+  --band-ink: var(--high-ink);
+  --band-soft: var(--high-soft);
+  --band-line: var(--high-line);
+}
+[data-band='Critical'] {
+  --band: var(--critical);
+  --band-ink: var(--critical-ink);
+  --band-soft: var(--critical-soft);
+  --band-line: var(--critical-line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

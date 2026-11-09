@@ -446,20 +446,19 @@ Month-to-month customers churn at {_pct(contract.iloc[0]["churn_rate"])} against
 {contract.iloc[0]["churn_rate"] / contract.iloc[-1]["churn_rate"]:.1f}x difference,
 and the single largest gap in the dataset.
 
-The business reading needs care. Customers who expect to stay are the ones
-willing to sign a long contract, so part of this gap is self-selection rather
-than a lock-in effect. The snapshot cannot separate the two. What it does
-support is *targeting*: the month-to-month segment is where churn lives, whatever
-the mechanism.
+The business reading needs care. A snapshot records neither why a customer chose
+a contract nor what the contract itself did, so it cannot say why this gap exists.
+What it does support is *targeting*: the month-to-month segment is where churn
+lives, whatever the mechanism.
 
-## 4. Risk is front-loaded in the customer lifecycle
+## 4. Churn is concentrated early in tenure
 
 ![Churn by tenure]({rel["tenure"]})
 
 {table(tenure, {"tenure_bucket": "Tenure (months)", "customers": "Customers", "churned": "Churned", "churn_rate": "Churn rate"}, {"customers": "int", "churned": "int", "churn_rate": "pct"})}
 
 Median tenure is {o["median_tenure_churned"]:.0f} months for churned customers
-against {o["median_tenure_retained"]:.0f} for retained ones. The first quarter of
+against {o["median_tenure_retained"]:.0f} for those who stayed. The first quarter of
 the relationship carries the most risk, which argues for onboarding
 interventions rather than uniform campaigns.
 
@@ -487,7 +486,7 @@ correlates with month-to-month contracts. It is a useful *flag*, not a lever.
 {table(price, {"charge_band": "Monthly charges", "customers": "Customers", "churned": "Churned", "churn_rate": "Churn rate"}, {"customers": "int", "churned": "int", "churn_rate": "pct"})}
 
 Median monthly charges are ${o["median_charges_churned"]:.2f} for churned
-customers against ${o["median_charges_retained"]:.2f} for retained ones, so the
+customers against ${o["median_charges_retained"]:.2f} for those who stayed, so the
 customers at risk are emphatically not the cheap ones.
 
 The relationship is **not monotonic**, which is the more interesting part. Churn
@@ -560,7 +559,7 @@ resolved silently.
 | Contract, tenure and payment dominate | A regularised linear model should already be competitive - it is the baseline to beat, not a formality |
 | Near-duplicate `TotalCharges` | Report the ablation; expect coefficient instability in the linear model |
 | `gender` at {gender_strength:.4f} | Dropped: no measured signal, and a protected attribute |
-| Suppressed low-count cells | Risk segments need a minimum size before anyone acts on their rate |
+| Suppressed low-count cells | A rate is not reported for a segment below the minimum size |
 
 ## 10. Limits of this analysis
 

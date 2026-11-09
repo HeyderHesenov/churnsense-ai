@@ -100,6 +100,13 @@ api:
   # e.g. your-app.streamlit.app, then restart: config is read once.
   # "*" (quoted - bare * is YAML syntax) turns the check off.
   allowed_hosts: [localhost, 127.0.0.1]
+  # Per-client budgets for the endpoints that cost real CPU: a SHAP
+  # explanation (~0.3 s a customer) and a batch upload (up to 10,000 rows).
+  # A bucket holds `burst` requests and refills one every `per_seconds`; past
+  # that the API answers 429 with Retry-After.
+  rate_limits:
+    explain: { burst: 10, per_seconds: 2 }
+    batch: { burst: 5, per_seconds: 6 }
 
 logging:
   level: INFO

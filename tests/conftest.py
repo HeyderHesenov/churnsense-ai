@@ -18,6 +18,7 @@ it learns are meaningless and no test asserts a performance number.
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,35 @@ from churnsense.data import schema
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 DEMO_CSV = FIXTURE_DIR / "demo_customers.csv"
+
+
+TRACKED_REPORTS = Path(__file__).resolve().parents[1] / "reports"
+#: The only reports a test may need. All are validation or EDA output, so no test can come to
+#: depend on what a final evaluation writes, which the suite may never ask anyone to produce.
+INTEGRATION_REPORTS = frozenset(
+    {"eda_report.md", "model_comparison.csv", "model_comparison.md", "threshold_sweep.csv"}
+)
+
+
+def tracked_report(name: str) -> Path:
+    """A tracked validation or EDA report, for an integration check that compares against it.
+
+    These files are in Git, so GitHub Actions always has them and their absence there is a
+    failure. Elsewhere the check is skipped, saying why: it neither fails for the wrong reason
+    nor passes without having looked. ``CI`` alone does not mean GitHub Actions, so a generic
+    CI gets a skip that names it, not GitHub's failure and not a local copy's excuse.
+    Messages give the file's name only; the file is never opened here.
+    """
+    if name not in INTEGRATION_REPORTS:
+        pytest.fail(f"integration check: {name} is not one a test may need: no final evaluation")
+    path = TRACKED_REPORTS / name
+    if path.is_file():
+        return path
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        pytest.fail(f"integration check: tracked reports/{name} is missing in GitHub Actions")
+    if os.environ.get("CI", "").strip().lower() not in ("", "0", "false"):
+        pytest.skip(f"integration check: no reports/{name} here; generic CI, not GitHub Actions")
+    pytest.skip(f"integration check: no reports/{name} in this local copy")
 
 
 def make_synthetic_raw(n: int = 400, seed: int = 0) -> pd.DataFrame:
@@ -156,12 +186,57 @@ def monkeypatch_session():
     patcher.undo()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _api_guards(monkeypatch_session):
+    """No test reads the real dataset through the API, and none waits on a rate limit.
+
+    A test that needs a book points ``state.BOOK_LOADER`` at the synthetic one;
+    the rate-limit tests set their own budgets.
+    """
+    from churnsense.api import middleware, state
+    from churnsense.exceptions import DataError
+
+    def no_real_dataset(_model):
+        raise DataError("tests never read the real dataset")
+
+    monkeypatch_session.setattr(state, "BOOK_LOADER", no_real_dataset)
+    monkeypatch_session.setattr(middleware, "RATE_LIMITS", {})
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _synthetic_ledger(tmp_path_factory, monkeypatch_session) -> Path:
+    """No test can reach the real release ledger, or see what it holds."""
+    from churnsense.evaluation import release
+
+    path = tmp_path_factory.mktemp("governance") / release.LEDGER_FILE.name
+    monkeypatch_session.setattr(release, "LEDGER_FILE", path)
+    return path
+
+
+@pytest.fixture(autouse=True)
+def _open_ledger(_synthetic_ledger: Path) -> None:
+    """Every test starts with nothing released."""
+    from churnsense.evaluation import release
+
+    for leftover in _synthetic_ledger.parent.glob(".*"):
+        leftover.unlink()
+    _synthetic_ledger.write_text(release.open_ledger_text())
+
+
 # --- the dashboard, served synthetic data ------------------------------------
 
 #: Stands in for the dataset file's SHA-256 - a real digest, of a fixed string,
 #: so it passes the format check. The synthetic model records it, so its
 #: partitions are trusted exactly as the real artifact's would be.
 SYNTHETIC_SHA256 = hashlib.sha256(b"synthetic customers").hexdigest()
+
+#: The threshold sweep's query parameters and the assumption each one sets.
+SWEEP_ASSUMPTIONS = {
+    "cost": "retention_offer_cost",
+    "success": "offer_success_rate",
+    "horizon": "expected_horizon_months",
+    "margin": "gross_margin",
+}
 
 
 @pytest.fixture(scope="session")
@@ -190,10 +265,10 @@ def dashboard_predictor(dashboard_parts, cfg: Config, tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def book(clean_frame: pd.DataFrame, dashboard_predictor):
-    """What app.data builds from the synthetic customers: ``data.Book``."""
-    from app import data
+    """The book the dashboard and the API build from the synthetic customers."""
+    from churnsense.book import score_book
 
-    return data.score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
+    return score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
 
 
 @pytest.fixture
@@ -258,7 +333,7 @@ def dashboard(monkeypatch, dashboard_predictor, book):
     Nothing real is read: the data layer's book and model are replaced, and so
     are the cached SHAP artifacts. Reading the raw file fails the test, by
     whichever path a section reaches it. Call it with a section name,
-    optionally with another ``data.Book``; with no name it runs the landing page.
+    optionally with another ``churnsense.book.Book``; with no name it runs the landing page.
     """
     import streamlit as st
     from app import data

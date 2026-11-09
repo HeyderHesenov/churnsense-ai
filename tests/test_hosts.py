@@ -106,3 +106,29 @@ def test_origins_are_checked_against_the_same_list(origin, expected: bool):
 
 def test_a_star_turns_the_origin_check_off_too():
     assert is_allowed_origin("https://anything.example", ("*",))
+
+
+@pytest.mark.parametrize(
+    ("origin", "host", "scheme", "expected"),
+    [
+        ("http://localhost", "localhost", "http", True),
+        ("http://localhost:8000", "localhost:8000", "http", True),
+        ("http://LOCALHOST:80", "localhost", "http", True),
+        ("https://localhost", "localhost:443", "https", True),
+        ("http://[::1]:8000", "[::1]:8000", "http", True),
+        ("http://localhost:8000", "localhost", "http", False),  # another port
+        ("http://127.0.0.1", "localhost", "http", False),  # another host name
+        ("https://localhost", "localhost", "http", False),  # another scheme
+        ("http://user@localhost", "localhost", "http", False),
+        ("http://localhost/path", "localhost", "http", False),
+        ("http://localhost:abc", "localhost", "http", False),
+        ("null", "localhost", "http", False),
+        (None, "localhost", "http", False),
+        ("http://localhost", None, "http", False),
+        ("http://localhost", "localhost", "ws", False),
+    ],
+)
+def test_same_origin_means_scheme_host_and_port(origin, host, scheme, expected):
+    from churnsense.hosts import is_same_origin
+
+    assert is_same_origin(origin, host, scheme) is expected

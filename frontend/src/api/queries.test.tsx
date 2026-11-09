@@ -1,0 +1,327 @@
+import { QueryClientProvider } from '@tanstack/react-query';
+import { renderHook, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw/http';
+import type { ReactNode } from 'react';
+import { batchScore } from '../test/batchApi';
+import { customerPage, customerRow } from '../test/overviewFixtures';
+import { testQueryClient } from '../test/render';
+import { answer, recordRequests, refuse, respond, server } from '../test/server';
+import { ApiError } from './client';
+import {
+  customersQuery,
+  retryDelay,
+  retryExplanation,
+  retryGlobal,
+  retryOutcomes,
+  scoreBatch,
+  shouldRetry,
+  useCustomer,
+  useCustomerCount,
+  useCustomers,
+  useExplanations,
+  useGlobalExplanation,
+  useSegments,
+  useSelection,
+  useSweep,
+  type CustomerQuery,
+} from './queries';
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={testQueryClient()}>{children}</QueryClientProvider>;
+}
+
+const QUERY: CustomerQuery = { sort: 'at_risk', dir: 'desc', page: 1, page_size: 8, flagged: true };
+
+describe('customer listings', () => {
+  it('asks for nothing when no band or no customer is chosen, rather than for all of them', async () => {
+    const seen = recordRequests();
+    const { result } = renderHook(() => useCustomers({ ...QUERY, bands: [] }), { wrapper });
+    const count = renderHook(() => useCustomerCount({ bands: [] }), { wrapper });
+    const none = renderHook(() => useCustomers({ ...QUERY, ids: [], flagged: null }), { wrapper });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(count.result.current.fetchStatus).toBe('idle');
+    expect(none.result.current.fetchStatus).toBe('idle');
+  });
+
+  it('sends the chosen bands, the filters and the page', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const { result } = renderHook(() => useCustomers({ ...QUERY, bands: ['High', 'Critical'] }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const url = seen[0];
+    expect(url?.pathname).toBe('/api/customers');
+    expect(url?.searchParams.getAll('bands')).toEqual(['High', 'Critical']);
+    expect(url?.searchParams.get('flagged')).toBe('true');
+    expect(url?.searchParams.get('sort')).toBe('at_risk');
+    expect(url?.searchParams.get('page_size')).toBe('8');
+  });
+
+  it('asks for nothing for a tenure range whose minimum is above its maximum', async () => {
+    const seen = recordRequests();
+    const listing = renderHook(() => useCustomers({ ...QUERY, tenure_min: 10, tenure_max: 9 }), {
+      wrapper,
+    });
+    const count = renderHook(() => useCustomerCount({ tenure_min: 10, tenure_max: 9 }), {
+      wrapper,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(listing.result.current.fetchStatus).toBe('idle');
+    expect(count.result.current.fetchStatus).toBe('idle');
+  });
+
+  it('sends a range of one tenure, and an open bound', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const one = renderHook(() => useCustomers({ ...QUERY, tenure_min: 6, tenure_max: 6 }), {
+      wrapper,
+    });
+    const open = renderHook(() => useCustomers({ ...QUERY, tenure_min: 0, tenure_max: null }), {
+      wrapper,
+    });
+    await waitFor(() => expect(one.result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(open.result.current.isSuccess).toBe(true));
+    // The two listings fetch at the same time, so the order their requests start
+    // in is not fixed. Compared as a sorted whole: each request exactly once, and
+    // nothing missing or extra.
+    const sent = seen.map((url) =>
+      JSON.stringify([url.searchParams.get('tenure_min'), url.searchParams.get('tenure_max')]),
+    );
+    expect(sent.sort()).toEqual([JSON.stringify(['0', null]), JSON.stringify(['6', '6'])].sort());
+  });
+
+  it('shares its cache with a listing fetched ahead of time', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const client = testQueryClient();
+    const query: CustomerQuery = { ...QUERY, page: 2 };
+    await client.query(customersQuery(query));
+    const { result } = renderHook(() => useCustomers(query), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    });
+    expect(result.current.data?.rows[0]?.id).toBe('DEMO-0001');
+    expect(seen).toHaveLength(1);
+  });
+
+  it.each([
+    ['no band', { bands: [] }],
+    ['no customer', { ids: [] }],
+    ['a range that holds nobody', { tenure_min: 10, tenure_max: 9 }],
+  ])('refuses a listing fetched ahead of time for %s, and sends nothing', async (_, filter) => {
+    const seen = recordRequests();
+    const client = testQueryClient();
+    await expect(client.query(customersQuery({ ...QUERY, ...filter }))).rejects.toThrow();
+    expect(seen).toEqual([]);
+  });
+
+  it('lists exactly the chosen customers by id', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0002')])));
+    const seen = recordRequests();
+    const { result } = renderHook(
+      () => useCustomers({ ...QUERY, ids: ['DEMO-0002', 'DEMO-0001'], flagged: null }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(seen[0]?.searchParams.getAll('ids')).toEqual(['DEMO-0002', 'DEMO-0001']);
+  });
+});
+
+describe('a selection', () => {
+  it('asks for one row, and keeps the summary of every match', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const { result } = renderHook(() => useSelection({ contract: 'Two year' }), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.searchParams.get('page_size')).toBe('1');
+    expect(seen[0]?.searchParams.get('contract')).toBe('Two year');
+    expect(result.current.data?.summary.customers).toBe(1);
+  });
+
+  it('shares one request with the count of the same filter', async () => {
+    server.use(answer('get', '/api/customers', customerPage([customerRow('DEMO-0001')])));
+    const seen = recordRequests();
+    const client = testQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const selection = renderHook(() => useSelection({ flagged: true }), { wrapper: shared });
+    const count = renderHook(() => useCustomerCount({ flagged: true }), { wrapper: shared });
+    await waitFor(() => expect(count.result.current.data).toBe(1));
+    expect(selection.result.current.data?.total).toBe(1);
+    expect(seen).toHaveLength(1);
+  });
+
+  it('asks for nothing when nothing is chosen', async () => {
+    const seen = recordRequests();
+    const none = renderHook(() => useSelection({ bands: [] }), { wrapper });
+    const empty = renderHook(() => useSelection({ tenure_min: 3, tenure_max: 2 }), { wrapper });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(none.result.current.fetchStatus).toBe('idle');
+    expect(empty.result.current.fetchStatus).toBe('idle');
+  });
+});
+
+describe('one customer', () => {
+  it.each(['..', '.', '', 'DEMO/0001', 'x'.repeat(33)])(
+    'never asks for the malformed id %j',
+    async (id) => {
+      const seen = recordRequests();
+      const { result } = renderHook(() => useCustomer(id), { wrapper });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(seen).toEqual([]);
+      expect(result.current.fetchStatus).toBe('idle');
+    },
+  );
+});
+
+describe('explanations of customers in the book', () => {
+  it.each([
+    [429, 'rate_limited', 2],
+    [503, 'explanations_busy', 2],
+    [503, 'explanations_unavailable', 1],
+  ] as const)('after a %i %s, asks %i time(s) in all', async (status, error, times) => {
+    const seen = recordRequests();
+    server.use(refuse('post', '/api/explain', status, error));
+    const { result } = renderHook(() => useExplanations(['DEMO-0001']), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(times);
+  });
+});
+
+describe('retries', () => {
+  it('retries a failure of the server or the network once, and never a refusal', () => {
+    expect(shouldRetry(0, new ApiError(503, 'model_unavailable'))).toBe(true);
+    expect(shouldRetry(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(shouldRetry(1, new ApiError(503, 'model_unavailable'))).toBe(false);
+    expect(shouldRetry(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(shouldRetry(0, new ApiError(429, 'rate_limited'))).toBe(false);
+    expect(shouldRetry(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for an explanation again once after a rate limit, never when it cannot be had', () => {
+    expect(retryExplanation(0, new ApiError(429, 'rate_limited', [], 2))).toBe(true);
+    expect(retryExplanation(1, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
+    expect(retryExplanation(0, new ApiError(503, 'explanations_busy', [], 2))).toBe(true);
+    expect(retryExplanation(0, new ApiError(503, 'explanations_unavailable'))).toBe(false);
+    expect(retryExplanation(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryExplanation(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for the cached attributions again once after a failure, never while none are cached', () => {
+    expect(retryGlobal(0, new ApiError(503, 'model_unavailable'))).toBe(true);
+    expect(retryGlobal(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(retryGlobal(1, new ApiError(503, 'model_unavailable'))).toBe(false);
+    expect(retryGlobal(0, new ApiError(503, 'explanations_not_cached'))).toBe(false);
+    expect(retryGlobal(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryGlobal(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('asks for the cached attributions again once after a server failure', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/explain/global', 500, 'internal_error'));
+    const { result } = renderHook(() => useGlobalExplanation(), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/explain/global')).toHaveLength(2);
+  });
+
+  it('asks for a breakdown again once after a server failure', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/segments', 500, 'internal_error'));
+    const { result } = renderHook(() => useSegments('Contract', 'tenure'), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/segments')).toHaveLength(2);
+  });
+
+  it('never asks for a breakdown again while outcomes are withheld', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/segments', 503, 'outcomes_withheld'));
+    const { result } = renderHook(() => useSegments('Contract', null), { wrapper });
+    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 3000 });
+    expect(seen.filter((u) => u.pathname === '/api/segments')).toHaveLength(1);
+  });
+
+  it('asks for figures resting on outcomes again once after a failure, never while they are withheld', () => {
+    expect(retryOutcomes(0, new ApiError(503, 'dataset_unavailable'))).toBe(true);
+    expect(retryOutcomes(0, new ApiError(0, 'network_error'))).toBe(true);
+    expect(retryOutcomes(1, new ApiError(503, 'dataset_unavailable'))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(503, 'outcomes_withheld'))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
+    expect(retryOutcomes(0, new ApiError(422, 'validation_error'))).toBe(false);
+    expect(retryOutcomes(0, new Error('not from the API'))).toBe(false);
+  });
+
+  it('waits as long as the server asks, up to ten seconds', () => {
+    expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3))).toBe(3000);
+    expect(retryDelay(0, new ApiError(503, 'explanations_busy', [], 3600))).toBe(10_000);
+    expect(retryDelay(0, new ApiError(503, 'model_unavailable'))).toBe(500);
+  });
+});
+
+describe('scoring a file', () => {
+  const file = new File(['customerID\nDEMO-00001\n'], 'crm.csv', { type: 'text/csv' });
+
+  it('sends the file as the form field "file" and returns the answer', async () => {
+    let sent: unknown = null;
+    server.use(
+      respond('post', '/api/batch/score', async (request) => {
+        const part = (await request.formData()).get('file');
+        // MSW's File is another realm's, so it is read, not checked with instanceof.
+        sent = typeof part === 'string' || part === null ? part : await part.text();
+        return batchScore();
+      }),
+    );
+    await expect(scoreBatch(file, new AbortController().signal)).resolves.toEqual(batchScore());
+    expect(sent).toBe('customerID\nDEMO-00001\n');
+  });
+
+  it('keeps the first 50 problems of a refusal and counts the ones left out', async () => {
+    const problems = Array.from({ length: 53 }, (_, i) => `problem ${String(i)}`);
+    server.use(
+      http.post('/api/batch/score', () =>
+        HttpResponse.json({ error: 'invalid_input', detail: 'x', problems }, { status: 422 }),
+      ),
+    );
+    const refusal: unknown = await scoreBatch(file, new AbortController().signal).catch(
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(ApiError);
+    expect((refusal as ApiError).problems).toEqual(problems.slice(0, 50));
+    expect((refusal as ApiError).problemsOmitted).toBe(3);
+  });
+});
+
+describe('the threshold sweep', () => {
+  it('asks for nothing while there are no assumptions to send', async () => {
+    const seen = recordRequests();
+    const { result } = renderHook(() => useSweep(null), { wrapper });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(seen).toEqual([]);
+    expect(result.current.fetchStatus).toBe('idle');
+  });
+
+  it('sends every assumption it is given', async () => {
+    const seen = recordRequests();
+    server.use(refuse('get', '/api/threshold/sweep', 422, 'validation_error'));
+    const { result } = renderHook(
+      () => useSweep({ cost: 12.5, success: 0.3, horizon: 12, margin: 0.65 }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(seen.map((url) => [...url.searchParams])).toEqual([
+      [
+        ['cost', '12.5'],
+        ['success', '0.3'],
+        ['horizon', '12'],
+        ['margin', '0.65'],
+      ],
+    ]);
+  });
+});

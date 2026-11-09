@@ -1,0 +1,743 @@
+/* Model performance, after Performance.dc.html's measurements; deviations are in PLAN.md "Phase 3.6". */
+
+/* --- layout ------------------------------------------------------------------- */
+.pair {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+.card {
+  min-width: 0;
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.note,
+.sentence {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.sentence {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.note code,
+.partitionRole code,
+.notRecorded code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--ink-2);
+}
+.unavailable {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-10);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.mismatch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--raises-line);
+  border-radius: var(--radius-12);
+  background: var(--raises-soft);
+  color: var(--raises-text);
+}
+.mismatch p {
+  margin: 0;
+  font-size: 13.5px;
+}
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.footer p {
+  margin: 0;
+}
+
+/* --- where each figure comes from ---------------------------------------------- */
+.evidence {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+.partition {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--well);
+}
+.partition dt,
+.partition dd {
+  margin: 0;
+}
+.partition dd {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.partitionSize {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.partitionRole {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.withheld {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--lowers-line);
+  border-radius: var(--radius-10);
+  background: var(--info-soft);
+  font-size: 13px;
+  color: var(--info-text);
+}
+
+/* --- the scorecard ------------------------------------------------------------- */
+.scoreLayout,
+.scoreOnly {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 900px) {
+  .scoreLayout {
+    grid-template-columns: minmax(0, 1.7fr) minmax(220px, 1fr);
+  }
+}
+.scoreTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.scoreTable thead th {
+  padding: 0 10px 10px;
+  text-align: right;
+  vertical-align: bottom;
+  border-bottom: 1px solid var(--line);
+}
+.scoreTable thead th:first-child {
+  text-align: left;
+}
+.colTag {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.colSub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.groupRow th {
+  padding: 14px 10px 6px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.scoreTable tbody tr:not(.groupRow) {
+  border-top: 1px solid var(--line-row);
+}
+.scoreTable td {
+  padding: 9px 10px;
+  text-align: right;
+  vertical-align: top;
+}
+.metric {
+  padding: 9px 10px;
+  text-align: left;
+  font-weight: 400;
+}
+.metricName {
+  display: block;
+  font-weight: 600;
+  color: var(--ink);
+}
+.metricMeaning {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.scoreValue {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.scoreSub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.track {
+  position: relative;
+  display: block;
+  height: 6px;
+  margin: 6px 0 0 auto;
+  max-width: 180px;
+  border-radius: var(--radius-3);
+  background: var(--track-2);
+}
+.trackFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--w) * 100%);
+  border-radius: var(--radius-3);
+  background: var(--accent);
+}
+.trackFloor {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: calc(var(--at) * 100%);
+  width: 1.5px;
+  background: var(--ink);
+}
+.notRecorded {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-12);
+  background: var(--well);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.notRecorded p {
+  margin: 0;
+}
+.notRecordedTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* --- errors at a cut ------------------------------------------------------------ */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fieldTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.label {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.cutValue {
+  font-family: var(--font-mono);
+  font-size: 15px;
+}
+.slider {
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.matrix {
+  border-collapse: separate;
+  border-spacing: 6px;
+  margin: -6px;
+  width: calc(100% + 12px);
+  table-layout: fixed;
+}
+.matrixCaption,
+.tableCaption {
+  caption-side: top;
+  padding: 0 6px 4px;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.matrix th {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.matrix thead td,
+.matrix tbody th {
+  width: 70px;
+}
+.matrix tbody th {
+  text-align: left;
+}
+.matrix td {
+  height: 84px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--selected);
+  vertical-align: top;
+}
+.matrix thead td {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.cellCount {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.cellName,
+.cellNote {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.cellNote {
+  margin-top: 2px;
+  font-size: 11px;
+}
+.matrix td.fp {
+  border-color: var(--lowers-line);
+  background: var(--lowers-soft);
+}
+.fp .cellCount,
+.fp .cellName {
+  color: var(--lowers-text);
+}
+.matrix td.fn {
+  border-color: var(--raises-line);
+  background: var(--raises-soft);
+}
+.fn .cellCount,
+.fn .cellName {
+  color: var(--raises-text);
+}
+.matrix td.tp {
+  border-color: var(--accent-line);
+  background: var(--accent-soft-3);
+}
+.tp .cellCount,
+.tp .cellName {
+  color: var(--link);
+}
+.strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-10);
+  background: var(--well);
+}
+.strip div {
+  min-width: 0;
+}
+.strip dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+.strip dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+.summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* --- charts --------------------------------------------------------------------- */
+.grid {
+  stroke: var(--line-soft);
+}
+.axis {
+  stroke: var(--line-axis);
+}
+.tick {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  fill: var(--muted);
+}
+.axisTitle {
+  font-size: 11.5px;
+  fill: var(--muted);
+}
+.contour {
+  fill: none;
+  stroke: var(--line-hover);
+  stroke-dasharray: 2 4;
+}
+.contourLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--whisker);
+}
+.noSkill {
+  stroke: var(--muted);
+  stroke-dasharray: 5 4;
+}
+.curve {
+  fill: none;
+  stroke: var(--accent-text);
+  stroke-width: 2.4;
+  stroke-linejoin: round;
+}
+.servedMark {
+  fill: none;
+  stroke: var(--sim);
+  stroke-width: 2.2;
+}
+.currentMark {
+  fill: var(--accent-text);
+}
+.hoverMark {
+  fill: var(--ink);
+}
+.prCapture {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.curveKey,
+.noSkillKey,
+.contourKey,
+.diagonalKey {
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--accent-text);
+}
+.noSkillKey {
+  border-top: 2px dashed var(--muted);
+}
+.contourKey {
+  border-top: 2px dotted var(--line-hover);
+}
+.diagonalKey {
+  border-top: 1.5px dashed var(--line-axis);
+}
+.servedKey,
+.currentKey,
+.binKey {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.servedKey {
+  border: 2px solid var(--sim);
+}
+.currentKey,
+.binKey {
+  background: var(--accent-text);
+}
+
+/* --- calibration ------------------------------------------------------------------ */
+.reliability {
+  max-width: 420px;
+  width: 100%;
+  margin: 0 auto;
+}
+.diagonal {
+  stroke: var(--line-axis);
+  stroke-dasharray: 4 4;
+}
+.relLine {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.binMark {
+  fill: var(--accent-text);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.halfTable,
+.candidateTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.halfTable th,
+.halfTable td,
+.candidateTable th,
+.candidateTable td {
+  padding: 7px 10px;
+  border-top: 1px solid var(--line-row);
+  text-align: right;
+  font-weight: 400;
+}
+.halfTable thead th,
+.candidateTable thead th {
+  border-top: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.halfTable thead td {
+  border-top: 0;
+}
+.halfTable tbody th,
+.candidateTable tbody th,
+.candidateTable thead th:first-child {
+  text-align: left;
+}
+.halfTable td,
+.candidateTable td {
+  font-family: var(--font-mono);
+}
+.servedCell,
+.chosenRow,
+.chosenRow th {
+  color: var(--link);
+}
+.chosenRow th {
+  font-weight: 600;
+}
+
+/* --- the one-standard-error rule ---------------------------------------------- */
+.whiskers {
+  --name: 42%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.whiskerRow {
+  display: grid;
+  grid-template-columns: var(--name) minmax(0, 1fr);
+  align-items: center;
+  min-height: 44px;
+}
+.whiskerName {
+  padding-right: 12px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.whiskerName .mono {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.chosenName {
+  font-weight: 600;
+  color: var(--ink);
+}
+.chosenName .mono {
+  color: var(--link);
+}
+.whiskerPlot {
+  position: relative;
+  height: 44px;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.whisker {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--lo) * 100%);
+  width: calc((var(--hi) - var(--lo)) * 100%);
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--whisker);
+}
+.whisker::before,
+.whisker::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  width: 1.5px;
+  height: 12px;
+  background: inherit;
+}
+.whisker::before {
+  left: 0;
+}
+.whisker::after {
+  right: 0;
+}
+.chosenWhisker {
+  background: var(--accent);
+}
+.dot {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--at) * 100%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--ink-2);
+}
+.chosenDot {
+  width: 14px;
+  height: 14px;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.whiskerMark {
+  position: absolute;
+  top: 2px;
+  left: calc(var(--at) * 100%);
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.whiskerAxis {
+  position: relative;
+  height: 20px;
+}
+.whiskerTick {
+  position: absolute;
+  top: 2px;
+  left: calc(var(--at) * 100%);
+  transform: translateX(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+}
+.cutoffLine {
+  position: absolute;
+  top: 0;
+  bottom: 20px;
+  left: calc(var(--name) + (100% - var(--name)) * var(--at));
+  border-left: 1.5px dashed var(--sim);
+  pointer-events: none;
+}
+.cutoffCaption {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--sim-text);
+}
+
+/* --- segments --------------------------------------------------------------------- */
+.scroll {
+  overflow-x: auto;
+  border-radius: var(--radius-8);
+}
+.scroll:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+.segmentTable {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.segmentTable th,
+.segmentTable td {
+  padding: 8px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+.segmentTable thead th {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.segmentTable thead th:first-child,
+.segmentTable tbody th {
+  text-align: left;
+}
+.segmentTable tbody th {
+  font-weight: 400;
+  color: var(--ink);
+}
+.segmentTable td {
+  font-family: var(--font-mono);
+  color: var(--ink-2);
+}
+.segmentTable tbody tr:not(.groupRow) {
+  border-top: 1px solid var(--line-row);
+}
+.unscannedRow {
+  background: var(--sim-soft);
+}
+.smallRow td {
+  color: var(--muted);
+}
+.unscanned {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--sim-line);
+  border-radius: var(--radius-5);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--sim);
+}
+.recallCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.recallBar {
+  position: relative;
+  display: inline-block;
+  width: 70px;
+  height: 5px;
+  border-radius: var(--radius-3);
+  background: var(--track-2);
+}
+.recallBar span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--w) * 100%);
+  border-radius: var(--radius-3);
+  background: var(--accent);
+}

@@ -33,6 +33,7 @@ produce each table are named beside it, and the artifacts they write
 - [Threshold as a business decision](#threshold-as-a-business-decision)
 - [Explainability](#explainability)
 - [Dashboard](#dashboard)
+- [Web front end](#web-front-end)
 - [API](#api)
 - [Testing](#testing)
 - [Project layout](#project-layout)
@@ -61,7 +62,7 @@ treats it as such and makes the trade-off explicit and adjustable.
 |---|---|
 | Reproducible EDA with written interpretation | `make eda` → [`reports/eda_report.md`](reports/eda_report.md) |
 | Four-model comparison, operating point and per-segment view | `make train` → [`reports/model_comparison.md`](reports/model_comparison.md) |
-| Final evaluation on the held-out test partition (explicit opt-in) | `make evaluate CONFIRM=yes` → [`reports/final_evaluation.md`](reports/final_evaluation.md) |
+| Final evaluation on the held-out test partition (explicit opt-in) | `make evaluate CONFIRM=yes`, the official release: `governance/held_out_release.json` |
 | Threshold economics under adjustable assumptions | dashboard → *Retention simulator* |
 | SHAP explanations, global and per customer | `make explain`, dashboard → *Explainability* |
 | Narrated EDA notebook (executed, outputs committed) | [`notebooks/01_eda_walkthrough.ipynb`](notebooks/01_eda_walkthrough.ipynb) |
@@ -155,10 +156,17 @@ make lint       # ruff check + format --check
 make audit      # pip-audit
 make clean      # remove generated output (raw data is kept)
 
-make evaluate CONFIRM=yes   # FINAL evaluation: scores the held-out test partition
+make evaluate CONFIRM=yes   # FINAL evaluation: the official release, under the SECURITY.md procedure
 ```
 
-**Only `make evaluate CONFIRM=yes` reads the test partition** (and `make all
+**Only `make evaluate CONFIRM=yes` reads the test partition. In one working tree the first run
+freezes a release, and that checkout evaluates nothing else afterwards. The project publishes one
+release as an operating policy: one operator on one machine, with the maintainer reading every
+governance change. A best-effort consistency check looks at ledger changes in pull requests; it
+is not a required check today and not a tamper-resistant one. Another clone or a fork can still
+calculate what it likes on this public dataset; that is not this project's release**
+(`SECURITY.md`, "The held-out release"). **It is the
+only command that does** (and `make all
 CONFIRM=yes`, which is `make dev` followed by it). Without `CONFIRM=yes` it
 refuses, and so does `python -m churnsense.evaluation.report` without
 `--confirm-test-read`. `make dev` never scores it, and nothing else computes a
@@ -233,19 +241,18 @@ validation or test labels any more than the models do.
 | One year | 865 | 10.8 % |
 | Two year | 1,034 | 2.5 % |
 
-A 17× spread — but customers who expect to stay are also the ones willing to
-sign a long contract, so part of that gap is self-selection rather than an
-effect of the contract. The snapshot cannot separate the two. What it does
-support is *targeting*.
+A 17× spread. A snapshot records neither why a customer chose a contract nor what
+the contract itself did, so it cannot say why the gap exists. What it does support
+is *targeting*.
 
-**Risk is front-loaded.** Churn runs at 55.7 % in the first three months and
+**Churn is concentrated early in tenure.** Churn runs at 55.7 % in the first three months and
 falls to 9.6 % past four years. Median tenure is 10 months for churned
-customers against 37 for retained ones.
+customers against 37 for those who stayed.
 
 **Price is not monotonic.** Churn peaks at **37.2 %** in the $75–95 band and
 *falls* to 32.4 % above $95. A plain "higher price drives churn" story does not
 fit that shape — the top band is dominated by long-tenure customers holding
-several services, so price and commitment pull against each other there. It is
+several services, so this snapshot cannot separate price from tenure there. It is
 also a concrete argument for a model that can express non-linearity.
 
 **`gender` carries no signal: bias-corrected Cramér's V = 0.0000.** It is
@@ -362,23 +369,25 @@ ships; a test enforces the distinction.
 
 ## Evaluation
 
-Full report: [`reports/final_evaluation.md`](reports/final_evaluation.md),
-written by `make evaluate` on 2026-10-09 for the artifact whose `model.joblib`
-has SHA-256 `02b2466d…47a9` — the file the current `make train` reproduces
-byte for byte, so these are the shipped model's figures.
+These counts and rates come from a `make evaluate` run on 2026-10-09 for the artifact whose
+`model.joblib` has SHA-256 `02b2466d…47a9`, the file the current `make train` reproduces byte for
+byte. That run predates the current disclosure policy and the partition's official release
+(`SECURITY.md`, "The held-out release"), which is not yet made. Its report remains in the
+repository and in Git history with figures this policy no longer publishes; this README no
+longer links to it, and that exposure is an open governance issue, not a resolved one.
 
 **Test partition: 1,409 customers, 374 churned (26.5 %). Threshold 0.36, fixed
 on validation before this partition was read.**
 
 > **The test partition is a re-used holdout, not an untouched one.** It was
-> scored for two versions of the model (before and after the 2026-10-09 audit,
-> recall 0.7005 → 0.7032) and re-read by later full-pipeline runs that checked
+> scored for two versions of the model (before and after the 2026-10-09 audit)
+> and re-read by later full-pipeline runs that checked
 > reproducibility; until 2026-10-11 the dashboard's performance page also
 > re-scored it on every visit, and so did every local `make test`. Every re-run
 > reproduced the same numbers, and no model, threshold or feature choice was
 > made on them — but the code cannot prove a history, so it is written down:
 > [model card, "Evaluation history"](docs/MODEL_CARD.md#evaluation-history).
-> Read these figures as a re-checked estimate. A genuinely independent one
+> Read these figures as a re-checked estimate of one table, not as a second release. A genuinely independent one
 > needs data this project has never seen, such as a later customer snapshot.
 
 | Metric | Test |
@@ -386,10 +395,6 @@ on validation before this partition was read.**
 | Precision | **0.5525** |
 | Recall | **0.7032** |
 | F1 | 0.6188 |
-| ROC-AUC | **0.8422** |
-| PR-AUC (average precision) | **0.6251** |
-| Brier score | 0.1385 |
-| Expected calibration error | **0.0275** |
 | Accuracy | 0.7700 |
 
 |  | Predicted stay | Predicted churn |
@@ -397,22 +402,25 @@ on validation before this partition was read.**
 | **Actually stayed** | 822 | 213 |
 | **Actually churned** | 111 | **263** |
 
+The test partition's customers are listed with their flags and scores, so no segment,
+bin, calibration error, Brier score, ROC-AUC, PR-AUC or second cut is published for it:
+`churnsense.evaluation.disclosure` explains why. Segments, calibration and the ranking
+metrics are measured on validation, in the tables above, and are not a stand-in for test.
+
 Accuracy is listed last deliberately. Predicting "nobody churns" scores
 **73.5 %** on this partition and is worth nothing — which is the whole reason
-this project headlines PR-AUC, precision and recall instead.
-
-PR-AUC of 0.6251 against a no-skill baseline of 0.265 is a **2.4× lift**.
+this project headlines precision and recall on this partition instead, and PR-AUC on validation.
 
 ### The false-positive / false-negative trade
 
 They are not symmetric, and that asymmetry is the whole argument for tuning the
 threshold:
 
-- A **false negative** is a customer who leaves without ever being offered
-  anything. The cost is their remaining margin — hundreds of dollars.
-- A **false positive** is an offer to someone who was going to stay. The cost is
-  one offer — $50 under the default assumptions. (Any discount such a customer
-  then keeps is real but not modelled; see the model card.)
+- A **false negative** is a churner the model did not flag. In the simulation the
+  cost is their remaining margin — hundreds of dollars.
+- A **false positive** is a flagged customer who stayed. In the simulation the cost
+  is one assumed offer — $50 under the default assumptions. (Any discount such a
+  customer then kept would be real but is not modelled; see the model card.)
 
 At roughly 10:1, recall is worth buying with precision, and the optimum sits
 well below 0.5.
@@ -458,11 +466,6 @@ success rate — is tabulated in
 [`reports/model_comparison.md`](reports/model_comparison.md): from 0.88 at an
 assumed 10 % to 0.22 at 50 %. A high churn risk does not mean an offer would
 keep that customer; the model estimates risk, not the effect of an offer.
-
-> For reference only, and then discarded: the threshold that would have been
-> optimal *on the test partition* is reported in the final evaluation. Using it
-> would be tuning on held-out data. The gap is published as an honest measure of
-> how much threshold choice moves between samples.
 
 ## Explainability
 
@@ -526,7 +529,7 @@ batch scoring and export.
 the comparison chart shows the CV scores, one standard error and the cutoff the
 selection rule used, and a per-segment table with 95 % intervals names any
 segment the threshold leaves unscanned. The test result appears only as the
-figure `make evaluate` recorded with the artifact; no page computes a
+partition's official release, read from its ledger; no page computes a
 performance figure from the test partition, and none shows its outcomes. The
 book views score every customer, test rows included, but the frame the pages
 receive from the data layer (`app/data.py`) has no outcome column at all. The
@@ -543,6 +546,51 @@ chart that could not be given one was deleted rather than kept as decoration.
 **To capture screenshots:** run `make app`, open each section from the sidebar
 and capture the viewport at 1600×1000. No screenshots are committed, so nothing
 in this repository can drift out of date relative to the code.
+
+## Web front end
+
+```bash
+make frontend   # npm ci from the lock (first time), then build into frontend/dist
+make api        # the API serves the built app at http://localhost:8000/
+```
+
+The same eight views as the dashboard, built with React, TypeScript and Vite in
+[`frontend/`](frontend/). The API serves it from its own origin, so the browser
+talks to nothing else: every page is sent under a strict
+Content-Security-Policy (no inline script or style, no third-party origin), and
+an address the app does not have gets its own *Not found* page with status 404.
+The design and the record of every decision are in
+[`docs/frontend/PLAN.md`](docs/frontend/PLAN.md).
+
+```bash
+make frontend-test   # type-check, lint, format-check, unit tests (Vitest)
+make e2e             # browser tests (Playwright, Chromium) of the built app
+```
+
+`make e2e` never touches `data/`, `artifacts/` or `reports/`.
+[`scripts/e2e_server.py`](scripts/e2e_server.py) generates a synthetic book
+(every ID prefixed `E2E-`), trains a small model on it in a temporary folder,
+and serves the real API on `127.0.0.1:8799`. The tests refuse to run against a
+server whose customers are not synthetic, and every model figure they check is
+taken from the API response that page received, never typed into a test.
+Besides each page's own flows, every test fails on:
+
+- a console error or Content-Security-Policy violation it did not cause;
+- a request to another origin;
+- the same request sent twice at once;
+- an outcome of a held-out customer, or a suppressed group's figures, in any
+  response.
+
+axe runs its automated WCAG 2.0–2.2 A and AA rules on every page; they cover
+part of WCAG, not all of it. Layout is checked at 320, 375, 768, 1024 and
+1440 px, and the longest customer ID the API accepts has to fit, uncut, on a
+320 px screen.
+
+Both suites run in CI on every pull request and every push to `main`: a
+`frontend` job with Node alone, and an `e2e` job that also checks the OpenAPI
+types are current. The browser tests run in Chromium only. No screenshot
+baseline is committed; `E2E_SCREENSHOTS=1` saves screenshots locally for
+review.
 
 ## API
 
@@ -652,7 +700,7 @@ What the tests actually defend:
 | Contract drift | the API's category vocabularies are compared against the training schema |
 | Arithmetic | threshold economics checked against hand-computed values on tiny inputs |
 | Dashboard | all eight sections driven through `streamlit.testing.v1.AppTest`; a section that raises on load is the cheapest bug to catch and the most embarrassing to miss |
-| Documentation drift | the headline metrics, the selection cutoff and the threshold in this README are parsed back out and compared to the tracked reports that produced them; no document may claim the test partition was read only once |
+| Documentation drift | the selection cutoff and the threshold in this README are parsed back out and compared to the tracked reports that produced them; the test table's rates are recomputed from its own counts; no document, Markdown or HTML, may quote a held-out ECE, Brier score, ROC-AUC or PR-AUC, compare recall across models, or claim the test partition was read only once |
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs ruff,
 pytest with coverage, an end-to-end training smoke test and an API smoke test
@@ -662,7 +710,7 @@ environment and both locks. A third job installs the dev lock through
 suite against those exact pins. It then installs the runtime lock on its own,
 imports every module, runs the dashboard script and starts the API on it, and
 keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
-`main` also run a dependency review, and only merge once every check passes.
+`main` also run a dependency review, and only merge once every required check passes.
 
 CI needs no dataset and no network beyond the package index.
 
@@ -772,6 +820,13 @@ Found a vulnerability? Please report it privately, as described in
   404/405 included, has the documented `ErrorResponse` shape, and every
   response carries `X-Content-Type-Options: nosniff` and
   `Cache-Control: no-store`.
+- **The web front end runs under a strict Content-Security-Policy.** Scripts,
+  styles, fonts and requests come from the API's own origin only, nothing
+  inline runs, and no page can be framed. The interactive docs (`/docs`,
+  `/redoc`) are the one exception: they load Swagger UI and ReDoc from their
+  CDN, so they get a policy of their own that allows exactly those sources, on
+  those pages alone. Tests compare both policies with the reviewed ones,
+  directive by directive.
 - **Never a fabricated prediction.** A missing or unreadable model surfaces as
   503 / a dead-end dashboard state, never as a default score.
 - **Dependencies** are constrained in `pyproject.toml` and locked, version
@@ -793,7 +848,8 @@ Found a vulnerability? Please report it privately, as described in
   `main` to its checked head, because GitHub's rebase-and-merge rewrites
   commits and drops their signatures.
 
-> **Local by design.** There is no authentication and no rate limiting, so
+> **Local by design.** There is no authentication (the API only budgets its two
+> costly endpoints, explanations and batch uploads, per client), so
 > both servers bind to `127.0.0.1`: the API through `make api`, the dashboard
 > through `.streamlit/config.toml`, so even a bare `streamlit run` does not
 > listen on the network (Streamlit's own default is every interface). Binding
@@ -829,9 +885,7 @@ Found a vulnerability? Please report it privately, as described in
   Nothing here is a survival or time-to-event analysis.
 - **One global threshold leaves segments unscanned.** At 0.36 the model flags
   **no two-year-contract customer and no customer without internet** — on
-  validation (35 churners between them) and in the recorded test result alike.
-  Recall is 0.80 for month-to-month customers and 0.05 for one-year ones
-  (95 % interval 0.01–0.18). Within those segments the model still ranks
+  validation, with 35 churners between them. Within those segments the model still ranks
   customers (ROC-AUC 0.75–0.79 on validation): the global cut simply sits above
   their scores. `make train` publishes the per-segment table with intervals in
   [`reports/model_comparison.md`](reports/model_comparison.md), and the

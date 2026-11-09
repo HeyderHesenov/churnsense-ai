@@ -6,11 +6,12 @@ import io
 
 import pandas as pd
 import pytest
-from app.components import host_allowed, neutralise_formulas
+from app.components import host_allowed
 from app.sections.batch import with_predictions
 
 from churnsense.config import Config
 from churnsense.data import schema
+from churnsense.exports import neutralise_formulas
 from churnsense.models.predict import validate_upload
 
 

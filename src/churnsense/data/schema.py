@@ -47,6 +47,16 @@ NUMERIC_BOUNDS: Final[dict[str, tuple[float, float]]] = {
 #: a CSV upload must not be laxer: 5.5 months is a typo, not a customer.
 INTEGER_COLUMNS: Final[tuple[str, ...]] = ("tenure",)
 
+#: Who the validation breakdown is reported for. ``gender`` is not a model
+#: input; it is here precisely because excluding a column does not prove the
+#: model treats the groups alike.
+VALIDATION_SEGMENTS: Final[tuple[str, ...]] = (
+    "Contract",
+    "InternetService",
+    "SeniorCitizen",
+    "gender",
+)
+
 _YES_NO: Final = ("No", "Yes")
 _YES_NO_NO_INTERNET: Final = ("No", "No internet service", "Yes")
 

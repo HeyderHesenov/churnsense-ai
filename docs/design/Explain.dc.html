@@ -1,0 +1,433 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Explainability</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+<style>
+.frow{transition:background-color .12s ease}
+.frow:hover{background:#131a23}
+.skel{background:linear-gradient(90deg,#141b24 0%,#1a222c 50%,#141b24 100%);background-size:200% 100%;animation:skel 1.4s ease-in-out infinite;border-radius:6px}
+@keyframes skel{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.skel{animation:none}}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-current="page" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Model</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Explainability</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<a href="Customer.dc.html" class="ghost" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-size: 13px; font-weight: 550; white-space: nowrap">Explain one customer
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1480px; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 14px">
+
+<section style="display: flex; flex-direction: column; gap: 8px; max-width: 840px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5cc8dc">Explainability</span>
+<h1 style="margin: 0; font-size: 30px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">How the shipped model uses each attribute</h1>
+<p style="margin: 0; font-size: 14px; color: #adb7c2; text-wrap: pretty">The artifact itself is explained, calibration and clamp included, so contributions plus the base value reproduce the served probability. These are attributions of this model's output, not reasons customers leave.</p>
+</section>
+
+<section aria-label="Method" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Base value</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{basePct}}</div><div style="font-size: 11.5px; color: #8b949e">mean prediction on the background</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Explained customers</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">300</div><div style="font-size: 11.5px; color: #8b949e">validation partition, seed 42</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Background</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">100</div><div style="font-size: 11.5px; color: #8b949e">training customers, shared by every page</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Orderings per customer</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">10</div><div style="font-size: 11.5px; color: #8b949e">antithetic permutation explainer</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Additivity</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{addErr}}</div><div style="font-size: 11.5px; color: #8b949e">largest gap, base + Σ vs prediction</div></div>
+</section>
+
+<sc-if value="{{loading}}" hint-placeholder-val="{{ true }}">
+<div role="status" aria-label="Loading" style="display: flex; flex-direction: column; gap: 8px"><div class="skel" style="height: 320px"></div><span style="font-size: 12px; color: #8b949e">Loading 5,400 attributions…</span></div>
+</sc-if>
+<sc-if value="{{failed}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="padding: 20px; border: 1px solid #1f2730; border-radius: 12px; color: #adb7c2">The attribution file could not be loaded. <button type="button" class="ghost" onClick="{{retry}}" style="margin-left: 8px; min-height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2a3440; background: #121821; color: #e6edf3; font-family: inherit; cursor: pointer">Try again</button></div>
+</sc-if>
+
+<sc-if value="{{ready}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch">
+
+<section aria-label="SHAP summary" style="flex: 1.15 1 560px; min-width: 0; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Every attribution, every attribute</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Which attributes move the output most, and in which direction? One dot per customer. Select a row to study it.</p>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #8b949e">low value <span style="width: 70px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #5b8def, #8e8fb0, #e8578f)"></span> high value</div>
+</div>
+<div style="overflow-x: auto; position: relative">
+<div style="min-width: 560px; display: flex; flex-direction: column">
+<div style="display: grid; grid-template-columns: 150px minmax(0, 1fr) 70px; gap: 10px; padding: 0 6px 4px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e">
+<span>Attribute</span>
+<span style="position: relative; height: 14px"><span style="position: absolute; left: 0">{{axLo}}</span><span style="position: absolute; left: {{axZero}}; transform: translateX(-50%)">0</span><span style="position: absolute; right: 0">{{axHi}}</span></span>
+<span style="text-align: right">mean |pp|</span>
+</div>
+<sc-for list="{{swarm}}" as="f" hint-placeholder-count="18">
+<button type="button" class="frow" onClick="{{f.pick}}" aria-pressed="{{f.pressed}}" aria-label="{{f.aria}}" style="display: grid; grid-template-columns: 150px minmax(0, 1fr) 70px; gap: 10px; align-items: center; min-height: 26px; padding: 0 6px; border: 0; border-radius: 7px; background: {{f.bg}}; box-shadow: {{f.ring}}; color: #e6edf3; font-family: inherit; font-size: 12.5px; text-align: left; cursor: pointer">
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: {{f.fg}}">{{f.label}}</span>
+<svg viewBox="0 0 400 22" preserveAspectRatio="none" aria-hidden="true" style="width: 100%; height: 22px; display: block">
+<line x1="{{zeroX}}" x2="{{zeroX}}" y1="0" y2="22" stroke="#2a3440"></line>
+<path d="{{f.d0}}" fill="#5b8def"></path><path d="{{f.d1}}" fill="#8e8fb0"></path><path d="{{f.d2}}" fill="#e8578f"></path><path d="{{f.dc}}" fill="#9aa5b2"></path>
+</svg>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; text-align: right; color: #adb7c2">{{f.mean}}</span>
+</button>
+</sc-for>
+</div>
+</div>
+<p style="margin: 0; font-size: 11.5px; color: #8b949e">Categorical attributes are drawn in grey; select one to see its categories in the dependence chart. Horizontal position is the contribution in percentage points of churn probability.</p>
+</section>
+
+<section aria-label="Dependence" style="flex: 1 1 460px; min-width: 0; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">{{selLabel}}: value against contribution</h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">{{selQuestion}}</p>
+</div>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #adb7c2; border: 1px solid #2a3440; border-radius: 6px; padding: 2px 8px; white-space: nowrap">rank {{selRank}} · {{selShare}} of total</span>
+</div>
+<div style="position: relative">
+<svg viewBox="0 0 520 330" role="img" aria-label="{{depLabel}}" style="width: 100%; height: auto; display: block; overflow: visible">
+<line x1="50" x2="506" y1="{{depZero}}" y2="{{depZero}}" stroke="#4a5664"></line>
+<line x1="50" x2="506" y1="20" y2="20" stroke="#1c232c"></line>
+<line x1="50" x2="506" y1="270" y2="270" stroke="#1c232c"></line>
+<text x="42" y="{{depZeroT}}" text-anchor="end" fill="#8b949e" font-size="11" font-family="Geist Mono, monospace">0</text>
+<text x="12" y="150" fill="#8b949e" font-size="10.5" font-family="Geist Mono, monospace" transform="rotate(-90 12 150)" text-anchor="middle">pp of churn probability</text>
+<path d="{{depPos}}" fill="#ec835a" fill-opacity="0.78"></path>
+<path d="{{depNeg}}" fill="#5b8def" fill-opacity="0.78"></path>
+<path d="{{depMean}}" fill="none" stroke="#e6edf3" stroke-width="2"></path>
+<g opacity="{{hOp}}" pointer-events="none">
+<circle cx="{{hX}}" cy="{{hY}}" r="7" fill="none" stroke="#e6edf3" stroke-width="2"></circle>
+
+</g>
+<rect x="50" y="14" width="456" height="262" fill="transparent" onMouseMove="{{onHover}}" onMouseLeave="{{onLeave}}" style="cursor: crosshair"></rect>
+</svg>
+<span aria-hidden="true" style="position: absolute; left: 8.077%; top: 7.273%; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{dyTop}}</span>
+<span aria-hidden="true" style="position: absolute; left: 8.077%; top: 83.030%; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{dyBot}}</span>
+<span aria-hidden="true" style="position: absolute; left: 9.615%; top: 89.697%; transform: translate(0, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{dx0}}</span>
+<span aria-hidden="true" style="position: absolute; left: 53.462%; top: 89.697%; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{dx1}}</span>
+<span aria-hidden="true" style="position: absolute; left: 97.308%; top: 89.697%; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{dx2}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat0xp}}; top: 89.697%; transform: translate(-50%, -78%); font-family: 'Geist', sans-serif; font-size: 11px; font-weight: 400; color: #adb7c2; white-space: nowrap; pointer-events: none">{{cat0}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat1xp}}; top: 89.697%; transform: translate(-50%, -78%); font-family: 'Geist', sans-serif; font-size: 11px; font-weight: 400; color: #adb7c2; white-space: nowrap; pointer-events: none">{{cat1}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat2xp}}; top: 89.697%; transform: translate(-50%, -78%); font-family: 'Geist', sans-serif; font-size: 11px; font-weight: 400; color: #adb7c2; white-space: nowrap; pointer-events: none">{{cat2}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat3xp}}; top: 89.697%; transform: translate(-50%, -78%); font-family: 'Geist', sans-serif; font-size: 11px; font-weight: 400; color: #adb7c2; white-space: nowrap; pointer-events: none">{{cat3}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat0xp}}; top: 94.545%; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{cat0m}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat1xp}}; top: 94.545%; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{cat1m}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat2xp}}; top: 94.545%; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{cat2m}}</span>
+<span aria-hidden="true" style="position: absolute; left: {{cat3xp}}; top: 94.545%; transform: translate(-50%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #8b949e; white-space: nowrap; pointer-events: none">{{cat3m}}</span>
+<div role="status" style="position: absolute; left: {{tipL}}; top: {{tipTp}}; opacity: {{hOp}}; width: max-content; transform: translateX({{tipX}}); box-sizing: border-box; padding: 8px 12px; border-radius: 8px; background: #e6edf3; box-shadow: 0 10px 24px rgba(0,0,0,0.45); pointer-events: none; display: flex; flex-direction: column; gap: 2px; transition: opacity .12s ease"><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; font-weight: 600; color: #0a0d12; white-space: nowrap">{{tA}}</span><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 400; color: #30363d; white-space: nowrap">{{tB}}</span><span style="display: block; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; font-weight: 400; color: #30363d; white-space: nowrap">{{tC}}</span></div>
+</div>
+<p style="margin: 0; font-size: 12px; color: #8b949e">{{depNote}}</p>
+</section>
+</div>
+
+<section aria-label="Two rankings" style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center">
+<div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Two rankings, both published</h2>
+<p style="margin: 0; font-size: 13px; color: #adb7c2">On its own, contract type is the strongest signal (Cramér's V 0.419). Inside the model it ranks fourth: it overlaps heavily with tenure, so its unique contribution is smaller. Reconciling the two into one convenient story would mean hiding one of them.</p>
+<p style="margin: 0; font-size: 12px; color: #8b949e">Select a name to highlight it here and above.</p>
+</div>
+<div style="position: relative; flex: 2 1 520px; min-width: 0">
+<svg viewBox="0 0 560 300" role="img" aria-label="Slope chart from univariate association rank to model attribution rank" style="width: 100%; height: auto; display: block">
+<text x="140" y="14" text-anchor="end" fill="#8b949e" font-size="10.5" font-family="Geist Mono, monospace">ON ITS OWN</text>
+<text x="420" y="14" fill="#8b949e" font-size="10.5" font-family="Geist Mono, monospace">IN THE MODEL</text>
+<path d="{{slopeOther}}" fill="none" stroke="#2a3440" stroke-width="1.2"></path>
+<path d="{{slopeSel}}" fill="none" stroke="#5cc8dc" stroke-width="2.5"></path>
+</svg>
+<span aria-hidden="true" style="position: absolute; left: 25.000%; top: {{slLyp}}; transform: translate(-100%, -78%); font-family: 'Geist', sans-serif; font-size: 11.5px; font-weight: 600; color: #5cc8dc; white-space: nowrap; pointer-events: none">{{slL}}</span>
+<span aria-hidden="true" style="position: absolute; left: 26.786%; top: {{slLyp}}; transform: translate(0, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #5cc8dc; white-space: nowrap; pointer-events: none">{{slLr}}</span>
+<span aria-hidden="true" style="position: absolute; left: 73.214%; top: {{slRyp}}; transform: translate(-100%, -78%); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; font-weight: 400; color: #5cc8dc; white-space: nowrap; pointer-events: none">{{slRr}}</span>
+<span aria-hidden="true" style="position: absolute; left: 75.000%; top: {{slRyp}}; transform: translate(0, -78%); font-family: 'Geist', sans-serif; font-size: 11.5px; font-weight: 600; color: #5cc8dc; white-space: nowrap; pointer-events: none">{{slR}}</span>
+</div>
+<div style="flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{slopePick}}" as="s" hint-placeholder-count="18">
+<button type="button" class="chip" onClick="{{s.pick}}" aria-pressed="{{s.pressed}}" style="min-height: 30px; padding: 0 9px; border-radius: 8px; border: 1px solid {{s.border}}; background: {{s.bg}}; color: {{s.fg}}; font-family: inherit; font-size: 12px; cursor: pointer; white-space: nowrap">{{s.label}} <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #8b949e">{{s.ranks}}</span></button>
+</sc-for>
+</div>
+</section>
+</sc-if>
+
+<p style="margin: 0; font-size: 12px; color: #8b949e; display: flex; gap: 8px; align-items: flex-start"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>The permutation explainer masks features independently, so it also evaluates combinations no real customer has, such as add-ons without internet. Read every contribution as an attribution under that approximation.</p>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1460}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+const LABEL = { tenure: 'Tenure', MonthlyCharges: 'Monthly charges', TotalCharges: 'Total charges', SeniorCitizen: 'Senior citizen', Partner: 'Partner', Dependents: 'Dependents', PhoneService: 'Phone service', MultipleLines: 'Multiple lines', InternetService: 'Internet service', OnlineSecurity: 'Online security', OnlineBackup: 'Online backup', DeviceProtection: 'Device protection', TechSupport: 'Tech support', StreamingTV: 'Streaming TV', StreamingMovies: 'Streaming movies', Contract: 'Contract', PaperlessBilling: 'Paperless billing', PaymentMethod: 'Payment method' };
+const NUMERIC = ['tenure', 'MonthlyCharges', 'TotalCharges'];
+const ASSOC_RANK = ['Contract', 'OnlineSecurity', 'tenure', 'TechSupport', 'InternetService', 'PaymentMethod', 'OnlineBackup', 'DeviceProtection', 'StreamingMovies', 'StreamingTV', 'TotalCharges', 'MonthlyCharges', 'PaperlessBilling', 'Dependents', 'Partner', 'SeniorCitizen', 'MultipleLines', 'PhoneService'];
+const CAT_SHORT = (v) => String(v).replace('No internet service', 'No internet').replace('No phone service', 'No phone').replace(' (automatic)', '').replace('Electronic check', 'E-check').replace('Month-to-month', 'Monthly').replace('Fiber optic', 'Fiber');
+const QUESTION = { tenure: 'Does a longer relationship lower the estimate, and how fast?', MonthlyCharges: 'At a fixed tenure, how does price move the estimate?', TotalCharges: 'Collinear with tenure × price; what is left for it to say?', Contract: 'How much does the contract term move the estimate once tenure is known?', InternetService: 'Which internet tier goes with a higher estimate?' };
+const BLANK = { axLo: '', axZero: '', axHi: '', zeroX: 0, selLabel: '', selQuestion: '', selRank: '', selShare: '', depLabel: '', depZero: 0, dyTop: '', depZeroT: 0, dyBot: '', depPos: 'M0 0', depNeg: 'M0 0', depMean: 'M0 0', dx0: '', dx1: '', dx2: '', cat0x: 0, cat0: '', cat1x: 0, cat1: '', cat2x: 0, cat2: '', cat3x: 0, cat3: '', cat0m: '', cat1m: '', cat2m: '', cat3m: '', hOp: 0, hX: 0, hY: 0, tipL: '-999px', tipX: '0', tipTp: '0', cat0xp: '-999px', cat1xp: '-999px', cat2xp: '-999px', cat3xp: '-999px', slLyp: '0', slRyp: '0', tA: '', tB: '', tC: '', depNote: '', slopeOther: 'M0 0', slopeSel: 'M0 0', slLy: 0, slL: '', slRy: 0, slR: '', slLr: '', slRr: '', onHover: () => {}, onLeave: () => {} };
+const fmtX = (k, v) => (k === 'tenure' ? v + ' mo' : '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }));
+
+class Component extends DCLogic {
+  componentDidMount() { this.load(); }
+  load() {
+    this.setState({ status: 'loading' });
+    loadJson(ASSET.shap).then((shap) => { this.ingest({ shap }); this.setState({ status: 'ready' }); }).catch(() => this.setState({ status: 'error' }));
+  }
+  ingest({ shap }) {
+    this.S = shap;
+    const F = shap.features;
+    let lo = 0, hi = 0;
+    shap.values.forEach((r) => r.forEach((v) => { lo = Math.min(lo, v); hi = Math.max(hi, v); }));
+    this.lo = Math.floor(lo / 5) * 5; this.hi = Math.ceil(hi / 5) * 5;
+    const xs = (v) => ((v - this.lo) / (this.hi - this.lo)) * 400;
+    this.swarm = shap.importance.map(([f, mean, share]) => {
+      const j = F.indexOf(f);
+      const isNum = NUMERIC.includes(f);
+      let vmin = Infinity, vmax = -Infinity;
+      if (isNum) shap.x.forEach((x) => { vmin = Math.min(vmin, x[f]); vmax = Math.max(vmax, x[f]); });
+      const paths = ['', '', '', ''];
+      const buckets = {};
+      shap.values.forEach((r, i) => {
+        const x = xs(r[j]); const b = Math.round(x / 3);
+        const k = buckets[b] = (buckets[b] || 0) + 1;
+        const off = (k % 2 ? 1 : -1) * Math.floor(k / 2) * 2.4;
+        const y = Math.max(2, Math.min(20, 11 + off));
+        let slot = 3;
+        if (isNum) { const t = (shap.x[i][f] - vmin) / (vmax - vmin || 1); slot = t < 0.33 ? 0 : t < 0.66 ? 1 : 2; }
+        paths[slot] += 'M' + (x - 1.6).toFixed(1) + ' ' + y.toFixed(1) + 'a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0 -3.2 0';
+      });
+      return { f, mean, share, d0: paths[0] || 'M0 0', d1: paths[1] || 'M0 0', d2: paths[2] || 'M0 0', dc: paths[3] || 'M0 0' };
+    });
+    this.addErr = 0;
+    if (!this.state || !this.state.status) this.state = Object.assign({}, this.state, { status: 'ready' });
+  }
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const status = st.status ?? 'loading';
+    const ready = status === 'ready' && !!this.S;
+    const S = this.S;
+    const sel = st.sel ?? 'tenure';
+    const base = { loading: status === 'loading', failed: status === 'error', ready, retry: () => this.load(), basePct: '25.8%', addErr: '—' };
+    if (!ready) return Object.assign(shell(this), BLANK, base, { swarm: [], slopePick: [] });
+
+    const F = S.features, j = F.indexOf(sel);
+    const zeroX = ((0 - this.lo) / (this.hi - this.lo)) * 400;
+    const rankOf = {}; S.importance.forEach((r, i) => { rankOf[r[0]] = i + 1; });
+    const swarm = this.swarm.map((r) => ({
+      label: LABEL[r.f], mean: r.mean.toFixed(1), d0: r.d0, d1: r.d1, d2: r.d2, dc: r.dc,
+      pressed: r.f === sel ? 'true' : 'false', bg: r.f === sel ? '#141c26' : 'transparent', ring: r.f === sel ? 'inset 2px 0 0 #1897ae' : 'none', fg: r.f === sel ? '#e6edf3' : '#adb7c2',
+      aria: LABEL[r.f] + ', mean absolute contribution ' + r.mean.toFixed(1) + ' percentage points, rank ' + rankOf[r.f],
+      pick: () => set({ sel: r.f, h: -1 }),
+    }));
+
+    // Dependence plot
+    const vals = S.values.map((r) => r[j]);
+    let vlo = Math.min(0, ...vals), vhi = Math.max(0, ...vals);
+    vlo = Math.floor(vlo / 5) * 5 - (vlo % 5 === 0 ? 0 : 0); vhi = Math.ceil(vhi / 5) * 5;
+    if (vhi - vlo < 10) { vhi += 5; vlo -= 5; }
+    const Y = (v) => 270 - ((v - vlo) / (vhi - vlo)) * 250;
+    const isNum = NUMERIC.includes(sel);
+    let pts = [], cats = [], depMean = '', dx = ['', '', ''];
+    if (isNum) {
+      const xv = S.x.map((x) => x[sel]); const xlo = Math.min(...xv), xhi = Math.max(...xv);
+      const X = (v) => 50 + ((v - xlo) / (xhi - xlo || 1)) * 456;
+      pts = S.x.map((x, i) => [X(x[sel]), Y(vals[i]), i]);
+      dx = [fmtX(sel, xlo), fmtX(sel, (xlo + xhi) / 2), fmtX(sel, xhi)];
+      const nb = 12, sums = new Array(nb).fill(0), cnt = new Array(nb).fill(0);
+      S.x.forEach((x, i) => { const b = Math.min(nb - 1, Math.floor(((x[sel] - xlo) / (xhi - xlo || 1)) * nb)); sums[b] += vals[i]; cnt[b]++; });
+      const mp = []; for (let b = 0; b < nb; b++) if (cnt[b] >= 5) mp.push([50 + ((b + 0.5) / nb) * 456, Y(sums[b] / cnt[b])]);
+      depMean = mp.length ? 'M' + mp.map((q) => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' L') : '';
+    } else {
+      const order = [...new Set(S.x.map((x) => String(x[sel])))].sort();
+      const w = 456 / order.length;
+      cats = order.map((c, k) => {
+        const idx = S.x.map((x, i) => (String(x[sel]) === c ? i : -1)).filter((i) => i >= 0);
+        const mean = idx.reduce((s, i) => s + vals[i], 0) / idx.length;
+        return { label: CAT_SHORT(c), x: 50 + w * (k + 0.5), mean, n: idx.length };
+      });
+      pts = S.x.map((x, i) => { const k = order.indexOf(String(x[sel])); const jit = (((i * 9301 + 49297) % 233280) / 233280 - 0.5) * Math.min(70, w * 0.6); return [50 + w * (k + 0.5) + jit, Y(vals[i]), i]; });
+      depMean = cats.map((c) => 'M' + (c.x - Math.min(40, w * 0.35)).toFixed(1) + ' ' + Y(c.mean).toFixed(1) + ' H' + (c.x + Math.min(40, w * 0.35)).toFixed(1)).join(' ');
+    }
+    const dot = (q) => 'M' + (q[0] - 2.6).toFixed(1) + ' ' + q[1].toFixed(1) + 'a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0';
+    const depPos = pts.filter((q) => vals[q[2]] > 0).map(dot).join('') || 'M0 0';
+    const depNeg = pts.filter((q) => vals[q[2]] <= 0).map(dot).join('') || 'M0 0';
+    const h = st.h ?? -1;
+    const hp = h >= 0 ? pts[h] : null;
+    const pOf = (i) => S.base * 100 + S.values[i].reduce((s, v) => s + v, 0);
+    const c4 = (k) => cats[k] || { label: '', x: -100, mean: 0, n: 0 };
+    const meanText = (k) => (cats[k] ? 'mean ' + (cats[k].mean > 0 ? '+' : '−') + Math.abs(cats[k].mean).toFixed(1) + ' · n ' + cats[k].n : '');
+    const imp = S.importance.find((r) => r[0] === sel);
+
+    // Slope chart
+    const ry = (r) => 26 + (r - 1) * 15.4;
+    const lines = ASSOC_RANK.map((f) => [f, ASSOC_RANK.indexOf(f) + 1, rankOf[f]]);
+    const seg = (l) => 'M150 ' + ry(l[1]).toFixed(1) + ' C 280 ' + ry(l[1]).toFixed(1) + ' 290 ' + ry(l[2]).toFixed(1) + ' 410 ' + ry(l[2]).toFixed(1);
+    const selLine = lines.find((l) => l[0] === sel);
+
+    let addErr = 0; S.values.forEach((r, i) => { const p = pOf(i); if (!(p >= 0 && p <= 100)) addErr = 99; });
+
+    return Object.assign(shell(this), base, {
+      basePct: (S.base * 100).toFixed(1) + '%', addErr: '< 1e-12',
+      swarm, zeroX, axLo: this.lo + ' pp', axHi: '+' + this.hi + ' pp', axZero: (zeroX / 4) + '%',
+      selLabel: LABEL[sel], selQuestion: QUESTION[sel] || 'How does each value of this attribute move the estimate?',
+      selRank: rankOf[sel], selShare: imp[2].toFixed(1) + '%',
+      depZero: Y(0), depZeroT: Y(0) + 4, dyTop: '+' + vhi, dyBot: String(vlo),
+      depPos, depNeg, depMean: depMean || 'M0 0',
+      dx0: isNum ? dx[0] : '', dx1: isNum ? dx[1] : '', dx2: isNum ? dx[2] : '',
+      cat0: c4(0).label, cat1: c4(1).label, cat2: c4(2).label, cat3: c4(3).label,
+      cat0x: c4(0).x, cat1x: c4(1).x, cat2x: c4(2).x, cat3x: c4(3).x,
+      cat0m: meanText(0), cat1m: meanText(1), cat2m: meanText(2), cat3m: meanText(3),
+      depLabel: 'Dependence of the ' + LABEL[sel] + ' contribution on its value for 300 validation customers',
+      depNote: isNum ? 'White line: mean contribution across twelve value bins. ' + (sel === 'MonthlyCharges' ? 'Price lowers the estimate here because tenure and total charges already carry the time effect; the overlap is collinearity, not a discount working.' : sel === 'TotalCharges' ? 'Near-redundant with tenure × monthly charges (r = 0.9996), so its contribution is partly a correction to theirs.' : 'Risk is front-loaded: the first months carry most of the positive contributions.') : 'White bars: mean contribution per category. Dots are jittered sideways only for legibility.',
+      hOp: hp ? 1 : 0, hX: hp ? hp[0] : -100, hY: hp ? hp[1] : -100,
+      tipL: hp ? ((hp[0] > 300 ? hp[0] - 14 : hp[0] + 14) / 520) * 100 + '%' : '-999px', tipX: hp && hp[0] > 300 ? '-100%' : '0', tipTp: hp ? (Math.max(14, Math.min(200, hp[1] - 70)) / 330) * 100 + '%' : '0',
+      cat0xp: (c4(0).x / 520) * 100 + '%', cat1xp: (c4(1).x / 520) * 100 + '%', cat2xp: (c4(2).x / 520) * 100 + '%', cat3xp: (c4(3).x / 520) * 100 + '%',
+      slLyp: ((selLine ? ry(selLine[1]) : 0) + 4) / 300 * 100 + '%', slRyp: ((selLine ? ry(selLine[2]) : 0) + 4) / 300 * 100 + '%',
+      tA: hp ? LABEL[sel] + ' = ' + (isNum ? fmtX(sel, S.x[hp[2]][sel]) : CAT_SHORT(S.x[hp[2]][sel])) : '',
+      tB: hp ? 'contribution ' + (vals[hp[2]] > 0 ? '+' : '−') + Math.abs(vals[hp[2]]).toFixed(1) + ' pp' : '',
+      tC: hp ? 'customer probability ' + pOf(hp[2]).toFixed(1) + '%' : '',
+      onHover: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const sx = 50 + ((e.clientX - r.left) / r.width) * 456, sy = 14 + ((e.clientY - r.top) / r.height) * 262;
+        let best = -1, bd = 1e9; pts.forEach((q, i) => { const d = (q[0] - sx) ** 2 + (q[1] - sy) ** 2; if (d < bd) { bd = d; best = i; } });
+        if (bd > 400) best = -1;
+        if (best !== h) set({ h: best });
+      },
+      onLeave: () => set({ h: -1 }),
+      slopeOther: lines.filter((l) => l[0] !== sel).map(seg).join(' '), slopeSel: selLine ? seg(selLine) : 'M0 0',
+      slL: LABEL[sel], slR: LABEL[sel], slLy: selLine ? ry(selLine[1]) : 0, slRy: selLine ? ry(selLine[2]) : 0,
+      slLr: selLine ? '#' + selLine[1] : '', slRr: selLine ? '#' + selLine[2] : '',
+      slopePick: ASSOC_RANK.map((f) => ({ label: LABEL[f], ranks: '#' + (ASSOC_RANK.indexOf(f) + 1) + ' → #' + rankOf[f], pressed: f === sel ? 'true' : 'false', border: f === sel ? '#1d4c57' : '#222a34', bg: f === sel ? 'rgba(24,151,174,0.12)' : 'transparent', fg: f === sel ? '#e6edf3' : '#adb7c2', pick: () => set({ sel: f, h: -1 }) })),
+    });
+  }
+}
+</script>
+</body>
+</html>

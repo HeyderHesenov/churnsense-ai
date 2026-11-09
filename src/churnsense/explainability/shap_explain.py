@@ -33,9 +33,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
+import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import numpy as np
 import pandas as pd
@@ -59,6 +61,23 @@ DEFAULT_BACKGROUND = 100
 DEFAULT_SAMPLE = 300
 #: Antithetic feature orderings sampled per explained customer.
 PERMUTATIONS = 10
+
+#: The largest gap between base value + contributions and the served
+#: probability an attribution may show. SHAP's efficiency makes it exact up to
+#: floating point; anything bigger means the attributions are of something else.
+ADDITIVITY_TOLERANCE = 1e-9
+
+#: Equal-width groups a numeric feature's contributions are summarised in.
+DEPENDENCE_BINS = 12
+#: Fewer explained customers than this in a group and its mean contribution is
+#: not given. A stability rule for an average of model outputs - not the
+#: outcome-privacy rule (no outcome is involved), so it is deliberately smaller.
+DEPENDENCE_MIN_CUSTOMERS = 5
+
+#: shap's permutation explainer seeds and shuffles numpy's *global* random
+#: state, so two explanations running at once in a server's thread pool would
+#: draw each other's orderings and stop being reproducible. One at a time.
+_EXPLAINER_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +106,108 @@ class CustomerExplanation:
     probability: float
     base_value: float
     contributions: list[FeatureContribution]
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceBin:
+    """Explained customers whose value is in ``(low, high]`` (the first bin also holds ``low``)."""
+
+    low: float
+    high: float
+    customers: int
+    #: Mean contribution, as a fraction; ``None`` below ``DEPENDENCE_MIN_CUSTOMERS``.
+    mean: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class DependenceLevel:
+    """Explained customers with one category of a feature."""
+
+    category: str
+    customers: int
+    mean: float | None
+
+
+@dataclass(frozen=True, slots=True)
+class NumericDependence:
+    feature: str
+    bins: tuple[DependenceBin, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CategoricalDependence:
+    feature: str
+    #: Every level of the column contract, in its order, present or not.
+    levels: tuple[DependenceLevel, ...]
+
+
+def _group_mean(contributions: np.ndarray) -> float | None:
+    """Rounded like the served matrix; withheld where too few customers make it unstable."""
+    if contributions.size < DEPENDENCE_MIN_CUSTOMERS:
+        return None
+    return round(float(contributions.mean()), 6)
+
+
+def _numeric_dependence(
+    feature: str, numbers: np.ndarray, contributions: np.ndarray
+) -> NumericDependence:
+    if numbers.size == 0:
+        return NumericDependence(feature, ())
+    edges = np.linspace(numbers.min(), numbers.max(), DEPENDENCE_BINS + 1)
+    # Right-closed like the reliability table. Only the inner edges are cut points, so the
+    # minimum lands in the first group, the maximum in the last, and a constant column
+    # (every edge equal) in one group from its value to itself.
+    index = np.digitize(numbers, edges[1:-1], right=True)
+    return NumericDependence(
+        feature,
+        tuple(
+            DependenceBin(
+                float(edges[i]),
+                float(edges[i + 1]),
+                int((index == i).sum()),
+                _group_mean(contributions[index == i]),
+            )
+            for i in np.unique(index)
+        ),
+    )
+
+
+def dependence(
+    features: list[str], values: list[list[float]], x: list[dict[str, Any]]
+) -> list[NumericDependence | CategoricalDependence]:
+    """How each feature's contribution varies with its value, over the explained customers.
+
+    One summary per feature, in ``features`` order, from the unrounded cached
+    matrix: the mean contribution per category (every category of the
+    contract, so any customer's category has a place) or per equal-width group
+    of a numeric value. It describes the model's output for these customers,
+    not what would happen to anyone if a value changed.
+    """
+    matrix = np.asarray(values, dtype=float).reshape(len(x), len(features))
+    summary: list[NumericDependence | CategoricalDependence] = []
+    for j, feature in enumerate(features):
+        contributions = matrix[:, j]
+        if feature in schema.ALLOWED_CATEGORIES:
+            observed = np.array([row[feature] for row in x], dtype=object)
+            summary.append(
+                CategoricalDependence(
+                    feature,
+                    tuple(
+                        DependenceLevel(
+                            category,
+                            int((observed == category).sum()),
+                            _group_mean(contributions[observed == category]),
+                        )
+                        for category in schema.ALLOWED_CATEGORIES[feature]
+                    ),
+                )
+            )
+        elif feature in schema.NUMERIC_COLUMNS:
+            numbers = np.array([row[feature] for row in x], dtype=float)
+            summary.append(_numeric_dependence(feature, numbers, contributions))
+        else:
+            raise ValueError(f"{feature!r} is neither a numeric nor a categorical feature")
+    return summary
 
 
 def _as_codes(X: pd.DataFrame) -> np.ndarray:
@@ -128,14 +249,14 @@ def _shap_values(
     features.
     """
     columns = list(X.columns)
-    explainer = shap.explainers.PermutationExplainer(
-        lambda codes: model.predict_proba(_from_codes(codes, columns))[:, 1],
-        _as_codes(background[columns]),
-        seed=seed,
-    )
-    explanation = explainer(
-        _as_codes(X), max_evals=permutations * (2 * len(columns) + 1), silent=True
-    )
+    codes, reference = _as_codes(X), _as_codes(background[columns])
+    with _EXPLAINER_LOCK:
+        explainer = shap.explainers.PermutationExplainer(
+            lambda batch: model.predict_proba(_from_codes(batch, columns))[:, 1],
+            reference,
+            seed=seed,
+        )
+        explanation = explainer(codes, max_evals=permutations * (2 * len(columns) + 1), silent=True)
     values = pd.DataFrame(explanation.values, index=X.index, columns=columns)
     values.attrs["base_value"] = float(np.mean(explanation.base_values))
     return values
@@ -165,8 +286,11 @@ def global_importance(
     customers.
     """
     reference = background if background is not None else background_sample(X, seed)
-    values = _shap_values(model, X, reference, seed=seed, permutations=permutations)
+    return importance_from(_shap_values(model, X, reference, seed=seed, permutations=permutations))
 
+
+def importance_from(values: pd.DataFrame) -> pd.DataFrame:
+    """The ranking ``global_importance`` returns, from SHAP values already computed."""
     mean_abs = values.abs().mean().sort_values(ascending=False)
     return pd.DataFrame(
         {
@@ -264,27 +388,185 @@ def compute_and_cache(cfg: Config | None = None, sample: int = DEFAULT_SAMPLE) -
 
     explained = splits.X_val.sample(min(sample, len(splits.X_val)), random_state=cfg.random_seed)
     background = background_sample(splits.X_train, cfg.random_seed)
-    importance = global_importance(model, explained, background=background, seed=cfg.random_seed)
+    payload = explanation_cache(model, meta, explained, background, seed=cfg.random_seed)
+    path = cfg.paths.shap_cache_file
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    logger.info(
+        "cached global SHAP importance for %d features -> %s", len(payload["features"]), path.name
+    )
 
-    payload = {
+    from churnsense.evaluation.figures import shap_importance
+
+    shap_importance(pd.DataFrame(payload["importance"]), cfg.paths.figures_dir)
+    return path
+
+
+def explanation_cache(
+    model: ProbabilityClamp,
+    meta: dict[str, Any],
+    explained: pd.DataFrame,
+    background: pd.DataFrame,
+    *,
+    seed: int,
+    permutations: int = PERMUTATIONS,
+) -> dict[str, Any]:
+    """What ``make explain`` caches: the ranking, and the matrix the dashboard draws.
+
+    One row of contributions per explained customer, the values they were
+    computed for, and how closely base + contributions reproduce the served
+    probability - so the page can state that check instead of assuming it.
+    """
+    values = _shap_values(model, explained, background, seed=seed, permutations=permutations)
+    base_value = float(values.attrs["base_value"])
+    served = model.predict_proba(explained)[:, 1]
+    gap = float(np.max(np.abs(base_value + values.to_numpy().sum(axis=1) - served)))
+    columns = list(values.columns)
+    return {
         "model_key": meta["model_key"],
         "trained_at": meta["trained_at"],
         "model_sha256": meta["model_sha256"],
         "n_explained": len(explained),
         "n_background": len(background),
-        "permutations": PERMUTATIONS,
+        "permutations": permutations,
+        "seed": seed,
         "partition": "validation",
         "caveat": CAVEAT,
-        "importance": importance.to_dict(orient="records"),
+        "importance": importance_from(values).to_dict(orient="records"),
+        "base_value": base_value,
+        "features": columns,
+        "values": values.to_numpy().tolist(),
+        "x": [
+            {f: (str(v) if f in schema.ALLOWED_CATEGORIES else float(v)) for f, v in row.items()}
+            for row in explained[columns].to_dict(orient="records")
+        ],
+        "max_additivity_gap": gap,
     }
-    path = cfg.paths.shap_cache_file
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    logger.info("cached global SHAP importance for %d features -> %s", len(importance), path.name)
 
-    from churnsense.evaluation.figures import shap_importance
 
-    shap_importance(importance, cfg.paths.figures_dir)
-    return path
+def read_cache(path: Path, model_sha256: str) -> dict[str, Any] | None:
+    """``make explain``'s cache for the artifact with ``model_sha256``, or ``None``.
+
+    ``None`` when ``make explain`` has not run or ran for another artifact: a
+    ranking computed for a different model describes nothing being served.
+    """
+    if not path.is_file():
+        return None
+    try:
+        cached = json.loads(path.read_text(encoding="utf-8"))
+    # ValueError covers JSONDecodeError and an integer past Python's digit limit;
+    # RecursionError is what nesting deeper than the interpreter allows raises.
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        logger.warning("the SHAP cache could not be read: %s", exc.__class__.__name__)
+        return None
+    if not isinstance(cached, dict):
+        logger.warning("the SHAP cache is not a JSON object")
+        return None
+    if cached.get("model_sha256") != model_sha256:
+        return None
+    # A cache written before the gap was recorded has none; one that records a
+    # gap past tolerance describes attributions that do not add up, anywhere.
+    if "max_additivity_gap" in cached and not adds_up(cached["max_additivity_gap"]):
+        logger.warning("the cached attributions do not add up to the served probability")
+        return None
+    return cached
+
+
+def adds_up(gap: object) -> bool:
+    """A recorded additivity gap that is a number within tolerance."""
+    return _finite(gap) and 0 <= gap <= ADDITIVITY_TOLERANCE
+
+
+def load_cached_explanations(path: Path, model_sha256: str) -> dict[str, Any] | None:
+    """The cached SHAP matrix for the artifact with ``model_sha256``, or ``None``.
+
+    Also ``None`` for a cache written before it carried the matrix: the page
+    then has nothing it could honestly draw until ``make explain`` runs again.
+    """
+    cached = read_cache(path, model_sha256)
+    if cached is None or "values" not in cached:
+        return None
+    if not _matrix_fits(cached.get("features"), cached.get("values"), cached.get("x")):
+        logger.warning("the cached SHAP matrix does not match its feature list; ignoring it")
+        return None
+    if not _description_fits(cached):
+        logger.warning("the cached SHAP matrix is described inconsistently; ignoring it")
+        return None
+    return cached
+
+
+def _count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _description_fits(cached: dict[str, Any]) -> bool:
+    """What the page states about the matrix is there, of the right kind, and agrees with it."""
+    seed = cached.get("seed")
+    base = cached.get("base_value")
+    return (
+        isinstance(cached.get("partition"), str)
+        and cached.get("n_explained") == len(cached["x"])
+        and _count(cached.get("n_background"))
+        and _count(cached.get("permutations"))
+        and (seed is None or (isinstance(seed, int) and not isinstance(seed, bool)))
+        and _finite(base)
+        and 0 <= base <= 1
+        and isinstance(cached.get("importance"), list)
+        and "max_additivity_gap" in cached
+    )
+
+
+def _finite(value: object) -> TypeGuard[int | float]:
+    """A JSON number that is a real number: not text, not a boolean, not NaN or infinite.
+
+    JSON allows an integer of any length; one past a float's range is not a
+    number any figure here could be.
+    """
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _contribution(value: object) -> bool:
+    return _finite(value) and -1 <= value <= 1
+
+
+def _matrix_fits(features: object, values: object, x: object) -> bool:
+    """Every row of ``values`` and ``x`` describes exactly ``features``, with values the contract allows.
+
+    A damaged cache must read as "not cached", never reach the page half-drawn
+    or fail the request. A contribution lies in [-1, 1]: a permutation SHAP
+    value is a mean of differences between two probabilities.
+    """
+    if not (isinstance(features, list) and isinstance(values, list) and isinstance(x, list)):
+        return False
+    known = set(schema.ALLOWED_CATEGORIES) | set(schema.NUMERIC_COLUMNS)
+    # Kinds first: a set of the features needs them hashable.
+    if not all(isinstance(f, str) and f in known for f in features):
+        return False
+    if len(set(features)) != len(features):
+        return False
+    if len(values) != len(x) or len(x) == 0:
+        return False
+    if not all(
+        isinstance(row, list) and len(row) == len(features) and all(_contribution(v) for v in row)
+        for row in values
+    ):
+        return False
+
+    def allowed(feature: str, value: object) -> bool:
+        if feature in schema.ALLOWED_CATEGORIES:
+            return value in schema.ALLOWED_CATEGORIES[feature]
+        return _finite(value)
+
+    return all(
+        isinstance(row, dict)
+        and row.keys() == set(features)
+        and all(allowed(f, row[f]) for f in features)
+        for row in x
+    )
 
 
 def load_cached_importance(cfg: Config | None = None) -> pd.DataFrame | None:

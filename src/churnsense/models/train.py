@@ -640,8 +640,9 @@ _METADATA_TYPES: dict[str, tuple[type, ...]] = {
     "n_validation": (int,),
     "probability_epsilon": (int, float),
     "validation_metrics": (dict,),
-    # Null when calibration was not kept, or before a final evaluation.
+    # Null when calibration was not kept.
     "calibration_method": (str, type(None)),
+    # Earlier runs of `make evaluate` wrote this here; nothing writes or reads it now.
     "test_metrics": (dict, type(None)),
 }
 
@@ -756,12 +757,6 @@ def load_artifact(directory: Path) -> tuple[ProbabilityClamp, dict[str, Any]]:
     return model, meta
 
 
-#: Who the validation breakdown is reported for. ``gender`` is not a model
-#: input; it is here precisely because excluding a column does not prove the
-#: model treats the groups alike.
-VALIDATION_SEGMENTS: tuple[str, ...] = ("Contract", "InternetService", "SeniorCitizen", "gender")
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Train and compare churn models.")
     # BooleanOptionalAction, not store_true: `action="store_true", default=True`
@@ -828,7 +823,7 @@ def main(argv: list[str] | None = None) -> int:
                 splits.y_val,
                 validation_proba,
                 df.loc[splits.X_val.index],
-                VALIDATION_SEGMENTS,
+                schema.VALIDATION_SEGMENTS,
                 threshold,
             ),
             sensitivity=threshold_sensitivity(

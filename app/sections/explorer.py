@@ -42,7 +42,7 @@ def selection_table(frame: pd.DataFrame, shown: pd.Series) -> pd.DataFrame:
     layer reaches the table and its CSV only by being listed here. ``outcome``
     comes from ``shown`` (``data.outcomes()``); every other row reads "Withheld".
     """
-    outcome = frame[schema.ID_COLUMN].map(shown).map(data.OUTCOMES).fillna(data.WITHHELD)
+    outcome = data.outcome_words(frame, shown)
     return (
         frame.assign(outcome=outcome)
         .reindex(columns=TABLE_COLUMNS)

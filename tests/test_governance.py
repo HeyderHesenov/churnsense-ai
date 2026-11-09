@@ -15,6 +15,7 @@ Synthetic data only; nothing here reads the real dataset.
 from __future__ import annotations
 
 import ast
+import re
 import shutil
 import subprocess
 from dataclasses import replace
@@ -34,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ALLOWED = {
     "src/churnsense/data/split.py": "defines the partitions",
     "src/churnsense/evaluation/report.py": "the final evaluation",
-    "app/data.py": "labels each row with its partition (index only, no scoring)",
+    "src/churnsense/book.py": "labels each row with its partition (index only, no scoring)",
 }
 
 
@@ -50,12 +51,79 @@ def _test_partition_references(path: Path) -> list[int]:
 def test_only_the_final_evaluation_reads_the_test_partition():
     offenders = {
         str(path.relative_to(ROOT)): lines
-        for folder in ("src", "app")
+        for folder in ("src", "app", "scripts")
         for path in sorted((ROOT / folder).rglob("*.py"))
         if (lines := _test_partition_references(path))
         and str(path.relative_to(ROOT)) not in ALLOWED
     }
     assert not offenders, f"test partition referenced outside the final evaluation: {offenders}"
+
+
+def test_the_release_is_written_in_one_module_and_never_elsewhere():
+    """No other module names the ledger, and the report module does not touch a file."""
+    release_file = ROOT / "src/churnsense/evaluation/release.py"
+    assert "_write_atomic" in release_file.read_text()
+    for folder in ("src", "app", "scripts"):
+        for path in sorted((ROOT / folder).rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if path != release_file:
+                assert "_write_ledger" not in source, path
+                assert "_write_atomic" not in source, path
+                # The consistency check names the ledger to compare it; it writes nothing.
+                allowed = ("report.py", "check_release_ledger.py")
+                assert "held_out_release.json" not in source or path.name in allowed, path
+    final = (ROOT / "src/churnsense/evaluation/report.py").read_text(encoding="utf-8")
+    body = final.split("# Final evaluation: the only code that reads the test partition")[1]
+    for writer in ("write_text", "write_bytes", "json.dump", "unlink", "open("):
+        assert writer not in body, writer
+
+
+def test_the_ledger_is_read_through_the_one_validating_reader():
+    """No second reader, metadata consumer or report path can skip ``release._decode``.
+
+    The synthetic end-to-end server only points the module at a temporary ledger, and the
+    consistency check is the separate program ``tests/ledger_payloads.py`` holds to the same rules.
+    """
+    release_file = ROOT / "src/churnsense/evaluation/release.py"
+    setup_only = {ROOT / "scripts/e2e_server.py"}
+    for folder in ("src", "app", "scripts"):
+        for path in sorted((ROOT / folder).rglob("*.py")):
+            if path == release_file:
+                continue
+            source = path.read_text(encoding="utf-8")
+            assert "_decode" not in source, path
+            assert "read_ledger" not in source, path
+            assert "LEDGER_FILE" not in source or path in setup_only, path
+
+
+def test_every_consumer_of_a_release_gets_it_from_the_validating_module():
+    consumers = {
+        "src/churnsense/api/dashboard.py": "release.published_release(",
+        "app/streamlit_app.py": "published_release(",
+        "app/sections/performance.py": "published_release(",
+        "src/churnsense/evaluation/report.py": "release.freeze(",
+    }
+    for name, call in consumers.items():
+        assert call in (ROOT / name).read_text(encoding="utf-8"), name
+    held_out_keys = re.compile(r"\.(?:released|identity)\b")
+    readers = {
+        str(path.relative_to(ROOT))
+        for folder in ("src", "app")
+        for path in sorted((ROOT / folder).rglob("*.py"))
+        if held_out_keys.search(path.read_text(encoding="utf-8"))
+    }
+    assert readers <= {
+        "src/churnsense/evaluation/release.py",
+        "src/churnsense/evaluation/report.py",
+    }
+
+
+def test_no_code_writes_or_reads_the_historical_report():
+    for folder in ("src", "app", "scripts"):
+        for path in sorted((ROOT / folder).rglob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            assert 'final_evaluation.md"' not in source, path
+            assert "final_evaluation.json" not in source, path
 
 
 def test_the_final_evaluation_refuses_without_confirmation(monkeypatch, capsys):
@@ -84,13 +152,13 @@ def test_the_final_evaluation_refuses_another_dataset_before_scoring(
         pipeline_cfg, data_sha256=recorded, split_digest=pinned_split_digest(pipeline_cfg)
     )
     scored = []
-    monkeypatch.setattr(report, "load_config", lambda: pipeline_cfg)
+    monkeypatch.setattr(report, "load_config", lambda _path: pipeline_cfg)
     monkeypatch.setattr(report, "configure_logging", lambda: None)
-    monkeypatch.setattr(report, "run_final_evaluation", lambda *args, **_: scored.append(args))
+    monkeypatch.setattr(report, "score_held_out", lambda *args, **_: scored.append(args))
 
     assert report.main(["--confirm-test-read"]) == 1
     assert not scored
-    assert not (pipeline_cfg.paths.reports_dir / "final_evaluation.md").exists()
+    assert not (pipeline_cfg.paths.reports_dir / report.REPORT_FILENAME).exists()
 
 
 @pytest.mark.skipif(shutil.which("make") is None, reason="make is not installed")
@@ -162,3 +230,36 @@ def test_the_split_log_gives_no_test_base_rate(clean_frame, cfg: Config, caplog)
     assert "positive_rate" in lines["train"]
     assert "positive_rate" in lines["validation"]
     assert "positive_rate" not in lines["test"]
+
+
+#: The IBM Telco customer IDs are four digits, a dash and five capitals. The repository
+#: does not redistribute the dataset, so no file in it names a real customer;
+#: synthetic rows use DEMO- IDs, and examples use this format hint.
+_DATASET_ID = re.compile(r"\b[0-9]{4}-[A-Z]{5}\b")
+_ID_FORMAT_HINT = "1234-ABCDE"
+
+
+def test_no_file_in_the_repository_names_a_real_customer():
+    scanned = [
+        path
+        for folder in (
+            "src",
+            "app",
+            "tests",
+            "docs",
+            "configs",
+            "scripts",
+            "frontend/src",
+            "frontend/e2e",
+        )
+        for path in sorted((ROOT / folder).rglob("*"))
+        if path.is_file()
+        and path.suffix in {".py", ".ts", ".tsx", ".css", ".md", ".json", ".yaml", ".html"}
+    ] + [ROOT / "README.md", ROOT / "frontend" / "playwright.config.ts"]
+    named = {
+        str(path.relative_to(ROOT)): sorted(set(found) - {_ID_FORMAT_HINT})
+        for path in scanned
+        if (found := _DATASET_ID.findall(path.read_text(encoding="utf-8", errors="ignore")))
+        and set(found) - {_ID_FORMAT_HINT}
+    }
+    assert not named, f"real customer IDs in tracked files: {named}"

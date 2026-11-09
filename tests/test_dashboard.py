@@ -17,8 +17,8 @@ import hashlib
 from dataclasses import replace
 
 import pytest
-from app import data
 
+from churnsense import book as books
 from churnsense.data import schema
 from tests.conftest import SYNTHETIC_SHA256
 
@@ -94,6 +94,110 @@ def test_the_performance_page_never_shows_test_metrics_it_computed(dashboard):
     assert "Test-set performance" not in headers
 
 
+#: Figures that would pass the rule, sitting in a sidecar: not a source any more.
+_LEGACY = {
+    "threshold": 0.36,
+    "n": 1000,
+    "positives": 300,
+    "tn": 500,
+    "fp": 200,
+    "fn": 150,
+    "tp": 150,
+    "roc_auc": 0.7654,
+    "average_precision": 0.6543,
+    "brier": 0.1234,
+    "precision": 0.4321,
+    "recall": 0.5678,
+    "f1": 0.4567,
+    "accuracy": 0.6789,
+}
+
+
+def _everything_shown(at) -> str:
+    return " ".join(
+        str(element.value)
+        for kind in (at.markdown, at.caption, at.info, at.subheader)
+        for element in kind
+    )
+
+
+def _published(predictor, **released) -> None:
+    from churnsense.evaluation import release
+
+    threshold = predictor.meta["threshold"]
+    release._write_ledger(
+        release.Ledger(
+            release.PUBLISHED,
+            {
+                **dict.fromkeys(release._HASH_KEYS, "a" * 64),
+                "model_sha256": predictor.meta["model_sha256"],
+                "threshold": threshold,
+            },
+            "2026-10-21T00:00:00+00:00",
+            {
+                "threshold": threshold,
+                "n": 1000,
+                "positives": 300,
+                "tn": 500,
+                "fp": 200,
+                "fn": 150,
+                "tp": 150,
+                "accuracy": 0.65,
+                "precision": 0.4286,
+                "recall": 0.5,
+                "f1": 0.4615,
+                **released,
+            },
+        )
+    )
+
+
+@pytest.mark.parametrize("mark", [None, 2], ids=["unmarked", "marked"])
+def test_a_sidecars_figures_are_not_shown_whatever_they_say(
+    dashboard, dashboard_predictor, monkeypatch, mark
+):
+    monkeypatch.setitem(dashboard_predictor.meta, "test_metrics", _LEGACY)
+    monkeypatch.setitem(dashboard_predictor.meta, "test_disclosure_policy", mark)
+    at = dashboard("Model performance")
+    assert not at.exception
+    shown = _everything_shown(at) + " ".join(str(c.value) for c in at.sidebar.caption)
+    for figure in ("0.765", "0.654", "0.432", "0.568", "0.679", "0.457"):
+        assert figure not in shown, figure
+    assert "No final test evaluation can be shown" in shown
+
+
+def test_the_release_is_shown_with_no_score_metric(dashboard, dashboard_predictor):
+    _published(dashboard_predictor)
+    at = dashboard("Model performance")
+    assert not at.exception
+    assert "Test precision 0.429" in " ".join(str(c.value) for c in at.sidebar.caption)
+    shown = _everything_shown(at)
+    assert "recorded on test" in shown
+    assert "Brier, ROC-AUC and PR-AUC are not published for this partition" in shown
+    assert "0.650" in shown and "0.462" in shown, "accuracy and F1 of the release"
+
+
+def test_a_reservation_shows_nothing(dashboard, dashboard_predictor):
+    from churnsense.evaluation import release
+
+    release._write_ledger(
+        release.Ledger(
+            release.RESERVED,
+            {
+                **dict.fromkeys(release._HASH_KEYS, "a" * 64),
+                "model_sha256": dashboard_predictor.meta["model_sha256"],
+                "threshold": dashboard_predictor.meta["threshold"],
+            },
+            "2026-10-21T00:00:00+00:00",
+            None,
+        )
+    )
+    at = dashboard("Model performance")
+    assert not at.exception
+    assert "No final test evaluation can be shown" in _everything_shown(at)
+    assert "Test precision" not in " ".join(str(c.value) for c in at.sidebar.caption)
+
+
 # --- partitions that cannot be trusted ----------------------------------------
 
 
@@ -109,8 +213,8 @@ def untrusted(request, clean_frame, dashboard_predictor):
         meta["data_sha256"] = hashlib.sha256(b"another file").hexdigest()
     else:
         meta.pop("data_sha256")
-    book = data.score_book(clean_frame, SYNTHETIC_SHA256, replace(dashboard_predictor, meta=meta))
-    assert book.withheld == data.WITHHELD_REASONS[request.param]
+    book = books.score_book(clean_frame, SYNTHETIC_SHA256, replace(dashboard_predictor, meta=meta))
+    assert book.withheld == books.WITHHELD_REASONS[request.param]
     return book
 
 
@@ -135,5 +239,5 @@ def test_the_simulator_keeps_its_contact_list(dashboard, untrusted):
     """No economics without outcomes, but the list at the shipped threshold needs none."""
     at = dashboard("Retention simulator", served=untrusted)
     assert _says_why(at, untrusted)
-    assert "Which customers would be contacted" in " ".join(h.value for h in at.subheader)
+    assert "Which customers would be flagged" in " ".join(h.value for h in at.subheader)
     assert schema.TARGET not in untrusted.frame.columns

@@ -1,0 +1,125 @@
+/**
+ * The surfaces figures sit on: a card (a named region with its heading), a
+ * stat tile, and the small tags that qualify a figure.
+ */
+import { useId, type ReactNode } from 'react';
+import { Link } from '../../app/router';
+import { cx } from '../../lib/style';
+import { icons } from '../icons';
+import styles from './Surface.module.css';
+
+interface CardProps {
+  /** The id of the card's heading, which names the region. */
+  titleId: string;
+  children: ReactNode;
+  /** dense: the explorer's tighter padding; sim: simulated money; flush: a table edge to edge. */
+  variant?: 'standard' | 'dense' | 'sim' | 'flush';
+  className?: string | undefined;
+}
+
+export function Card({ titleId, children, variant = 'standard', className }: CardProps) {
+  return (
+    <section aria-labelledby={titleId} className={cx(styles.card, styles[variant], className)}>
+      {children}
+    </section>
+  );
+}
+
+interface CardHeaderProps {
+  id: string;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  /** Right-aligned: a tag, a toggle or a legend. */
+  aside?: ReactNode;
+  /** 3 for a card under a section's own heading. */
+  level?: 2 | 3;
+  /** The heading can take focus, for a page that sends the reader here. */
+  focusable?: boolean;
+}
+
+export function CardHeader({
+  id,
+  title,
+  subtitle,
+  aside,
+  level = 2,
+  focusable = false,
+}: CardHeaderProps) {
+  const Heading = level === 2 ? 'h2' : 'h3';
+  return (
+    <div className={styles.header}>
+      <div className={styles.heading}>
+        <Heading
+          id={id}
+          tabIndex={focusable ? -1 : undefined}
+          className={cx(styles.title, level === 3 && styles.minor)}
+        >
+          {title}
+        </Heading>
+        {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
+      </div>
+      {aside}
+    </div>
+  );
+}
+
+interface StatTileProps {
+  label: ReactNode;
+  value: ReactNode;
+  sub?: ReactNode;
+  /**
+   * A tile that is also a way into the figure: where it goes, and what following
+   * it does. The tile's visible text is the link's name (WCAG 2.5.3, label in
+   * name); ``description`` is read after it.
+   */
+  link?: { to: string; description: string; onFollow?: () => void };
+  /** The accent line along the top: the tile the page is about. */
+  accent?: boolean;
+  compact?: boolean;
+}
+
+export function StatTile({
+  label,
+  value,
+  sub,
+  link,
+  accent = false,
+  compact = false,
+}: StatTileProps) {
+  const descriptionId = useId();
+  const classes = cx(
+    styles.tile,
+    compact && styles.compact,
+    accent && styles.accent,
+    link && styles.linkTile,
+  );
+  const body = (
+    <>
+      <span className={styles.tileLabel}>
+        {label}
+        {link && <icons.arrowUpRight size={14} />}
+      </span>
+      <span className={styles.tileValue}>{value}</span>
+      {sub && <span className={styles.tileSub}>{sub}</span>}
+    </>
+  );
+  if (!link) return <div className={classes}>{body}</div>;
+  return (
+    <Link to={link.to} aria-describedby={descriptionId} className={classes} onClick={link.onFollow}>
+      {body}
+      <span id={descriptionId} hidden>
+        {link.description}
+      </span>
+    </Link>
+  );
+}
+
+/** A small uppercase qualifier: "TRAIN · 4,225", "TEST", "NOT SCANNED". */
+export function Tag({ tone = 'meta', children }: { tone?: 'meta' | 'sim'; children: ReactNode }) {
+  return <span className={cx(styles.tag, tone === 'sim' && styles.simTag)}>{children}</span>;
+}
+
+/** Every money figure that rests on assumptions says so. */
+export function SimulatedBadge() {
+  return <Tag tone="sim">SIMULATED</Tag>;
+}

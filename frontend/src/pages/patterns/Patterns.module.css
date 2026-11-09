@@ -1,0 +1,393 @@
+/* Churn patterns, after Patterns.dc.html; deviations are in PLAN.md "Phase 3.8". */
+
+/* --- layout -------------------------------------------------------------------- */
+.population {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+.workspace {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+@media (min-width: 1200px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  }
+}
+.main,
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.card {
+  min-width: 0;
+}
+.note,
+.footnote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.stale {
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+
+/* --- controls ------------------------------------------------------------------ */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--surface);
+}
+.pickers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.suggested {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* --- the focus line ------------------------------------------------------------ */
+.focus {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+}
+.focusLine,
+.explore {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.pinMark {
+  color: var(--observed);
+  font-weight: 600;
+}
+.exploreLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-text);
+}
+
+/* --- the table ----------------------------------------------------------------- */
+.tableWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--surface);
+}
+.scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 3px;
+  padding: 6px;
+  font-size: 12.5px;
+}
+.table th {
+  padding: 6px 8px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: left;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.table th > span {
+  display: block;
+}
+.table thead th {
+  text-align: center;
+}
+.corner {
+  color: var(--muted);
+}
+.margin {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+.table td {
+  padding: 0;
+  min-width: 76px;
+}
+.cell {
+  --hue: var(--observed);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-6);
+  /* The shade is the figure's place on its scale: none at 0, two thirds at the top. */
+  background: color-mix(in oklab, var(--hue) calc(var(--t) * 66%), var(--well));
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.cell[data-measure='customers'] {
+  --hue: var(--count);
+}
+.cell[data-measure='lift'][data-side='below'] {
+  --hue: var(--observed-below);
+}
+.cell:hover {
+  border-color: var(--line-hover);
+}
+.cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cell[aria-pressed='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.hidden {
+  background:
+    repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 7px), var(--well);
+  color: var(--muted);
+}
+.value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+.count {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  /* The cell's own ink: legible on its darkest shade (WCAG 1.4.3), muted in a hidden cell. */
+  color: inherit;
+}
+
+/* --- the legend ---------------------------------------------------------------- */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.ramp {
+  width: 96px;
+  height: 8px;
+  border-radius: var(--radius-3);
+  background: linear-gradient(
+    90deg,
+    var(--well),
+    color-mix(in oklab, var(--observed) 66%, var(--well))
+  );
+}
+.ramp[data-measure='customers'] {
+  background: linear-gradient(
+    90deg,
+    var(--well),
+    color-mix(in oklab, var(--count) 66%, var(--well))
+  );
+}
+.ramp[data-measure='lift'] {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--observed-below) 66%, var(--well)),
+    var(--well),
+    color-mix(in oklab, var(--observed) 66%, var(--well))
+  );
+}
+.legendWhat {
+  margin-right: 8px;
+}
+.hatchSwatch {
+  width: 14px;
+  height: 10px;
+  border-radius: var(--radius-2);
+  background:
+    repeating-linear-gradient(135deg, var(--hatch) 0 2px, transparent 2px 5px), var(--well);
+  outline: 1px solid var(--line);
+}
+
+/* --- the ranking --------------------------------------------------------------- */
+.ranked {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.rankRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.rankRow:hover {
+  background: var(--row-hover);
+}
+.rankRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rankOn {
+  border-color: var(--line-strong);
+  background: var(--selected);
+}
+.rankName {
+  overflow-wrap: anywhere;
+}
+.rankFigures {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.rankFigures b {
+  color: var(--ink);
+}
+.track {
+  position: relative;
+  grid-column: 1 / -1;
+  height: 10px;
+}
+.track::before {
+  content: '';
+  position: absolute;
+  inset: 4px 0;
+  border-radius: var(--radius-2);
+  background: var(--track);
+}
+.whisker {
+  position: absolute;
+  top: 4px;
+  left: calc(var(--low) * 100%);
+  width: calc((var(--high) - var(--low)) * 100%);
+  height: 2px;
+  background: var(--observed);
+}
+.dot {
+  position: absolute;
+  top: 1px;
+  left: calc(var(--rate) * 100%);
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--observed);
+}
+.baseLine {
+  position: absolute;
+  top: 0;
+  left: calc(var(--base) * 100%);
+  width: 1px;
+  height: 10px;
+  background: var(--ink-2);
+}
+.axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 10px 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* --- associations -------------------------------------------------------------- */
+.associations {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.association {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-8);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.associationButton {
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.associationButton:hover {
+  background: var(--row-hover);
+}
+.associationButton:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.associationName {
+  overflow-wrap: anywhere;
+}
+.noBreakdown {
+  color: var(--muted);
+}
+.associationFigure {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.strength {
+  grid-column: 1 / -1;
+  height: 4px;
+  width: calc(var(--w) * 100%);
+  border-radius: var(--radius-2);
+  background: var(--count);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stale {
+    transition: none;
+  }
+}

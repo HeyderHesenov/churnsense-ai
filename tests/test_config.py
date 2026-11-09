@@ -180,3 +180,33 @@ def test_the_dashboard_and_the_api_answer_the_same_host_names(cfg: Config):
 
 def test_the_dashboard_upload_limit_matches_the_api(cfg: Config):
     assert _streamlit_server()["maxUploadSize"] * 1024 * 1024 == cfg.api.max_upload_bytes
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"crawl": {"burst": 1, "per_seconds": 1}},  # an unknown budget
+        {"explain": {"burst": 0, "per_seconds": 1}},
+        {"explain": {"burst": True, "per_seconds": 1}},
+        {"batch": {"burst": 1, "per_seconds": 0}},
+        {"batch": {"burst": 1}},
+        "explain",
+    ],
+)
+def test_rate_limits_are_validated(limits):
+    with pytest.raises(ConfigError):
+        ApiConfig(max_batch_rows=10, max_upload_bytes=1024, rate_limits=limits)
+
+
+def test_rate_limits_default_per_budget(cfg: Config):
+    from churnsense.config import DEFAULT_RATE_LIMITS, RateLimit
+
+    partial = ApiConfig(
+        max_batch_rows=10,
+        max_upload_bytes=1024,
+        rate_limits={"explain": {"burst": 3, "per_seconds": 1}},
+    )
+    assert dict(partial.rate_limits)["explain"] == RateLimit(burst=3, per_seconds=1)
+    assert dict(partial.rate_limits)["batch"] == dict(DEFAULT_RATE_LIMITS)["batch"]
+    assert [name for name, _ in cfg.api.rate_limits] == [name for name, _ in DEFAULT_RATE_LIMITS]
+    hash(cfg.api)  # a frozen config stays hashable

@@ -1,0 +1,31 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 760px;
+}
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.sim {
+  color: var(--sim);
+}
+.title {
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.12;
+  letter-spacing: -0.028em;
+  text-wrap: balance;
+}
+.md {
+  font-size: 30px;
+}
+.lede {
+  font-size: 14.5px;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}

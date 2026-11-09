@@ -1,0 +1,115 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
+import { SearchField, Select } from './Field';
+import { PageHeader } from './PageHeader';
+import { Card, CardHeader, SimulatedBadge, StatTile } from './Surface';
+
+describe('Card', () => {
+  it('is a region named by its own heading', () => {
+    render(
+      <Card titleId="campaign">
+        <CardHeader id="campaign" title="Campaign at 0.36" subtitle="Validation sweep" />
+      </Card>,
+    );
+    expect(screen.getByRole('region', { name: 'Campaign at 0.36' })).toHaveTextContent(
+      'Validation sweep',
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'Campaign at 0.36' })).toBeInTheDocument();
+  });
+
+  it('can sit one level down, under a section heading', () => {
+    render(
+      <Card titleId="lifecycle">
+        <CardHeader id="lifecycle" title="Risk is front-loaded" level={3} />
+      </Card>,
+    );
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Risk is front-loaded' }),
+    ).toBeInTheDocument();
+  });
+
+  it('says plainly that money figures are simulated', () => {
+    render(<SimulatedBadge />);
+    expect(screen.getByText('SIMULATED')).toBeInTheDocument();
+  });
+});
+
+describe('StatTile', () => {
+  it('shows a figure with its label and context', () => {
+    render(
+      <StatTile label="Customers scored" value="7,043" sub="every row, one prediction path" />,
+    );
+    expect(screen.getByText('Customers scored')).toBeInTheDocument();
+    expect(screen.getByText('7,043')).toBeInTheDocument();
+  });
+
+  it('as a link, is named by what it shows, says where it goes, and reports the click', async () => {
+    window.history.replaceState(null, '', '/');
+    const onFollow = vi.fn();
+    render(
+      <StatTile
+        label="Flagged at 0.36"
+        value="2,306"
+        sub="32.7% of the book"
+        link={{ to: '/?bands=High#queue', description: 'Show them in the queue', onFollow }}
+      />,
+    );
+    const link = screen.getByRole('link', { description: 'Show them in the queue' });
+    // Label in name (WCAG 2.5.3): every word the tile shows is in the link's name.
+    expect(link).toHaveAccessibleName(/^Flagged at 0\.36\s*2,306\s*32\.7% of the book$/);
+    await userEvent.click(link);
+    expect(onFollow).toHaveBeenCalledTimes(1);
+    expect(window.location.search).toBe('?bands=High');
+  });
+});
+
+describe('PageHeader', () => {
+  it('gives the page its one top-level heading', () => {
+    render(
+      <PageHeader eyebrow="Executive overview" title="Where retention risk sits in the book today">
+        7,043 customers, scored.
+      </PageHeader>,
+    );
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      'Where retention risk sits',
+    );
+  });
+});
+
+describe('Field', () => {
+  it('labels a search box even when the label is not shown', async () => {
+    function Search() {
+      const [value, setValue] = useState('');
+      return (
+        <SearchField
+          label="Find a customer by ID"
+          value={value}
+          onChange={setValue}
+          placeholder="Find…"
+        />
+      );
+    }
+    render(<Search />);
+    const box = screen.getByRole('searchbox', { name: 'Find a customer by ID' });
+    await userEvent.type(box, 'DEMO');
+    expect(box).toHaveValue('DEMO');
+  });
+
+  it('chooses from a labelled select', async () => {
+    const onChange = vi.fn();
+    render(
+      <Select
+        label="Partition"
+        value="all"
+        onChange={onChange}
+        options={[
+          { value: 'all', label: 'All' },
+          { value: 'test', label: 'Test (outcome withheld)' },
+        ]}
+      />,
+    );
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Partition' }), 'test');
+    expect(onChange).toHaveBeenCalledWith('test');
+  });
+});

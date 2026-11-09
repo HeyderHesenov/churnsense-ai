@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ChurnSense AI — Batch scoring</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap">
+<style>
+body{margin:0;background:#0a0d12}
+html,body{overflow-x:hidden;overscroll-behavior-x:none;max-width:100%}
+a{color:#7fd3e3;text-decoration:none}a:hover{color:#b8e8f1}
+.sr{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.navlink,.ghost,.seg,.chip,.trow,.pill,.pagebtn{transition:background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease}
+.navlink:hover{background:#141a22;color:#e6edf3}
+.ghost:hover{background:#1a212b;border-color:#3a4654}
+.seg:hover{color:#e6edf3}
+.chip:hover,.pill:hover{border-color:#3a4654}
+.trow:hover{background:#121820}
+.bar{transition:width .3s ease,height .3s ease,left .3s ease}
+input[type=range]{width:100%;margin:0;height:28px;cursor:pointer}
+input::placeholder{color:#7d8792}
+select,input{color-scheme:dark}
+:focus-visible{outline:2px solid #5cc8dc;outline-offset:2px}
+@media (max-width:860px){.hide-sm{display:none !important}}
+.show-sm{display:none !important}.side-backdrop{display:none;position:fixed;inset:0;z-index:55;background:rgba(5,8,12,0.62);border:0;padding:0;margin:0;cursor:pointer}@media (max-width:860px){.show-sm{display:inline-flex !important}.side{position:fixed !important;top:0;left:0;bottom:0;width:min(300px,86vw) !important;max-width:none !important;flex:none !important;z-index:60;transform:translateX(-105%);transition:transform .22s ease, box-shadow .22s ease;overflow-y:auto;border-right:1px solid #1c232c}.side[data-open="true"]{transform:none;box-shadow:16px 0 48px rgba(0,0,0,0.55)}.side-backdrop{display:block}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+<style>
+.drop{transition:border-color .15s ease, background-color .15s ease}
+.drop:hover{border-color:#1897ae;background:rgba(24,151,174,0.05)}
+.drop:focus-within{border-color:#5cc8dc}
+</style>
+</helmet>
+<div style="min-height: 100vh; background: #0a0d12; color: #e6edf3; font-family: 'Geist', ui-sans-serif, system-ui, sans-serif; font-size: 14px; line-height: 1.5; display: flex; flex-wrap: wrap; align-items: stretch; font-variant-numeric: tabular-nums">
+
+<aside class="side" data-open="{{mnavStr}}" aria-label="Navigation" style="flex: {{sideFlex}}; box-sizing: border-box; background: #0c1016; border-right: 1px solid #1c232c; padding: 18px 12px 18px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 11px; padding: 4px 8px; min-height: 40px; justify-content: {{navJustify}}">
+<svg width="30" height="30" viewBox="0 0 32 32" fill="none" aria-hidden="true" style="flex: none"><circle cx="16" cy="16" r="11" stroke="#1897ae" stroke-width="3" stroke-dasharray="58 12" stroke-linecap="round" transform="rotate(-62 16 16)"></circle><circle cx="25.2" cy="9.6" r="2.6" fill="#f0b54a"></circle><circle cx="16" cy="16" r="3.2" fill="#e6edf3"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 15.5px; font-weight: 650; letter-spacing: -0.015em; white-space: nowrap">ChurnSense AI</span>
+<span style="font-size: 11.5px; color: #8b949e; white-space: nowrap">Retention intelligence</span>
+</div>
+</sc-if>
+<button type="button" class="ghost show-sm" onClick="{{closeMnav}}" aria-label="Close navigation menu" style="margin-left: auto; flex: none; width: 36px; height: 36px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 9px; color: #adb7c2; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+</div>
+<nav aria-label="Sections" style="display: flex; flex-direction: column; gap: 2px">
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 0 10px 6px">Book</span></sc-if>
+<a href="Main.dc.html" aria-label="Executive overview" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Executive overview</span></sc-if></a>
+<a href="Explorer.dc.html" aria-label="Customer explorer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"></path><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18.5 14.8c1.6.8 2.6 2.5 3 5.2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Customer explorer</span></sc-if></a>
+<a href="Patterns.dc.html" aria-label="Churn patterns" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Churn patterns</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Model</span></sc-if>
+<a href="Performance.dc.html" aria-label="Model performance" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M3 14a9 9 0 0 1 18 0"></path><path d="M12 14l4.5-4.5"></path><circle cx="12" cy="14" r="1.4"></circle><path d="M3 19h18"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Model performance</span></sc-if></a>
+<a href="Explain.dc.html" aria-label="Explainability" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 5h6M10 9h5M8 13h4M12 17h8M4 21h16"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Explainability</span></sc-if></a>
+<a href="Customer.dc.html" aria-label="Single customer" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c1-4 4.2-6 8-6s7 2 8 6"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Single customer</span></sc-if></a>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e; padding: 14px 10px 6px">Act</span></sc-if>
+<a href="Simulator.dc.html" aria-label="Retention simulator" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; color: #adb7c2">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"></path><circle cx="16" cy="7" r="2"></circle><circle cx="10" cy="17" r="2"></circle></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Retention simulator</span></sc-if></a>
+<a href="Batch.dc.html" aria-current="page" aria-label="Batch scoring" class="navlink" style="display: flex; align-items: center; justify-content: {{navJustify}}; gap: 11px; min-height: 40px; padding: 0 10px; border-radius: 9px; background: #141b24; color: #e6edf3; font-weight: 550; box-shadow: inset 2px 0 0 #1897ae">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5M12 18v-6M9 15l3-3 3 3"></path></svg>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}"><span style="white-space: nowrap">Batch scoring</span></sc-if></a>
+</nav>
+<sc-if value="{{expanded}}" hint-placeholder-val="{{ true }}">
+<div class="side-foot" style="margin-top: auto; display: flex; flex-direction: column; gap: 12px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 14px">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #8b949e">Serving</span>
+<span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8fd99a"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fa655"></span>Loaded</span>
+</div>
+<div style="font-weight: 600; margin-top: 8px">Logistic regression</div>
+<div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
+<div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+</div>
+</div>
+<p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
+</div>
+</sc-if>
+</aside>
+<sc-if value="{{mnavOpen}}" hint-placeholder-val="{{ false }}"><button type="button" class="side-backdrop" onClick="{{closeMnav}}" aria-label="Close navigation menu"></button></sc-if>
+
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
+<button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
+<button type="button" class="ghost hide-sm" onClick="{{toggleSide}}" aria-label="{{sideLabel}}" aria-expanded="{{expandedStr}}" style="flex: none; width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #adb7c2; cursor: pointer">
+<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"></rect><path d="M9 4v16"></path></svg>
+</button>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; white-space: nowrap"><span>Act</span><span aria-hidden="true">/</span><span style="color: #e6edf3; font-weight: 550" aria-current="page">Batch scoring</span></nav>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px">
+<button type="button" class="ghost" onClick="{{downloadTemplate}}" style="display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; background: #121821; border: 1px solid #2a3440; border-radius: 10px; color: #e6edf3; font-family: inherit; font-size: 13px; font-weight: 550; cursor: pointer; white-space: nowrap">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+Download template</button>
+</div>
+</header>
+
+<div style="box-sizing: border-box; width: 100%; max-width: 1400px; padding: 24px 28px 40px; display: flex; flex-direction: column; gap: 14px">
+
+<section style="display: flex; flex-direction: column; gap: 8px; max-width: 820px">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: #5cc8dc">Batch scoring</span>
+<h1 style="margin: 0; font-size: 30px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em">Score a file of customers</h1>
+<p style="margin: 0; font-size: 14px; color: #adb7c2; text-wrap: pretty">Validated against the same contract as <span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #e6edf3">POST /predict/batch</span>, then scored in your browser by an exact copy of the shipped model: on all 7,043 customers it matches the Python artifact to 2e-14, with no flag decision changed. Nothing leaves this page.</p>
+</section>
+
+<ol aria-label="Progress" style="margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+<li style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 6px; border-radius: 999px; border: 1px solid {{s.border}}; background: {{s.bg}}; font-size: 12.5px; color: {{s.fg}}"><span style="width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: {{s.dotBg}}; color: {{s.dotFg}}; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; font-weight: 600">{{s.mark}}</span>{{s.label}}</li>
+</sc-for>
+</ol>
+
+<div style="display: flex; flex-wrap: wrap; gap: 14px; align-items: stretch">
+<section aria-label="Upload" style="flex: 1 1 420px; min-width: 0; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px">
+<label class="drop" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 150px; padding: 18px; border: 1.5px dashed #2f3a47; border-radius: 14px; cursor: pointer; text-align: center">
+<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5cc8dc" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"></path><path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>
+<span style="font-weight: 600">Choose a CSV file</span>
+<span style="font-size: 12.5px; color: #8b949e">Up to 10,000 rows and 5 MB. Extra columns are ignored; nothing is uploaded anywhere.</span>
+<input type="file" accept=".csv,text/csv" onChange="{{onFile}}" aria-label="Choose a CSV file to score" style="font-family: inherit; font-size: 12.5px; color: #adb7c2; max-width: 100%">
+</label>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<button type="button" onClick="{{useDemo}}" disabled="{{busy}}" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 0; background: #1897ae; color: #041217; font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Use the demo file</button>
+<span style="font-size: 12px; color: #8b949e">120 synthetic customers from tests/fixtures, labels included</span>
+</div>
+<button type="button" class="ghost" onClick="{{toggleCols}}" aria-expanded="{{colsOpenStr}}" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px; border-radius: 8px; border: 1px solid #222a34; background: transparent; color: #adb7c2; font-family: inherit; font-size: 12.5px; cursor: pointer">Required columns (18) <span aria-hidden="true">{{colsArrow}}</span></button>
+<sc-if value="{{colsOpen}}" hint-placeholder-val="{{ false }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #adb7c2; padding: 10px 12px; background: #0d1117; border: 1px solid #1f2730; border-radius: 10px">
+<sc-for list="{{reqCols}}" as="c" hint-placeholder-count="18"><span>{{c.name}} <span style="color: #8b949e">{{c.kind}}</span></span></sc-for>
+</div>
+</sc-if>
+</section>
+
+<section aria-label="Validation" aria-live="polite" style="flex: 1 1 420px; min-width: 0; background: #10151c; border: 1px solid {{vBorder}}; border-radius: 16px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Validation</h2>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: {{vCodeFg}}; border: 1px solid {{vCodeBorder}}; border-radius: 6px; padding: 2px 8px">{{vCode}}</span>
+</div>
+<div style="font-size: 13.5px; color: #e6edf3; font-weight: 550">{{vTitle}}</div>
+<div style="font-size: 12.5px; color: #adb7c2">{{vBody}}</div>
+<sc-if value="{{hasProblems}}" hint-placeholder-val="{{ false }}">
+<ul style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: #f7abc8">
+<sc-for list="{{problems}}" as="p" hint-placeholder-count="3"><li><span style="color: #e6edf3">{{p.text}}</span></li></sc-for>
+</ul>
+</sc-if>
+<sc-if value="{{hasNotes}}" hint-placeholder-val="{{ false }}">
+<ul style="margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: #8b949e">
+<sc-for list="{{notes}}" as="n" hint-placeholder-count="2"><li>{{n.text}}</li></sc-for>
+</ul>
+</sc-if>
+</section>
+</div>
+
+<sc-if value="{{scored}}" hint-placeholder-val="{{ false }}">
+<section aria-label="Results summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Rows scored</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{rN}}</div><div style="font-size: 11.5px; color: #8b949e">{{rTime}}</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Flagged at 0.36</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{rFlag}}</div><div style="font-size: 11.5px; color: #8b949e">{{rFlagShare}} of the file</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Mean probability</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{rMean}}</div><div style="font-size: 11.5px; color: #8b949e">expected churners {{rExp}}</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">Monthly charges at risk</div><div style="font-size: 22px; font-weight: 600; letter-spacing: -0.02em">{{rRisk}}</div><div style="font-size: 11.5px; color: #8b949e">Σ probability × monthly</div></div>
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px">
+<div style="font-size: 12px; color: #8b949e">By band</div>
+<div style="display: flex; height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; background: #1c232c"><sc-for list="{{rBands}}" as="b" hint-placeholder-count="4"><span style="width: {{b.w}}; background: {{b.color}}"></span></sc-for></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; color: #adb7c2"><sc-for list="{{rBands}}" as="b" hint-placeholder-count="4"><span><span style="color: {{b.ink}}">{{b.k}}</span> {{b.n}}</span></sc-for></div>
+</div>
+<sc-if value="{{hasLabels}}" hint-placeholder-val="{{ false }}">
+<div style="background: #10151c; border: 1px solid #1f2730; border-radius: 12px; padding: 12px 14px"><div style="font-size: 12px; color: #8b949e">On this file's labels</div><div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em; font-family: 'Geist Mono', ui-monospace, monospace">P {{lP}} · R {{lR}}</div><div style="font-size: 11.5px; color: #8b949e">{{lNote}}</div></div>
+</sc-if>
+</section>
+
+<section aria-label="Scored rows" style="background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 14px 0 6px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 0 18px">
+<div>
+<h2 style="margin: 0; font-size: 15px; font-weight: 600">Scored rows <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 400; font-size: 12.5px; color: #8b949e">{{fileName}}</span></h2>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Every uploaded row is scored, duplicates included, and keeps its 0-based position.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<div role="group" aria-label="Rows shown" style="display: inline-flex; padding: 2px; background: #0b0f14; border: 1px solid #2a3440; border-radius: 9px; gap: 2px">
+<sc-for list="{{showOpts}}" as="o" hint-placeholder-count="2"><button type="button" class="seg" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" style="height: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: {{o.bg}}; color: {{o.fg}}; font-family: inherit; font-size: 12px; font-weight: 550; cursor: pointer">{{o.label}}</button></sc-for>
+</div>
+<button type="button" class="ghost" onClick="{{toggleSort}}" style="height: 34px; padding: 0 10px; border-radius: 9px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; font-family: inherit; font-size: 12.5px; cursor: pointer">{{sortLabel}}</button>
+<button type="button" onClick="{{downloadScored}}" style="display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 9px; border: 0; background: #1897ae; color: #041217; font-family: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Scored CSV</button>
+</div>
+</div>
+<div style="overflow-x: auto; position: relative">
+<div style="min-width: 820px">
+<div style="display: grid; grid-template-columns: 56px minmax(150px, 1.2fr) 128px 96px minmax(200px, 2fr) 90px 96px; padding: 6px 18px; border-bottom: 1px solid #1f2730; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #8b949e; white-space: nowrap"><span>Row</span><span>Customer</span><span>Probability</span><span>Band</span><span>Profile</span><span style="text-align: right">Monthly</span><span style="text-align: right">Label</span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="12">
+<div class="trow" style="display: grid; grid-template-columns: 56px minmax(150px, 1.2fr) 128px 96px minmax(200px, 2fr) 90px 96px; align-items: center; min-height: 40px; padding: 0 18px; border-bottom: 1px solid #182029; font-size: 13px; white-space: nowrap">
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8b949e">{{r.row}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace">{{r.id}}</span>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="width: 50px; height: 5px; border-radius: 3px; background: #1c232c; overflow: hidden"><span style="display: block; width: {{r.pw}}; height: 100%; background: {{r.color}}"></span></span><span style="font-family: 'Geist Mono', ui-monospace, monospace">{{r.p}}</span></span>
+<span style="display: inline-flex; align-items: center; gap: 6px; color: {{r.ink}}"><span style="width: 8px; height: 8px; border-radius: 2px; background: {{r.color}}"></span>{{r.band}}</span>
+<span style="color: #adb7c2; overflow: hidden; text-overflow: ellipsis">{{r.profile}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right">{{r.monthly}}</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; text-align: right; color: {{r.labelFg}}">{{r.label}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 18px 6px">
+<span style="font-size: 12px; color: #8b949e">{{pageNote}}</span>
+<div style="display: flex; align-items: center; gap: 6px">
+<button type="button" class="pagebtn" onClick="{{prev}}" disabled="{{prevDis}}" aria-label="Previous page" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></button>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 12px; color: #adb7c2; min-width: 56px; text-align: center">{{pageLabel}}</span>
+<button type="button" class="pagebtn" onClick="{{next}}" disabled="{{nextDis}}" aria-label="Next page" style="width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid #2a3440; background: transparent; color: #e6edf3; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></button>
+</div>
+</div>
+</section>
+</sc-if>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1460}}'>
+
+
+function mnav(self) {
+  const st = self.state || {};
+  const open = !!st.mnav;
+  return { mnavOpen: open, mnavStr: open ? 'true' : 'false', toggleMnav: () => self.setState({ mnav: !open }), closeMnav: () => self.setState({ mnav: false }) };
+}
+function shell(self) {
+  const st = self.state || {};
+  const expanded = !(st.collapsed ?? false);
+  return {
+    expanded, expandedStr: expanded ? 'true' : 'false',
+    sideFlex: expanded ? '1 1 232px' : '0 0 66px', navJustify: expanded ? 'flex-start' : 'center',
+    sideLabel: expanded ? 'Collapse sidebar' : 'Expand sidebar',
+    toggleSide: () => self.setState({ collapsed: expanded }),
+    ...mnav(self),
+  };
+}
+const RISK = {
+  Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
+  Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
+  High: { fill: '#a35ec9', ink: '#d9aaf0', soft: 'rgba(163,94,201,0.16)', line: '#5c3772', range: '0.50–0.75' },
+  Critical: { fill: '#e8578f', ink: '#f7abc8', soft: 'rgba(232,87,143,0.15)', line: '#6e2b45', range: '0.75–1.00' },
+};
+const BAND_ORDER = ['Low', 'Moderate', 'High', 'Critical'];
+const ASSET = { book: '/_blob/924232ecf4672d5369058a838695a0c2', model: '/_blob/4649572d1f36b2b96d65b01284bdde0d', background: '/_blob/72d14e7fa9230ec7bf5ec80f7d63e195', shap: '/_blob/8ac25afda46b72aabf3920c5e9c2a792' };
+function downloadText(name, text, type) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: type || 'text/csv' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    return true;
+  } catch (e) { return false; }
+}
+function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
+
+// In-browser copy of the shipped predictor: 5 calibrated folds averaged, then clamped.
+// Mirrors CalibratedClassifierCV(isotonic, ensemble) over Pipeline(ColumnTransformer -> LogisticRegression).
+function isoPredict(x, X, Y) {
+  if (x <= X[0]) return Y[0];
+  const n = X.length;
+  if (x >= X[n - 1]) return Y[n - 1];
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (X[mid] <= x) lo = mid; else hi = mid; }
+  const t = (x - X[lo]) / (X[hi] - X[lo]);
+  return Y[lo] + t * (Y[hi] - Y[lo]);
+}
+function scoreRecord(model, rec) {
+  let sum = 0;
+  for (const f of model.folds) {
+    let z = f.intercept, k = 0;
+    for (let j = 0; j < f.num.length; j++) {
+      let v = Number(rec[f.num[j]]);
+      if (!Number.isFinite(v)) v = f.median[j];
+      z += f.coef[k++] * ((v - f.mean[j]) / f.scale[j]);
+    }
+    for (let j = 0; j < f.cat.length; j++) {
+      const v = String(rec[f.cat[j]]);
+      const cats = f.cats[j];
+      for (let c = 0; c < cats.length; c++) { if (cats[c] === v) z += f.coef[k + c]; }
+      k += cats.length;
+    }
+    sum += isoPredict(z, f.isoX, f.isoY);
+  }
+  const p = sum / model.folds.length;
+  return Math.min(1 - model.epsilon, Math.max(model.epsilon, p));
+}
+function bandOf(model, p) {
+  for (const b of model.bands) if (p >= b.min && p < b.max) return b.name;
+  return model.bands[model.bands.length - 1].name;
+}
+
+// Permutation SHAP against a fixed background, antithetic orderings, seeded.
+function mulberry32(a) { return function () { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function explainRecord(model, rec, background, permutations, seed) {
+  const cols = model.columns, n = cols.length, rand = mulberry32(seed || 42);
+  const phi = new Array(n).fill(0);
+  let base = 0; for (const b of background) base += scoreRecord(model, b); base /= background.length;
+  const evalOrder = (order) => {
+    for (const b of background) {
+      const cur = Object.assign({}, b);
+      let prev = scoreRecord(model, cur);
+      for (const j of order) { cur[cols[j]] = rec[cols[j]]; const now = scoreRecord(model, cur); phi[j] += now - prev; prev = now; }
+    }
+  };
+  for (let k = 0; k < permutations; k++) {
+    const order = cols.map((_, i) => i);
+    for (let i = n - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    evalOrder(order); evalOrder(order.slice().reverse());
+  }
+  const denom = permutations * 2 * background.length;
+  return { base, values: phi.map((v) => v / denom), p: scoreRecord(model, rec) };
+}
+const DEMO_CSV = "customerID,gender,SeniorCitizen,Partner,Dependents,tenure,PhoneService,MultipleLines,InternetService,OnlineSecurity,OnlineBackup,DeviceProtection,TechSupport,StreamingTV,StreamingMovies,Contract,PaperlessBilling,PaymentMethod,MonthlyCharges,TotalCharges,Churn\nDEMO-00000,Female,0,Yes,Yes,68,Yes,No,DSL,No,Yes,Yes,Yes,No,Yes,One year,No,Mailed check,76.88,5227.84,No\nDEMO-00001,Male,1,No,Yes,67,Yes,Yes,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Electronic check,118.93,7968.31,No\nDEMO-00002,Male,0,No,Yes,54,Yes,No,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Credit card (automatic),71.09,3838.86,No\nDEMO-00003,Male,0,No,No,25,Yes,Yes,Fiber optic,No,Yes,Yes,Yes,Yes,No,Month-to-month,Yes,Mailed check,78.11,1952.75,Yes\nDEMO-00004,Female,1,No,No,19,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,Yes,Credit card (automatic),72.5,1377.5,Yes\nDEMO-00005,Female,0,No,No,65,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Electronic check,27.85,1810.25,No\nDEMO-00006,Female,0,No,Yes,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,38.42,1459.96,Yes\nDEMO-00007,Male,0,No,No,43,Yes,No,DSL,No,No,No,Yes,Yes,Yes,Two year,Yes,Credit card (automatic),110.79,4763.97,No\nDEMO-00008,Female,1,No,Yes,61,Yes,Yes,DSL,Yes,No,No,Yes,Yes,No,Two year,Yes,Bank transfer (automatic),72.91,4447.51,No\nDEMO-00009,Male,0,Yes,No,29,Yes,Yes,DSL,No,No,Yes,No,Yes,No,Month-to-month,No,Electronic check,64.75,1877.75,Yes\nDEMO-00010,Male,1,Yes,No,9,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),36.78,331.02,No\nDEMO-00011,Female,0,Yes,No,9,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),26.87,241.83,No\nDEMO-00012,Male,0,No,No,7,Yes,No,DSL,Yes,No,No,Yes,No,Yes,Month-to-month,No,Credit card (automatic),95.73,670.11,No\nDEMO-00013,Male,0,Yes,No,7,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,35.31,247.17,Yes\nDEMO-00014,Female,0,Yes,Yes,36,Yes,Yes,DSL,No,No,No,No,No,No,Month-to-month,No,Mailed check,109.13,3928.68,Yes\nDEMO-00015,Male,0,Yes,No,13,Yes,No,Fiber optic,No,Yes,No,No,No,Yes,One year,Yes,Electronic check,68.16,886.08,No\nDEMO-00016,Female,0,Yes,Yes,27,Yes,Yes,Fiber optic,No,No,Yes,Yes,Yes,No,Two year,Yes,Credit card (automatic),81.59,2202.93,No\nDEMO-00017,Male,0,Yes,No,27,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Mailed check,33.1,893.7,No\nDEMO-00018,Female,1,No,No,55,Yes,Yes,DSL,No,Yes,No,Yes,Yes,Yes,One year,No,Mailed check,76.1,4185.5,No\nDEMO-00019,Female,0,No,No,27,Yes,No,DSL,No,Yes,Yes,Yes,No,Yes,Two year,No,Bank transfer (automatic),106.28,2869.56,No\nDEMO-00020,Female,0,No,No,12,Yes,No,Fiber optic,No,No,No,No,Yes,Yes,Month-to-month,No,Bank transfer (automatic),106.24,1274.88,No\nDEMO-00021,Female,0,No,Yes,37,Yes,Yes,DSL,Yes,Yes,No,No,No,No,Month-to-month,Yes,Bank transfer (automatic),80.05,2961.85,No\nDEMO-00022,Male,0,No,No,71,Yes,No,DSL,Yes,No,No,No,Yes,Yes,One year,No,Credit card (automatic),101.83,7229.93,No\nDEMO-00023,Male,1,Yes,No,22,Yes,No,Fiber optic,No,No,No,Yes,No,No,Month-to-month,Yes,Electronic check,78.9,1735.8,No\nDEMO-00024,Female,1,Yes,No,39,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,35.93,1401.27,No\nDEMO-00025,Male,0,No,No,13,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,Yes,Bank transfer (automatic),85.4,1110.2,No\nDEMO-00026,Female,0,Yes,Yes,5,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Electronic check,29.35,146.75,Yes\nDEMO-00027,Female,1,No,Yes,48,Yes,No,Fiber optic,No,Yes,No,Yes,No,No,Two year,Yes,Electronic check,68.43,3284.64,No\nDEMO-00028,Female,1,Yes,No,18,Yes,No,Fiber optic,Yes,No,No,No,No,Yes,One year,No,Mailed check,97.28,1751.04,No\nDEMO-00029,Male,0,Yes,Yes,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),36.63,1391.94,No\nDEMO-00030,Male,1,No,No,8,Yes,Yes,Fiber optic,Yes,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,49.2,393.6,No\nDEMO-00031,Male,0,Yes,No,17,Yes,No,Fiber optic,No,No,Yes,No,No,No,Month-to-month,Yes,Electronic check,99.23,1686.91,No\nDEMO-00032,Male,0,No,No,8,Yes,Yes,DSL,No,Yes,No,Yes,No,Yes,Month-to-month,Yes,Credit card (automatic),105.49,843.92,Yes\nDEMO-00033,Female,0,No,No,39,Yes,Yes,DSL,Yes,No,No,No,Yes,No,Month-to-month,No,Credit card (automatic),77.94,3039.66,No\nDEMO-00034,Female,0,Yes,No,39,Yes,No,Fiber optic,Yes,No,Yes,No,No,No,One year,Yes,Electronic check,49.62,1935.18,No\nDEMO-00035,Male,0,No,Yes,20,Yes,Yes,DSL,No,No,Yes,No,No,Yes,Month-to-month,Yes,Electronic check,95.54,1910.8,No\nDEMO-00036,Female,0,No,No,38,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,28.0,1064.0,No\nDEMO-00037,Male,0,No,Yes,20,Yes,Yes,Fiber optic,Yes,No,No,Yes,Yes,No,Month-to-month,No,Credit card (automatic),92.61,1852.2,No\nDEMO-00038,Female,0,Yes,No,64,Yes,No,DSL,No,Yes,Yes,Yes,Yes,No,Two year,Yes,Credit card (automatic),72.87,4663.68,No\nDEMO-00039,Male,0,No,No,35,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,34.67,1213.45,No\nDEMO-00040,Male,0,Yes,No,30,Yes,No,DSL,No,Yes,No,Yes,No,No,Month-to-month,Yes,Mailed check,64.1,1923.0,No\nDEMO-00041,Male,0,Yes,No,61,Yes,Yes,Fiber optic,No,No,No,Yes,No,Yes,Two year,Yes,Credit card (automatic),80.26,4895.86,No\nDEMO-00042,Male,0,No,Yes,23,Yes,Yes,DSL,No,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,83.83,1928.09,No\nDEMO-00043,Male,0,Yes,No,52,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Bank transfer (automatic),33.95,1765.4,No\nDEMO-00044,Female,0,Yes,Yes,25,Yes,No,Fiber optic,Yes,Yes,Yes,Yes,Yes,Yes,One year,No,Credit card (automatic),60.03,1500.75,No\nDEMO-00045,Female,0,No,Yes,0,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,One year,No,Credit card (automatic),26.52, ,Yes\nDEMO-00046,Male,0,Yes,Yes,37,Yes,Yes,DSL,No,No,Yes,Yes,No,Yes,Month-to-month,Yes,Mailed check,66.4,2456.8,No\nDEMO-00047,Female,0,No,No,35,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Bank transfer (automatic),39.18,1371.3,Yes\nDEMO-00048,Female,0,Yes,No,14,Yes,No,Fiber optic,Yes,Yes,No,No,No,Yes,Month-to-month,No,Bank transfer (automatic),63.97,895.58,No\nDEMO-00049,Male,0,Yes,Yes,47,Yes,No,Fiber optic,No,No,Yes,No,Yes,No,Two year,No,Electronic check,49.99,2349.53,No\nDEMO-00050,Male,0,No,Yes,28,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Bank transfer (automatic),34.08,954.24,Yes\nDEMO-00051,Female,0,No,Yes,14,Yes,Yes,Fiber optic,Yes,No,No,Yes,No,Yes,One year,No,Mailed check,102.12,1429.68,No\nDEMO-00052,Female,0,No,Yes,3,Yes,Yes,Fiber optic,Yes,No,No,No,No,Yes,Month-to-month,Yes,Mailed check,97.51,292.53,Yes\nDEMO-00053,Female,0,No,Yes,2,No,No phone service,Fiber optic,No,No,No,Yes,Yes,No,Month-to-month,Yes,Mailed check,59.47,118.94,No\nDEMO-00054,Male,0,No,No,9,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),27.86,250.74,Yes\nDEMO-00055,Male,0,No,No,17,Yes,No,DSL,No,Yes,Yes,No,Yes,No,Month-to-month,No,Electronic check,68.79,1169.43,Yes\nDEMO-00056,Female,0,No,No,66,Yes,Yes,Fiber optic,Yes,No,No,Yes,Yes,No,Two year,Yes,Electronic check,101.85,6722.1,No\nDEMO-00057,Female,0,No,Yes,20,Yes,Yes,DSL,Yes,No,Yes,Yes,No,Yes,Month-to-month,No,Credit card (automatic),81.12,1622.4,No\nDEMO-00058,Female,0,Yes,No,12,Yes,Yes,Fiber optic,Yes,No,Yes,No,No,No,Two year,No,Credit card (automatic),113.32,1359.84,No\nDEMO-00059,Male,0,No,Yes,15,Yes,No,Fiber optic,No,Yes,Yes,Yes,No,No,One year,No,Bank transfer (automatic),93.57,1403.55,No\nDEMO-00060,Male,0,Yes,No,47,Yes,No,DSL,Yes,Yes,No,No,No,No,One year,Yes,Bank transfer (automatic),90.95,4274.65,No\nDEMO-00061,Female,0,No,No,32,Yes,Yes,Fiber optic,No,No,Yes,No,Yes,Yes,One year,No,Bank transfer (automatic),101.81,3257.92,No\nDEMO-00062,Male,0,No,No,63,Yes,Yes,DSL,No,No,Yes,No,Yes,Yes,One year,No,Mailed check,100.52,6332.76,No\nDEMO-00063,Female,0,Yes,Yes,32,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Credit card (automatic),22.72,727.04,Yes\nDEMO-00064,Female,0,No,No,27,Yes,No,Fiber optic,Yes,No,Yes,No,No,Yes,Month-to-month,No,Electronic check,64.02,1728.54,Yes\nDEMO-00065,Female,0,Yes,No,27,Yes,No,Fiber optic,Yes,Yes,No,No,Yes,Yes,Month-to-month,No,Electronic check,77.38,2089.26,Yes\nDEMO-00066,Female,0,Yes,No,12,Yes,No,Fiber optic,Yes,No,No,No,No,No,Month-to-month,Yes,Bank transfer (automatic),81.2,974.4,No\nDEMO-00067,Female,0,Yes,No,28,Yes,Yes,Fiber optic,No,Yes,No,Yes,No,No,Month-to-month,Yes,Credit card (automatic),55.49,1553.72,Yes\nDEMO-00068,Female,1,Yes,No,19,Yes,No,Fiber optic,No,No,No,No,Yes,Yes,Two year,No,Credit card (automatic),77.66,1475.54,No\nDEMO-00069,Male,0,Yes,No,25,Yes,No,DSL,Yes,Yes,Yes,Yes,Yes,No,Month-to-month,Yes,Bank transfer (automatic),92.35,2308.75,No\nDEMO-00070,Female,0,No,No,30,Yes,Yes,Fiber optic,No,Yes,Yes,No,Yes,No,One year,No,Mailed check,55.04,1651.2,Yes\nDEMO-00071,Male,0,No,Yes,38,Yes,No,Fiber optic,No,No,Yes,No,No,Yes,Month-to-month,No,Credit card (automatic),55.21,2097.98,Yes\nDEMO-00072,Female,1,No,Yes,52,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Mailed check,28.43,1478.36,No\nDEMO-00073,Male,0,No,No,64,Yes,Yes,DSL,No,No,No,Yes,Yes,No,One year,Yes,Mailed check,65.97,4222.08,No\nDEMO-00074,Female,0,Yes,Yes,24,No,No phone service,Fiber optic,No,No,No,Yes,No,Yes,Month-to-month,No,Mailed check,116.17,2788.08,Yes\nDEMO-00075,Male,1,No,No,60,Yes,Yes,Fiber optic,No,No,No,No,No,No,Two year,Yes,Electronic check,46.91,2814.6,No\nDEMO-00076,Female,1,No,No,30,Yes,Yes,Fiber optic,Yes,Yes,No,No,Yes,No,Two year,Yes,Electronic check,58.6,1758.0,No\nDEMO-00077,Female,0,Yes,Yes,19,Yes,Yes,DSL,Yes,No,No,No,No,Yes,Two year,No,Credit card (automatic),57.21,1086.99,No\nDEMO-00078,Female,0,No,Yes,62,No,No phone service,Fiber optic,No,Yes,Yes,No,Yes,No,One year,Yes,Credit card (automatic),80.1,4966.2,No\nDEMO-00079,Female,0,No,Yes,2,Yes,No,DSL,Yes,No,No,No,No,Yes,Month-to-month,Yes,Electronic check,46.12,92.24,No\nDEMO-00080,Male,0,Yes,Yes,18,Yes,Yes,DSL,Yes,No,Yes,No,Yes,No,Month-to-month,No,Credit card (automatic),78.9,1420.2,Yes\nDEMO-00081,Male,0,No,No,65,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,Yes,Mailed check,34.72,2256.8,No\nDEMO-00082,Female,0,No,No,42,No,No phone service,DSL,No,Yes,No,Yes,Yes,No,One year,No,Bank transfer (automatic),64.95,2727.9,No\nDEMO-00083,Female,0,Yes,No,36,Yes,Yes,Fiber optic,No,No,Yes,Yes,No,No,Month-to-month,Yes,Credit card (automatic),103.64,3731.04,No\nDEMO-00084,Female,0,No,Yes,47,Yes,No,Fiber optic,No,Yes,Yes,No,No,No,Two year,No,Credit card (automatic),58.62,2755.14,No\nDEMO-00085,Female,0,Yes,No,46,No,No phone service,Fiber optic,Yes,Yes,Yes,Yes,Yes,No,One year,Yes,Credit card (automatic),90.67,4170.82,No\nDEMO-00086,Female,0,Yes,No,35,Yes,No,Fiber optic,No,Yes,No,Yes,Yes,Yes,One year,No,Bank transfer (automatic),75.07,2627.45,No\nDEMO-00087,Male,0,No,No,4,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Electronic check,39.31,157.24,Yes\nDEMO-00088,Male,0,Yes,Yes,29,Yes,No,Fiber optic,Yes,No,Yes,Yes,No,Yes,Month-to-month,Yes,Bank transfer (automatic),105.45,3058.05,No\nDEMO-00089,Male,0,Yes,No,24,Yes,Yes,Fiber optic,Yes,Yes,No,No,No,Yes,Month-to-month,No,Mailed check,56.91,1365.84,Yes\nDEMO-00090,Female,0,Yes,No,36,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Credit card (automatic),26.63,958.68,Yes\nDEMO-00091,Female,1,No,No,17,Yes,Yes,Fiber optic,No,No,No,Yes,No,No,Two year,Yes,Mailed check,111.12,1889.04,No\nDEMO-00092,Female,0,No,No,6,No,No phone service,Fiber optic,Yes,Yes,No,No,No,No,Month-to-month,No,Bank transfer (automatic),94.46,566.76,Yes\nDEMO-00093,Female,0,No,No,23,Yes,Yes,Fiber optic,Yes,No,No,No,No,Yes,Month-to-month,No,Mailed check,48.66,1119.18,Yes\nDEMO-00094,Male,0,No,No,18,Yes,No,Fiber optic,No,Yes,No,No,No,No,Month-to-month,No,Credit card (automatic),94.08,1693.44,No\nDEMO-00095,Male,0,No,Yes,50,Yes,No,Fiber optic,No,Yes,No,No,No,Yes,One year,No,Mailed check,89.43,4471.5,No\nDEMO-00096,Female,0,No,No,15,Yes,Yes,Fiber optic,No,No,No,Yes,Yes,Yes,Month-to-month,No,Electronic check,102.14,1532.1,Yes\nDEMO-00097,Female,1,No,No,12,Yes,Yes,Fiber optic,No,Yes,No,No,Yes,No,Month-to-month,Yes,Mailed check,60.82,729.84,Yes\nDEMO-00098,Male,1,No,No,5,Yes,Yes,Fiber optic,Yes,Yes,Yes,No,Yes,No,Month-to-month,No,Electronic check,115.55,577.75,Yes\nDEMO-00099,Male,0,Yes,Yes,38,Yes,No,Fiber optic,Yes,Yes,No,No,Yes,No,Month-to-month,Yes,Bank transfer (automatic),110.58,4202.04,No\nDEMO-00100,Male,0,Yes,No,34,Yes,Yes,Fiber optic,No,No,Yes,Yes,No,Yes,Two year,Yes,Mailed check,53.46,1817.64,No\nDEMO-00101,Female,0,Yes,No,31,Yes,No,DSL,Yes,No,Yes,Yes,Yes,No,One year,Yes,Credit card (automatic),68.32,2117.92,No\nDEMO-00102,Female,0,No,No,9,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,No,Mailed check,30.11,270.99,Yes\nDEMO-00103,Female,0,Yes,No,25,No,No phone service,Fiber optic,No,No,Yes,Yes,No,Yes,Month-to-month,Yes,Electronic check,106.49,2662.25,No\nDEMO-00104,Male,0,Yes,No,31,Yes,No,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Electronic check,30.82,955.42,No\nDEMO-00105,Female,0,Yes,Yes,25,No,No phone service,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Month-to-month,Yes,Bank transfer (automatic),28.8,720.0,No\nDEMO-00106,Female,0,No,No,0,Yes,No,Fiber optic,Yes,No,No,No,Yes,No,One year,No,Mailed check,90.28, ,No\nDEMO-00107,Female,0,No,No,66,Yes,No,Fiber optic,Yes,Yes,No,Yes,No,No,One year,No,Mailed check,94.28,6222.48,No\nDEMO-00108,Female,0,Yes,No,29,Yes,Yes,DSL,No,No,Yes,Yes,No,Yes,Month-to-month,No,Credit card (automatic),95.2,2760.8,No\nDEMO-00109,Male,1,Yes,No,2,Yes,Yes,Fiber optic,Yes,No,Yes,Yes,No,No,Month-to-month,Yes,Credit card (automatic),87.19,174.38,Yes\nDEMO-00110,Female,0,Yes,No,33,Yes,Yes,No,No internet service,No internet service,No internet service,No internet service,No internet service,No internet service,Two year,No,Mailed check,29.99,989.67,No\nDEMO-00111,Female,0,Yes,No,13,Yes,Yes,Fiber optic,Yes,Yes,Yes,No,No,Yes,Two year,No,Bank transfer (automatic),89.98,1169.74,No\nDEMO-00112,Male,0,No,Yes,0,Yes,Yes,Fiber optic,No,No,No,No,No,No,Month-to-month,No,Credit card (automatic),69.84, ,Yes\nDEMO-00113,Male,0,Yes,No,51,Yes,No,Fiber optic,Yes,No,No,Yes,No,No,Two year,No,Bank transfer (automatic),82.95,4230.45,No\nDEMO-00114,Male,0,No,No,27,Yes,No,Fiber optic,No,No,Yes,No,Yes,No,Month-to-month,Yes,Electronic check,46.38,1252.26,Yes\nDEMO-00115,Male,0,Yes,No,25,Yes,Yes,Fiber optic,No,No,Yes,No,No,Yes,One year,Yes,Credit card (automatic),98.59,2464.75,No\nDEMO-00116,Female,0,Yes,No,22,Yes,No,Fiber optic,No,No,No,No,Yes,No,Two year,No,Mailed check,96.35,2119.7,No\nDEMO-00117,Female,0,Yes,No,29,Yes,Yes,DSL,No,No,No,No,Yes,No,Month-to-month,Yes,Mailed check,76.16,2208.64,Yes\nDEMO-00118,Male,0,Yes,No,33,Yes,No,DSL,No,No,No,No,No,Yes,Month-to-month,Yes,Electronic check,108.01,3564.33,No\nDEMO-00119,Male,0,Yes,Yes,69,Yes,No,DSL,Yes,Yes,No,No,No,No,Two year,Yes,Mailed check,100.91,6962.79,No\n";
+const NUMERIC = { tenure: [0, 120], MonthlyCharges: [0, 1000], TotalCharges: [0, 100000] };
+const YN = ['No', 'Yes'], YNI = ['No', 'No internet service', 'Yes'];
+const ALLOWED = { SeniorCitizen: ['0', '1'], Partner: YN, Dependents: YN, PhoneService: YN, MultipleLines: ['No', 'No phone service', 'Yes'], InternetService: ['DSL', 'Fiber optic', 'No'], OnlineSecurity: YNI, OnlineBackup: YNI, DeviceProtection: YNI, TechSupport: YNI, StreamingTV: YNI, StreamingMovies: YNI, Contract: ['Month-to-month', 'One year', 'Two year'], PaperlessBilling: YN, PaymentMethod: ['Bank transfer (automatic)', 'Credit card (automatic)', 'Electronic check', 'Mailed check'] };
+const ADDONS = ['OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies'];
+const REQUIRED = ['SeniorCitizen', 'Partner', 'Dependents', 'tenure', 'PhoneService', 'MultipleLines', 'InternetService', 'OnlineSecurity', 'OnlineBackup', 'DeviceProtection', 'TechSupport', 'StreamingTV', 'StreamingMovies', 'Contract', 'PaperlessBilling', 'PaymentMethod', 'MonthlyCharges', 'TotalCharges'];
+const MAX_BYTES = 5242880, MAX_ROWS = 10000, MAX_COLS = 1000, PAGE = 12;
+const SHORTPAY = { 'Electronic check': 'E-check', 'Mailed check': 'Mailed check', 'Bank transfer (automatic)': 'Bank transfer', 'Credit card (automatic)': 'Card' };
+const int = (v) => Math.round(v).toLocaleString('en-US');
+const pct = (v) => (v * 100).toFixed(1) + '%';
+
+function parseCsv(text) {
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); cell = ''; if (row.some((c) => c.trim() !== '')) rows.push(row); row = []; }
+    else cell += ch;
+  }
+  row.push(cell); if (row.some((c) => c.trim() !== '')) rows.push(row);
+  return rows;
+}
+function validate(text, bytes) {
+  const problems = [], notes = [];
+  if (bytes > MAX_BYTES) return { problems: ['file is too large: ' + (bytes / 1048576).toFixed(1) + ' MB exceeds the 5 MB limit'], notes };
+  const grid = parseCsv(text.replace(/^﻿/, ''));
+  if (!grid.length) return { problems: ['file is empty'], notes };
+  const head = grid[0].map((h) => h.trim());
+  if (head.length > MAX_COLS) return { problems: ['file has ' + head.length + ' columns; the limit is ' + MAX_COLS], notes };
+  const body = grid.slice(1);
+  if (!body.length) return { problems: ['file contains a header but no data rows'], notes };
+  if (body.length > MAX_ROWS) return { problems: ['file has ' + int(body.length) + ' rows; the limit is ' + int(MAX_ROWS)], notes };
+  const missing = REQUIRED.filter((c) => !head.includes(c));
+  if (missing.length) problems.push('missing columns: ' + missing.join(', '));
+  const widths = body.filter((r) => r.length !== head.length).length;
+  if (widths) problems.push(widths + ' row(s) have a different number of fields from the header');
+  const extra = head.filter((h) => !REQUIRED.includes(h) && h !== 'customerID');
+  if (extra.includes('gender')) notes.push('gender is ignored: excluded from the model as a protected attribute');
+  if (extra.includes('Churn')) notes.push('Churn is never used to score; it is kept only to compare against the predictions');
+  const others = extra.filter((h) => h !== 'gender' && h !== 'Churn');
+  if (others.length) notes.push('ignored unknown column(s): ' + others.slice(0, 6).join(', ') + (others.length > 6 ? '…' : ''));
+  if (missing.length) return { problems, notes };
+  const ix = {}; head.forEach((h, i) => { ix[h] = i; });
+  const recs = body.map((r, n) => { const o = { _row: n }; REQUIRED.forEach((c) => { o[c] = (r[ix[c]] ?? '').trim(); }); o._id = ix.customerID !== undefined ? (r[ix.customerID] || '').trim() : ''; o._label = ix.Churn !== undefined ? (r[ix.Churn] || '').trim() : ''; return o; });
+  recs.forEach((o) => { if (o.TotalCharges === '' && Number(o.tenure) === 0) o.TotalCharges = '0'; });
+  for (const c of Object.keys(NUMERIC)) {
+    let bad = 0, frac = 0, out = 0, bools = 0;
+    recs.forEach((o) => { const s = o[c]; if (/^(true|false)$/i.test(s)) { bools++; return; } const v = Number(s); if (s === '' || !Number.isFinite(v)) { bad++; return; } if (c === 'tenure' && v % 1 !== 0) frac++; if (v < NUMERIC[c][0] || v > NUMERIC[c][1]) out++; });
+    if (bools) problems.push("'" + c + "' has " + bools + ' boolean value(s) where a number belongs');
+    if (bad) problems.push("'" + c + "' has " + bad + ' missing or non-numeric value(s)');
+    if (frac) problems.push("'" + c + "' has " + frac + ' non-integer value(s)');
+    if (out) problems.push("'" + c + "' has " + out + ' value(s) outside ' + NUMERIC[c][0] + '–' + int(NUMERIC[c][1]));
+  }
+  for (const [c, allowed] of Object.entries(ALLOWED)) {
+    const seen = new Set(); recs.forEach((o) => { if (!allowed.includes(o[c])) seen.add(o[c] === '' ? '(blank)' : o[c]); });
+    if (seen.size) problems.push("'" + c + "' has unexpected value(s): " + [...seen].slice(0, 4).map((v) => "'" + v + "'").join(', ') + ' (allowed: ' + allowed.join(', ') + ')');
+  }
+  for (const c of ADDONS) { const n = recs.filter((o) => (o[c] === 'No internet service') !== (o.InternetService === 'No')).length; if (n) problems.push("'" + c + "' contradicts 'InternetService' in " + n + " row(s): it is 'No internet service' exactly when InternetService is 'No'"); }
+  { const n = recs.filter((o) => (o.MultipleLines === 'No phone service') !== (o.PhoneService === 'No')).length; if (n) problems.push("'MultipleLines' contradicts 'PhoneService' in " + n + " row(s)"); }
+  { const n = recs.filter((o) => Number.isFinite(Number(o.tenure)) && Number.isFinite(Number(o.TotalCharges)) && ((Number(o.tenure) === 0) !== (Number(o.TotalCharges) === 0))).length; if (n) problems.push("'TotalCharges' contradicts 'tenure' in " + n + ' row(s): a customer is billed nothing exactly when their tenure is 0'); }
+  return { problems, notes, recs, cols: head.length };
+}
+
+class Component extends DCLogic {
+  componentDidMount() {
+    loadJson(ASSET.model).then((model) => { this.model = model; this.setState({ modelReady: true }); if (this.pending) { const p = this.pending; this.pending = null; this.process(p.text, p.name, p.bytes); } })
+      .catch(() => this.setState({ modelErr: true }));
+  }
+  ingest({ model }) { this.model = model; }
+  process(text, name, bytes) {
+    if (!this.model) { this.pending = { text, name, bytes }; this.setState({ stage: 'waiting', fileName: name }); return; }
+    const v = validate(text, bytes);
+    if (v.problems.length) { this.result = null; this.setState({ stage: 'rejected', fileName: name, problems: v.problems, notes: v.notes, page: 0 }); return; }
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const scored = v.recs.map((o) => { const p = scoreRecord(this.model, o); return Object.assign({}, o, { p, band: bandOf(this.model, p), flagged: p >= this.model.threshold }); });
+    const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
+    this.result = scored;
+    this.setState({ stage: 'scored', fileName: name, problems: [], notes: v.notes, ms, ncols: v.cols, page: 0, show: 'all', sortP: false });
+  }
+  renderVals() {
+    const st = this.state || {};
+    const set = (p) => this.setState(p);
+    const stage = st.stage ?? 'idle';
+    const res = stage === 'scored' && this.result ? this.result : [];
+    const show = st.show ?? 'all', sortP = st.sortP ?? false, page = st.page ?? 0;
+    let list = show === 'flagged' ? res.filter((r) => r.flagged) : res;
+    if (sortP) list = list.slice().sort((a, b) => b.p - a.p);
+    const pages = Math.max(1, Math.ceil(list.length / PAGE)); const pg = Math.min(page, pages - 1);
+    const shown = list.slice(pg * PAGE, pg * PAGE + PAGE);
+    const n = res.length, flagged = res.filter((r) => r.flagged).length;
+    const sumP = res.reduce((s, r) => s + r.p, 0), risk = res.reduce((s, r) => s + r.p * Number(r.MonthlyCharges), 0);
+    const labelled = res.filter((r) => /^(yes|no|1|0)$/i.test(r._label));
+    const isPos = (r) => /^(yes|1)$/i.test(r._label);
+    const tp = labelled.filter((r) => r.flagged && isPos(r)).length, fp = labelled.filter((r) => r.flagged && !isPos(r)).length, fn = labelled.filter((r) => !r.flagged && isPos(r)).length;
+    const stepState = (k) => { const order = ['idle', 'waiting', 'rejected', 'scored']; const done = k === 0 ? stage !== 'idle' : k === 1 ? stage === 'scored' || stage === 'rejected' : stage === 'scored'; const bad = k === 1 && stage === 'rejected'; return { done, bad }; };
+    const steps = ['Choose a file', 'Validate against the contract', 'Score in the browser'].map((label, k) => { const s = stepState(k); return { label, mark: s.bad ? '!' : s.done ? '✓' : String(k + 1), border: s.bad ? '#6e2b45' : s.done ? '#1d4c57' : '#222a34', bg: s.bad ? 'rgba(232,87,143,0.08)' : s.done ? 'rgba(24,151,174,0.08)' : 'transparent', fg: s.done || s.bad ? '#e6edf3' : '#8b949e', dotBg: s.bad ? '#e8578f' : s.done ? '#1897ae' : '#1c232c', dotFg: s.done || s.bad ? '#041217' : '#8b949e' }; });
+    const V = {
+      idle: ['Waiting for a file', 'Choose a CSV or use the demo file. Every problem is reported at once, so a file can be fixed in one pass.', '—', '#8b949e', '#2a3440', '#1f2730'],
+      waiting: ['Loading the model…', 'The file will be checked as soon as the model is ready.', '…', '#8b949e', '#2a3440', '#1f2730'],
+      rejected: ['Rejected: nothing was scored', 'Fix every item below and choose the file again. The API returns the same list with status 422.', '422', '#f7abc8', '#6e2b45', '#6e2b45'],
+      scored: ['Accepted: ' + int(n) + ' rows, ' + (st.ncols || 0) + ' columns', 'Every row passed the contract and was scored by the in-browser copy of the artifact.', '200', '#8fd99a', '#1f3a2a', '#1f2730'],
+    }[stage];
+    const seg = (on) => ({ bg: on ? '#1c2530' : 'transparent', fg: on ? '#e6edf3' : '#8b949e', pressed: on ? 'true' : 'false' });
+    const bandCount = BAND_ORDER.map((k) => res.filter((r) => r.band === k).length);
+    return Object.assign(shell(this), {
+      busy: stage === 'waiting',
+      steps,
+      onFile: (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; set({ stage: 'waiting', fileName: f.name }); f.text().then((t) => this.process(t, f.name, f.size)).catch(() => set({ stage: 'rejected', problems: ['the file could not be read as text'], notes: [] })); },
+      useDemo: () => this.process(DEMO_CSV, 'demo_customers.csv', DEMO_CSV.length),
+      colsOpen: !!st.colsOpen, colsOpenStr: st.colsOpen ? 'true' : 'false', colsArrow: st.colsOpen ? '▴' : '▾', toggleCols: () => set({ colsOpen: !st.colsOpen }),
+      reqCols: REQUIRED.map((c) => ({ name: c, kind: NUMERIC[c] ? 'number' : 'category' })),
+      downloadTemplate: () => downloadText('churnsense_template.csv', ['customerID'].concat(REQUIRED).join(',') + '\n'),
+      vTitle: V[0], vBody: V[1], vCode: V[2], vCodeFg: V[3], vCodeBorder: V[4], vBorder: V[5],
+      problems: (st.problems || []).map((t) => ({ text: t })), hasProblems: (st.problems || []).length > 0,
+      notes: (st.notes || []).map((t) => ({ text: t })), hasNotes: (st.notes || []).length > 0,
+      scored: stage === 'scored',
+      rN: int(n), rTime: 'in ' + (st.ms ?? 0).toFixed(1) + ' ms, in your browser', rFlag: int(flagged), rFlagShare: n ? pct(flagged / n) : '—',
+      rMean: n ? (sumP / n).toFixed(3) : '—', rExp: int(sumP), rRisk: '$' + int(risk),
+      rBands: BAND_ORDER.map((k, i) => ({ k, n: int(bandCount[i]), w: n ? (bandCount[i] / n) * 100 + '%' : '0%', color: RISK[k].fill, ink: RISK[k].ink })),
+      hasLabels: labelled.length > 0, lP: tp + fp ? (tp / (tp + fp)).toFixed(3) : '—', lR: tp + fn ? (tp / (tp + fn)).toFixed(3) : '—',
+      lNote: labelled.length ? int(labelled.length) + ' labelled rows' + (st.fileName === 'demo_customers.csv' ? ', synthetic: not a performance estimate' : '') : '',
+      fileName: st.fileName ?? '',
+      showOpts: [['all', 'All rows'], ['flagged', 'Flagged']].map(([k, label]) => Object.assign(seg(show === k), { label, pick: () => set({ show: k, page: 0 }) })),
+      sortLabel: sortP ? 'Sorted by probability ↓' : 'File order', toggleSort: () => set({ sortP: !sortP, page: 0 }),
+      rows: shown.map((r) => ({ row: r._row, id: r._id || '—', p: r.p.toFixed(3), pw: r.p * 100 + '%', band: r.band, color: RISK[r.band].fill, ink: RISK[r.band].ink, profile: r.Contract + ' · ' + r.InternetService + ' · ' + (SHORTPAY[r.PaymentMethod] || r.PaymentMethod) + ' · ' + r.tenure + ' mo', monthly: '$' + Number(r.MonthlyCharges).toFixed(2), label: r._label || '—', labelFg: isPos(r) ? '#f2a585' : '#8b949e' })),
+      pageNote: list.length ? 'Rows ' + int(pg * PAGE + 1) + '–' + int(pg * PAGE + shown.length) + ' of ' + int(list.length) : 'No rows', pageLabel: (pg + 1) + ' / ' + pages,
+      prevDis: pg === 0, nextDis: pg >= pages - 1, prev: () => set({ page: Math.max(0, pg - 1) }), next: () => set({ page: Math.min(pages - 1, pg + 1) }),
+      downloadScored: () => {
+        const head = ['row', 'customerID', 'churn_probability', 'risk_band', 'flagged'].concat(REQUIRED);
+        const lines = [head.join(',')].concat(res.map((r) => [r._row, r._id, r.p.toFixed(12), r.band, r.flagged].concat(REQUIRED.map((c) => r[c])).map(csvCell).join(',')));
+        downloadText('churnsense_scored.csv', lines.join('\n'));
+      },
+    });
+  }
+}
+</script>
+</body>
+</html>

@@ -156,6 +156,29 @@ class Business:
 
 
 @dataclass(frozen=True, slots=True)
+class RateLimit:
+    """A token bucket: up to ``burst`` requests at once, then one per ``per_seconds``."""
+
+    burst: int
+    per_seconds: float
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.burst, int) or isinstance(self.burst, bool) or self.burst < 1:
+            raise ConfigError("a rate limit's burst must be a whole number of at least 1")
+        if isinstance(self.per_seconds, bool) or not (
+            isinstance(self.per_seconds, int | float) and self.per_seconds > 0
+        ):
+            raise ConfigError("a rate limit's per_seconds must be a positive number")
+
+
+#: The groups of expensive endpoints the API throttles, and their default budgets.
+DEFAULT_RATE_LIMITS: tuple[tuple[str, RateLimit], ...] = (
+    ("explain", RateLimit(burst=10, per_seconds=2.0)),
+    ("batch", RateLimit(burst=5, per_seconds=6.0)),
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ApiConfig:
     """What the API and the dashboard accept: upload limits and host names."""
 
@@ -165,6 +188,9 @@ class ApiConfig:
     max_upload_columns: int = 1000
     # Host headers the API and the dashboard answer to; see churnsense.hosts.
     allowed_hosts: tuple[str, ...] = DEFAULT_ALLOWED_HOSTS
+    # Per-client budgets for the expensive endpoints; see churnsense.api.middleware.
+    # YAML gives a mapping; a frozen config holds (name, RateLimit) pairs.
+    rate_limits: tuple[tuple[str, RateLimit], ...] = DEFAULT_RATE_LIMITS
 
     def __post_init__(self) -> None:
         # YAML gives a list; a frozen config holds a tuple. A bare string would
@@ -180,6 +206,7 @@ class ApiConfig:
         except ValueError as exc:
             raise ConfigError(f"allowed_hosts: {exc}") from exc
         object.__setattr__(self, "allowed_hosts", names)
+        object.__setattr__(self, "rate_limits", _rate_limits(self.rate_limits))
         limits = (self.max_batch_rows, self.max_upload_bytes, self.max_upload_columns)
         if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in limits):
             raise ConfigError("api upload limits must each be a whole number of at least 1")
@@ -189,6 +216,28 @@ class ApiConfig:
                 f"max_upload_columns must be at least {CONTRACT_WIDTH}, the width of the "
                 "raw data contract"
             )
+
+
+def _rate_limits(given: object) -> tuple[tuple[str, RateLimit], ...]:
+    """Configured budgets laid over the defaults, as (name, RateLimit) pairs in default order."""
+    if isinstance(given, dict):
+        entries = list(given.items())
+    elif isinstance(given, tuple | list):
+        entries = list(given)
+    else:
+        raise ConfigError("rate_limits must map budget names to {burst, per_seconds}")
+    budgets = dict(DEFAULT_RATE_LIMITS)
+    for entry in entries:
+        if not (isinstance(entry, tuple | list) and len(entry) == 2):
+            raise ConfigError("rate_limits must map budget names to {burst, per_seconds}")
+        name, rule = entry
+        if name not in budgets:
+            raise ConfigError(f"rate_limits may only set {sorted(budgets)}, not {name!r}")
+        try:
+            budgets[name] = rule if isinstance(rule, RateLimit) else RateLimit(**rule)
+        except TypeError as exc:
+            raise ConfigError(f"rate_limits.{name}: {exc}") from exc
+    return tuple(budgets.items())
 
 
 @dataclass(frozen=True, slots=True)
