@@ -1,0 +1,122 @@
+# ChurnSense AI - the deployed demo on one host (docs/DEPLOYMENT.md).
+#
+#   internet --443/80--> caddy --(proxy network, internal)--> app:8000
+#
+# Only Caddy publishes ports. The app joins a single internal network that
+# holds nothing but the two services, has no route out, and gives Caddy a fixed
+# address - the one address configs/deploy.yaml trusts (api.trusted_proxies).
+# The sample dataset is not in the image: the operator provides it read-only
+# (CHURNSENSE_DATASET, an absolute path to the verified file; docs/DEPLOYMENT.md, section 6).
+# Run from this directory:
+#   CHURNSENSE_IMAGE=churnsense-ai:<tag> CHURNSENSE_DATASET=/srv/churnsense/Telco-Customer-Churn.csv \
+#     docker compose up -d
+
+name: churnsense
+
+services:
+  app:
+    image: ${CHURNSENSE_IMAGE:?set CHURNSENSE_IMAGE to the tag scripts/image_provenance.py printed}
+    environment:
+      CHURNSENSE_CONFIG: configs/deploy.yaml
+      CHURNSENSE_LOG_LEVEL: INFO
+    networks:
+      proxy:
+        ipv4_address: 172.30.10.3
+    # No `ports:` - the app is reachable only from the proxy network.
+    # The dataset: one file, read-only, never created on the host if missing
+    # (then readiness stays 503 and Caddy never starts).
+    volumes:
+      - type: bind
+        source: ${CHURNSENSE_DATASET:?set CHURNSENSE_DATASET to the absolute path of the verified dataset file}
+        target: /app/data/raw/Telco-Customer-Churn.csv
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    # Uploads over 1 MB are spooled here while they arrive: --limit-concurrency
+    # (64) x the 5 MiB upload limit, plus the numba/matplotlib caches. Memory-backed,
+    # so it counts against the memory limit below only while it is in use.
+    tmpfs:
+      - /tmp:size=384m,mode=1777
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=4).status != 200)"
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1536M
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  caddy:
+    # Version and multi-platform index digest, resolved 2026-11-10 (docs/DEPLOYMENT.md, section 3).
+    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      proxy:
+        ipv4_address: 172.30.10.2
+      edge: {}
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  # Caddy <-> app only. internal: no route to or from the outside world.
+  proxy:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.10.0/29
+  # Caddy's way in (published ports) and out (certificate issuance).
+  edge: {}
+
+volumes:
+  # Caddy's certificates and ACME account; the only state on the host.
+  caddy_data:
+  caddy_config:

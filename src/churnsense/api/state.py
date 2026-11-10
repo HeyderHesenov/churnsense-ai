@@ -61,6 +61,14 @@ EXPLAIN_SLOTS = 3
 #: After the dataset fails to load, how long to answer "unavailable" from
 #: memory before trying - and logging - again.
 RETRY_AFTER_FAILURE_SECONDS = 30.0
+#: Batch uploads scored at once by this process, whoever sends them. Parsing,
+#: validating and scoring 10,000 rows is seconds of CPU, and the deployed demo
+#: has no authentication: per-client budgets stop one visitor, this stops many.
+#: Past it a request is turned away at once with 429 - never queued, so no
+#: backlog can build. Per process: the service runs one worker.
+BATCH_SLOTS = 2
+#: What a turned-away batch is told to wait, in seconds.
+BATCH_RETRY_AFTER_SECONDS = 2
 
 
 @lru_cache(maxsize=1)
@@ -221,6 +229,41 @@ def explanation_slot() -> Iterator[None]:
         _explain_slots.release()
 
 
+class BatchBusyError(HTTPException):
+    """Every batch slot is taken: a 429 the batch page already answers with "try again"."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            status_code=429,
+            detail="Other uploads are being scored. Try again shortly.",
+            headers={"Retry-After": str(BATCH_RETRY_AFTER_SECONDS)},
+        )
+        self.error = "batch_busy"
+
+
+_batch_slots = threading.BoundedSemaphore(BATCH_SLOTS)
+_busy_log_count = 0
+
+
+@contextmanager
+def batch_slot() -> Iterator[None]:
+    """Hold one of ``BATCH_SLOTS`` while a batch is read and scored; 429 at once if none is free.
+
+    Taken inside the endpoint, after the body has arrived, so a slow upload
+    holds no slot; given back however the scoring ends.
+    """
+    global _busy_log_count
+    if not _batch_slots.acquire(blocking=False):
+        _busy_log_count += 1
+        if _busy_log_count in (1, 10, 100, 1000) or _busy_log_count % 10_000 == 0:
+            logger.warning("turned away %d batch upload(s): every slot busy", _busy_log_count)
+        raise BatchBusyError
+    try:
+        yield
+    finally:
+        _batch_slots.release()
+
+
 _dashboard_lock = threading.Lock()
 #: The model and loader the current dashboard was built for, and the dashboard.
 _built: tuple[Predictor, Callable[[Predictor], Book], Dashboard] | None = None
@@ -276,6 +319,38 @@ def _build(model: Predictor, loader: Callable[[Predictor], Book]) -> Dashboard:
     return Dashboard(
         model=model, book=book, reports_dir=reports, shap_cache=model.source / "shap_global.json"
     )
+
+
+def warm_up() -> None:
+    """Build the dashboard now, at startup, so no visitor waits for it and readiness can tell.
+
+    Never fatal: a service that cannot build its book still answers ``/health``,
+    reports itself not ready, and tries again when a page asks for the book.
+    """
+    try:
+        get_dashboard()
+    except HTTPException:
+        pass  # already logged where it failed: the model or the dataset
+    except Exception:
+        logger.exception("the dashboard could not be built at startup")
+
+
+def readiness() -> dict[str, bool]:
+    """Whether the model and the book are loaded - read from memory only.
+
+    Nothing is loaded, read or scored here: a model that failed to load and a
+    book that failed to build stay unready until a request (or a restart)
+    loads them, so a health checker polling this costs nothing.
+    """
+    model = get_predictor.cache_info().currsize > 0
+    dataset = False
+    if model:
+        served = get_predictor()  # cached: no load
+        # One reference read, no lock: a rebuild holds the lock for seconds, and
+        # a health check must not wait on it.
+        built = _built
+        dataset = built is not None and built[0] is served and built[1] is BOOK_LOADER
+    return {"model": model, "dataset": dataset}
 
 
 def reset() -> None:

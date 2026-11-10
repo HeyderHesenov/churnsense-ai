@@ -870,7 +870,12 @@ Found a vulnerability? Please report it privately, as described in
 > `api.allowed_hosts` and `server.allowedHosts`, put authentication, TLS and
 > rate limiting in front of it, set `client.showErrorDetails = "none"` in
 > `.streamlit/config.toml`, and consider disabling the API's `/docs` (it loads
-> Swagger UI from a CDN). None of that is in scope here.
+> Swagger UI from a CDN). The one exception the repository supports is a public,
+> unauthenticated portfolio demo of the API and front end (not the Streamlit
+> dashboard) on the sample dataset, behind Caddy with TLS: its configuration,
+> the trusted-proxy rule that keeps `LoopbackOnly` meaningful there, and its
+> limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It is not a
+> multi-user product and must never hold real customer data.
 
 ## Limitations
 

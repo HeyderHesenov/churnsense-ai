@@ -41,7 +41,12 @@ ROOT = Path(__file__).resolve().parents[1]
 # The generator lives with the tests (tests/conftest.py), which are not installed.
 sys.path.insert(0, str(ROOT))
 
-from churnsense.config import DEFAULT_CONFIG_PATH, Config, load_config  # noqa: E402
+from churnsense.config import (  # noqa: E402
+    DEFAULT_CONFIG_PATH,
+    DEFAULT_RATE_LIMITS,
+    Config,
+    load_config,
+)
 
 #: Every synthetic customer's ID starts with this; the e2e tests refuse a server
 #: whose customers do not, so a server on real data is never tested by mistake.
@@ -69,12 +74,23 @@ GRIDS: dict[str, dict[str, list[Any]]] = {
         "classifier__l2_regularization": [0.0],
     },
 }
-#: Budgets a test run never exhausts. The limits themselves are tested in pytest;
-#: here they would only make one test's requests depend on another's.
-RATE_LIMITS = {
-    "explain": {"burst": 1000, "per_seconds": 0.001},
-    "batch": {"burst": 1000, "per_seconds": 0.001},
-}
+#: A budget a test run never exhausts.
+E2E_BUDGET = {"burst": 1000, "per_seconds": 0.001}
+#: Every per-client budget the service has, raised for this server alone. The
+#: whole browser suite - every test, both workers - reaches the API from one
+#: address, 127.0.0.1, so to the service it is a single visitor: at the real
+#: budgets (a burst of 30 queries, then two a second) one test's requests would
+#: decide whether another's are answered. The limits themselves are tested in
+#: pytest (tests/test_limits.py), against the real values.
+#:
+#: Named from ``DEFAULT_RATE_LIMITS``, so a budget added later is raised here too
+#: and never makes the browser tests depend on their order again. This reaches
+#: nothing but the temporary configuration file ``prepare`` writes: the
+#: defaults, ``configs/config.yaml`` and ``configs/deploy.yaml`` are only read,
+#: and this script is not in the deployment image. The cap on requests in
+#: flight (``middleware.MAX_CLIENT_REQUESTS``) is not a budget and is left as it
+#: is: the tests run under it.
+RATE_LIMITS = {name: dict(E2E_BUDGET) for name, _ in DEFAULT_RATE_LIMITS}
 
 
 def synthetic_customers(rows: int, seed: int) -> pd.DataFrame:

@@ -1,0 +1,61 @@
+# ChurnSense AI - the public entry point (docs/DEPLOYMENT.md).
+#
+# Caddy obtains and renews the certificate for the site address below and
+# redirects HTTP to HTTPS. REPLACE demo.example.com with the real domain - the
+# same name as in configs/deploy.yaml api.allowed_hosts; the bundle check
+# refuses the example domain and any mismatch.
+#
+# Forwarded headers: Caddy ignores X-Forwarded-* values a client sends (no
+# trusted_proxies here) and sets X-Forwarded-For to the client's address and
+# X-Forwarded-Proto to https. The app believes them only from Caddy's fixed
+# address on the proxy network. Host is passed through unchanged, so the app's
+# Host and Origin checks see the public name.
+
+{
+	servers {
+		timeouts {
+			read_header 10s
+			# The whole upload must arrive within this: 5 MiB at about 1.4 Mbit/s.
+			# Bodies elsewhere are at most 64 KiB, so it bounds how long any
+			# client can hold a connection open with a slow body.
+			read_body 30s
+			write 120s
+			idle 2m
+		}
+	}
+}
+
+demo.example.com {
+	# Body limits by path, as in the app (BodySizeLimit): only the three upload
+	# paths take a file - a little above the app's 5 MiB plus multipart
+	# overhead; everything else 64 KiB. Paths match exactly, so an alias or a
+	# trailing slash gets the small limit. The app enforces its own regardless.
+	@upload path /api/batch/score /api/predict/batch /predict/batch
+	@other not path /api/batch/score /api/predict/batch /predict/batch
+	request_body @upload {
+		max_size 6MB
+	}
+	request_body @other {
+		max_size 64KiB
+	}
+
+	encode zstd gzip
+
+	# The app sets the CSP, HSTS (over HTTPS) and every other security header;
+	# Caddy adds none of its own, so there are no duplicates to disagree.
+	header -Server
+
+	reverse_proxy app:8000 {
+		# The app never reads it; do not hand it a value it might one day trust.
+		header_up -X-Forwarded-Host
+		header_up -Forwarded
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 60s
+			# Shorter than uvicorn's --timeout-keep-alive (75s): Caddy closes an
+			# idle upstream connection before uvicorn can, so no request is sent
+			# on a connection uvicorn has just closed (a 502).
+			keepalive 60s
+		}
+	}
+}

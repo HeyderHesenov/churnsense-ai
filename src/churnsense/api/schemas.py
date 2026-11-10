@@ -140,6 +140,15 @@ class HealthResponse(BaseModel):
     detail: str | None = None
 
 
+class ReadinessResponse(BaseModel):
+    """Whether every page can be served: 200 when ``ready``, 503 otherwise. No reasons or paths."""
+
+    status: Literal["ready", "not_ready"]
+    model: bool
+    dataset: bool
+    frontend: bool
+
+
 class ModelInfoResponse(BaseModel):
     """What the service is serving. Deliberately excludes any filesystem path."""
 

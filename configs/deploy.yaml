@@ -1,0 +1,120 @@
+# ChurnSense AI - the deployed demo's configuration (docs/DEPLOYMENT.md).
+# Identical to configs/config.yaml except api.allowed_hosts and
+# api.trusted_proxies (tests/test_deploy.py and scripts/verify_deploy_bundle.py
+# refuse any other difference). The image reads it through
+# CHURNSENSE_CONFIG=configs/deploy.yaml. No secrets.
+
+project:
+  name: ChurnSense AI
+  random_seed: 42            # used for splits, model init and CV shuffling
+
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  artifacts_dir: artifacts
+  reports_dir: reports
+  figures_dir: reports/figures
+
+dataset:
+  # IBM Telco Customer Churn. Apache-2.0 licensed.
+  # Provenance and limitations: see docs/MODEL_CARD.md
+  filename: Telco-Customer-Churn.csv
+  url: https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv
+  # SHA-256 of the file as fetched on 2026-10-09. `make data` verifies against
+  # this and refuses to proceed on a mismatch, so a silently changed upstream
+  # file cannot quietly alter every downstream result.
+  sha256: "16320c9c1ec72448db59aa0a26a0b95401046bef5d02fd3aeb906448e3055e91"
+  expected_rows: 7043
+
+split:
+  # Stratified 60/20/20. The model is selected by cross-validation on `train`;
+  # calibration and the threshold are decided on `validation`. `test` is read
+  # only by `make evaluate CONFIRM=yes` (history: docs/MODEL_CARD.md).
+  test_size: 0.20
+  validation_size: 0.20      # fraction of the full dataset, not of the remainder
+  stratify: true
+
+features:
+  # `gender` is a protected attribute and is excluded from the production model.
+  # The measured cost of excluding it is published as an ablation in
+  # reports/model_comparison.md. `customerID` is an identifier with no signal.
+  drop_columns: [customerID, gender]
+  # TotalCharges correlates 0.9996 with tenure x MonthlyCharges. It is kept
+  # (it is known at prediction time, so this is collinearity, not leakage) and
+  # the include/exclude ablation is reported rather than decided silently.
+  include_total_charges: true
+
+training:
+  cv_folds: 5
+  scoring: average_precision   # PR-AUC: the right primary metric at 26.5% positives
+  n_jobs: -1
+  # Deliberately small grids. 7k rows x 8 cores means the whole sweep is
+  # seconds; a larger grid would buy noise, not signal.
+  grids:
+    logistic_regression:
+      classifier__C: [0.01, 0.1, 1.0, 10.0]
+    random_forest:
+      classifier__n_estimators: [300]
+      classifier__max_depth: [null, 8, 16]
+      classifier__min_samples_leaf: [1, 5, 20]
+    hist_gradient_boosting:
+      classifier__learning_rate: [0.05, 0.1]
+      classifier__max_leaf_nodes: [15, 31]
+      classifier__min_samples_leaf: [20, 50]
+      classifier__l2_regularization: [0.0, 1.0]
+  calibration:
+    enabled: true
+    method: isotonic          # swapped to sigmoid automatically for small folds
+    cv_folds: 5
+
+risk_bands:
+  # Operational segmentation for the retention team. Probability cut points,
+  # independent of the decision threshold so that the segments stay stable
+  # when the threshold is re-tuned.
+  - { name: Low,      min: 0.00, max: 0.25 }
+  - { name: Moderate, min: 0.25, max: 0.50 }
+  - { name: High,     min: 0.50, max: 0.75 }
+  - { name: Critical, min: 0.75, max: 1.01 }
+
+business:
+  # ---------------------------------------------------------------------
+  # ASSUMPTIONS, NOT MEASUREMENTS. Every monetary figure derived from these
+  # is a simulation. The dataset contains no campaign outcomes, so the
+  # success rate below cannot be estimated from it and must be supplied by
+  # the business. All values are exposed as sliders in the dashboard.
+  # ---------------------------------------------------------------------
+  currency: USD
+  retention_offer_cost: 50.0          # cost of one intervention, per flagged customer
+  offer_success_rate: 0.30            # P(stays | would have churned AND was offered)
+  expected_horizon_months: 12         # window over which retained revenue is counted
+  gross_margin: 0.65                  # margin fraction of revenue; avoids treating revenue as profit
+
+api:
+  max_batch_rows: 10000
+  max_upload_bytes: 5242880           # 5 MiB
+  # A cap on header width; why it exists is in predict._read_contract_columns.
+  # Unknown columns are dropped, never built, so 1,000 columns x 2,400 rows
+  # (4.8 MB) reads in under 0.1 s. Must be at least the raw contract's 21.
+  max_upload_columns: 1000
+  # Host headers the service answers to (src/churnsense/hosts.py).
+  # REPLACE demo.example.com with the real public domain before building the
+  # image - the same name as the site address in deploy/Caddyfile; the bundle
+  # check refuses the example domain. 127.0.0.1 is for the container's own
+  # health check: Caddy forwards only requests for its site name. Never "*".
+  allowed_hosts: [demo.example.com, 127.0.0.1]
+  # The one peer whose X-Forwarded-For / X-Forwarded-Proto are believed: the
+  # Caddy container's fixed address on the internal proxy network in
+  # deploy/compose.yaml (src/churnsense/proxies.py). Change both together.
+  trusted_proxies: [172.30.10.2]
+  # Per-client budgets for the endpoints that cost real CPU: a SHAP
+  # explanation (~0.3 s a customer) and a batch upload (up to 10,000 rows).
+  # A bucket holds `burst` requests and refills one every `per_seconds`; past
+  # that the API answers 429 with Retry-After.
+  rate_limits:
+    explain: { burst: 10, per_seconds: 2 }
+    batch: { burst: 5, per_seconds: 6 }
+
+logging:
+  level: INFO
+  format: "%(asctime)s %(levelname)-8s %(name)-28s %(message)s"

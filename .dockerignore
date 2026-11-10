@@ -1,0 +1,44 @@
+# An allowlist: everything is excluded, then exactly what the Dockerfile copies
+# is let back in. A new file never reaches the image by accident - not a .env,
+# not audit-reports/, not the held-out report, not the dataset's other folders.
+# scripts/verify_deploy_bundle.py checks that every re-included path below is
+# one it expects, and that the image holds nothing it forbids.
+*
+
+# Python: the locked runtime dependencies and the source.
+!requirements.txt
+!src/
+!scripts/verify_deploy_bundle.py
+
+# Configuration, the published release ledger, the two reports the API reads.
+!configs/config.yaml
+!configs/deploy.yaml
+!governance/held_out_release.json
+!reports/association_ranking.csv
+!reports/model_comparison.csv
+
+# The approved model artifact (hash-checked in the build). The sample dataset is
+# deliberately absent: it is not redistributed, so the operator mounts it at run
+# time (docs/DEPLOYMENT.md, section 6), and it never enters the build context.
+!artifacts/model.joblib
+!artifacts/model_meta.json
+!artifacts/shap_global.json
+
+# The front end's sources and lockfile, and the demo file its batch page bundles.
+!frontend/
+!tests/fixtures/demo_customers.csv
+
+# Never, even inside a re-included folder.
+**/__pycache__
+**/*.egg-info
+**/*.pyc
+**/.DS_Store
+**/.env
+**/.env.*
+frontend/node_modules
+frontend/dist
+frontend/e2e
+frontend/playwright-report
+frontend/test-results
+frontend/openapi.json
+frontend/**/*.tsbuildinfo

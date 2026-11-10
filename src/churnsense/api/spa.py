@@ -62,6 +62,11 @@ class FrontendNotBuiltError(HTTPException):
         self.error = "frontend_not_built"
 
 
+def is_built() -> bool:
+    """Whether the built front end's shell is there to serve."""
+    return (FRONTEND_DIST / "index.html").is_file()
+
+
 def page() -> FileResponse:
     """The app shell; the page itself is chosen in the browser from the path."""
     index = FRONTEND_DIST / "index.html"

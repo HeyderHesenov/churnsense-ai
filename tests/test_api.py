@@ -392,7 +392,9 @@ def _drive(middleware, scope: dict, messages: list[dict]) -> tuple[int, Exceptio
 
 
 def _post_scope(headers: list[tuple[bytes, bytes]] | None = None) -> dict:
-    return {"type": "http", "method": "POST", "path": "/predict", "headers": headers or []}
+    # An upload path: ``max_bytes`` is the upload limit; every other path has the
+    # smaller SMALL_BODY_BYTES (tests/test_limits.py).
+    return {"type": "http", "method": "POST", "path": "/predict/batch", "headers": headers or []}
 
 
 def test_body_limit_counts_a_streamed_body_across_messages():
