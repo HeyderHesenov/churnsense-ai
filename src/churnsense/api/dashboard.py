@@ -43,13 +43,14 @@ from churnsense.api.schemas import (
 from churnsense.api.state import (
     Dashboard,
     Unavailable,
+    batch_slot,
     explanation_slot,
     get_dashboard,
     optional_dashboard,
     require_predictor,
 )
 from churnsense.api.uploads import read_upload
-from churnsense.config import Business, load_config
+from churnsense.config import Business, Config, load_config
 from churnsense.data import schema
 from churnsense.evaluation import disclosure, release
 from churnsense.evaluation.threshold import DISCLAIMER, ThresholdScenario, scenario_at
@@ -66,7 +67,7 @@ from churnsense.explainability.shap_explain import (
     read_cache,
 )
 from churnsense.exports import csv_bytes
-from churnsense.models.predict import ignored_columns
+from churnsense.models.predict import Predictor, ignored_columns
 from churnsense.models.registry import DISPLAY_NAMES
 
 logger = logging.getLogger(__name__)
@@ -909,9 +910,18 @@ def batch_score(
     The same body limit, the same ``validate_upload`` contract and the same
     ``Predictor`` as ``POST /predict/batch``; only the response carries more,
     so the page can show each row and export it. Nothing is written to disk.
+    It shares ``state.BATCH_SLOTS`` with that endpoint: past them, 429 at once.
     """
     cfg = load_config()
     predictor = require_predictor()
+    with batch_slot():
+        return _score_upload(file, d, cfg, predictor)
+
+
+def _score_upload(
+    file: UploadFile, d: Dashboard | None, cfg: Config, predictor: Predictor
+) -> out.BatchScoreResponse:
+    """``batch_score``'s work, done while it holds a batch slot."""
     payload, frame = read_upload(file, cfg, predictor.feature_columns)
     scored = predictor.predict_frame(frame)
     inputs = predictor.model_inputs(frame)

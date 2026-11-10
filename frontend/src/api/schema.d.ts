@@ -20,6 +20,7 @@ export interface paths {
      *     The same body limit, the same ``validate_upload`` contract and the same
      *     ``Predictor`` as ``POST /predict/batch``; only the response carries more,
      *     so the page can show each row and export it. Nothing is written to disk.
+     *     It shares ``state.BATCH_SLOTS`` with that endpoint: past them, 429 at once.
      */
     post: operations['batch_score_api_batch_score_post'];
     delete?: never;
@@ -285,9 +286,35 @@ export interface paths {
      *
      *     A plain ``def`` rather than ``async def``: parsing and scoring are
      *     CPU-bound, so FastAPI runs them in its threadpool instead of on the event
-     *     loop.
+     *     loop. At most ``state.BATCH_SLOTS`` uploads are scored at once; another
+     *     gets 429 at once.
      */
     post: operations['predict_batch_api_predict_batch_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/ready': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Ready
+     * @description Readiness: 200 only when the model, the book and the built front end are all in place.
+     *
+     *     ``/health`` is liveness and stays 200 while the process runs; this is what a
+     *     container health check or a proxy should poll. It reads only what is
+     *     already in memory - nothing is loaded, read or scored - and names no reason
+     *     or path: the log says why.
+     */
+    get: operations['ready_api_ready_get'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -419,9 +446,35 @@ export interface paths {
      *
      *     A plain ``def`` rather than ``async def``: parsing and scoring are
      *     CPU-bound, so FastAPI runs them in its threadpool instead of on the event
-     *     loop.
+     *     loop. At most ``state.BATCH_SLOTS`` uploads are scored at once; another
+     *     gets 429 at once.
      */
     post: operations['predict_batch_predict_batch_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/ready': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Ready
+     * @description Readiness: 200 only when the model, the book and the built front end are all in place.
+     *
+     *     ``/health`` is liveness and stays 200 while the process runs; this is what a
+     *     container health check or a proxy should poll. It reads only what is
+     *     already in memory - nothing is loaded, read or scored - and names no reason
+     *     or path: the log says why.
+     */
+    get: operations['ready_ready_get'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1397,6 +1450,23 @@ export interface components {
       verified: boolean;
       /** Withheld Reason */
       withheld_reason: string | null;
+    };
+    /**
+     * ReadinessResponse
+     * @description Whether every page can be served: 200 when ``ready``, 503 otherwise. No reasons or paths.
+     */
+    ReadinessResponse: {
+      /** Dataset */
+      dataset: boolean;
+      /** Frontend */
+      frontend: boolean;
+      /** Model */
+      model: boolean;
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: 'ready' | 'not_ready';
     };
     /**
      * ReliabilityBin
@@ -2719,6 +2789,35 @@ export interface operations {
       };
     };
   };
+  ready_api_ready_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReadinessResponse'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReadinessResponse'];
+        };
+      };
+    };
+  };
   segments_api_segments_get: {
     parameters: {
       query?: {
@@ -3062,6 +3161,35 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ErrorResponse'];
+        };
+      };
+    };
+  };
+  ready_ready_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReadinessResponse'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReadinessResponse'];
         };
       };
     };

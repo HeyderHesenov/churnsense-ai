@@ -69,8 +69,10 @@ def test_the_release_is_written_in_one_module_and_never_elsewhere():
             if path != release_file:
                 assert "_write_ledger" not in source, path
                 assert "_write_atomic" not in source, path
-                # The consistency check names the ledger to compare it; it writes nothing.
-                allowed = ("report.py", "check_release_ledger.py")
+                # The consistency check names the ledger to compare it, and the deploy
+                # bundle check to confirm the bundled model is the released one; neither
+                # writes anything (test_the_deploy_bundle_check_writes_nothing).
+                allowed = ("report.py", "check_release_ledger.py", "verify_deploy_bundle.py")
                 assert "held_out_release.json" not in source or path.name in allowed, path
     final = (ROOT / "src/churnsense/evaluation/report.py").read_text(encoding="utf-8")
     body = final.split("# Final evaluation: the only code that reads the test partition")[1]
@@ -78,22 +80,205 @@ def test_the_release_is_written_in_one_module_and_never_elsewhere():
         assert writer not in body, writer
 
 
+#: The one program outside ``release.py`` that may call the canonical strict
+#: validator: the read-only deploy bundle check. ``release.py`` is fingerprinted
+#: by the published release, so it cannot grow a public parser for it; the check
+#: is held to the exact shape ``_bundle_check_validator_faults`` describes.
+BUNDLE_CHECK = "scripts/verify_deploy_bundle.py"
+_READER_NAMES = ("_decode", "read_ledger")
+
+
+def _bundle_check_validator_faults(source: str) -> list[str]:
+    """Why ``source`` is not the one permitted use of the validator; empty when it is.
+
+    Permitted: inside ``read_release`` only, the module imported as
+    ``from churnsense.evaluation import release`` and called exactly once as
+    ``release._decode(<text>)``. No other reference to the reader's names in
+    code - no alias, import, ``getattr`` string or second call - no rebinding
+    of ``release``, and no parser of its own beside the validator. Docstrings
+    may name the reader; nothing else may.
+    """
+    tree = ast.parse(source)
+    scopes = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    docstrings = {
+        id(node.body[0].value)
+        for node in ast.walk(tree)
+        if isinstance(node, scopes)
+        and node.body
+        and isinstance(node.body[0], ast.Expr)
+        and isinstance(node.body[0].value, ast.Constant)
+        and isinstance(node.body[0].value.value, str)
+    }
+    faults: list[str] = []
+    calls = {
+        id(node.func): node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    permitted: list[ast.Attribute] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) not in docstrings and any(name in node.value for name in _READER_NAMES):
+                faults.append(f"line {node.lineno}: the reader is named in a string")
+        elif isinstance(node, ast.Name) and node.id in _READER_NAMES:
+            faults.append(f"line {node.lineno}: {node.id} used as a bare name")
+        elif isinstance(node, ast.alias) and {node.name, node.asname} & set(_READER_NAMES):
+            faults.append(f"line {node.lineno}: {node.name} imported")
+        elif isinstance(node, ast.Attribute) and node.attr in _READER_NAMES:
+            call = calls.get(id(node))
+            direct = (
+                node.attr == "_decode"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "release"
+                and call is not None
+                and len(call.args) == 1
+                and not call.keywords
+            )
+            if direct:
+                permitted.append(node)
+            else:
+                faults.append(f"line {node.lineno}: .{node.attr} is not a direct release._decode()")
+    if len(permitted) != 1:
+        faults.append(f"release._decode(text) is called {len(permitted)} times, not once")
+    readers = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "read_release"
+    ]
+    if len(readers) != 1:
+        return [*faults, "there is not exactly one read_release()"]
+    inside = list(ast.walk(readers[0]))
+    if any(node not in inside for node in permitted):
+        faults.append("the validator is called outside read_release()")
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        and any((alias.asname or alias.name).split(".")[0] == "release" for alias in node.names)
+    ]
+    canonical = [
+        node
+        for node in imports
+        if isinstance(node, ast.ImportFrom)
+        and node.module == "churnsense.evaluation"
+        and node.level == 0
+        and any(alias.name == "release" and alias.asname is None for alias in node.names)
+        and node in inside
+    ]
+    if len(imports) != 1 or len(canonical) != 1:
+        faults.append("`release` is not solely `from churnsense.evaluation import release`")
+    if any(
+        isinstance(node, ast.Name) and node.id == "release" and not isinstance(node.ctx, ast.Load)
+        for node in ast.walk(tree)
+    ) or any(isinstance(node, ast.arg) and node.arg == "release" for node in ast.walk(tree)):
+        faults.append("`release` is rebound")
+    if any(isinstance(node, ast.Name) and node.id in ("json", "yaml") for node in inside):
+        faults.append("read_release() parses the ledger itself")
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else node.func
+        name = name.id if isinstance(name, ast.Name) else name
+        if name in ("_json", "_yaml", "loads", "safe_load") and any(
+            isinstance(part, ast.Name) and part.id == "LEDGER" for part in ast.walk(node)
+        ):
+            faults.append(f"line {node.lineno}: the ledger is parsed without the validator")
+    return faults
+
+
 def test_the_ledger_is_read_through_the_one_validating_reader():
     """No second reader, metadata consumer or report path can skip ``release._decode``.
 
     The synthetic end-to-end server only points the module at a temporary ledger, and the
     consistency check is the separate program ``tests/ledger_payloads.py`` holds to the same rules.
+    The deploy bundle check is the one named consumer of the validator itself: it must
+    call it, in the one permitted shape, and is otherwise held to every rule here.
     """
     release_file = ROOT / "src/churnsense/evaluation/release.py"
+    bundle_check = ROOT / BUNDLE_CHECK
     setup_only = {ROOT / "scripts/e2e_server.py"}
+    seen_bundle_check = False
     for folder in ("src", "app", "scripts"):
         for path in sorted((ROOT / folder).rglob("*.py")):
             if path == release_file:
                 continue
             source = path.read_text(encoding="utf-8")
-            assert "_decode" not in source, path
-            assert "read_ledger" not in source, path
+            if path == bundle_check:
+                seen_bundle_check = True
+                assert _bundle_check_validator_faults(source) == [], path
+            else:
+                assert "_decode" not in source, path
+                assert "read_ledger" not in source, path
             assert "LEDGER_FILE" not in source or path in setup_only, path
+    assert seen_bundle_check, "the deploy bundle check was not examined"
+
+
+def _bundle_check_source() -> str:
+    return (ROOT / BUNDLE_CHECK).read_text(encoding="utf-8")
+
+
+def _edited(old: str, new: str) -> str:
+    source = _bundle_check_source()
+    assert source.count(old) == 1, old
+    return source.replace(old, new)
+
+
+_CALL = "        ledger = release._decode(text)\n"
+_IMPORT = "        from churnsense.evaluation import release\n"
+
+
+@pytest.mark.parametrize(
+    "bypass",
+    [
+        # its own parser instead of the validator
+        lambda: _edited(_CALL, "        ledger = json.loads(text)\n"),
+        # its own parser beside the validator
+        lambda: _edited(_CALL, _CALL + "        ledger = json.loads(text) or ledger\n"),
+        # the generic JSON helper pointed at the ledger, elsewhere in the program
+        lambda: _edited(
+            "    meta = _json(root / META)\n",
+            "    meta = _json(root / META)\n    unchecked = _json(root / LEDGER)\n",
+        ),
+        # the public reader of the service's own ledger path
+        lambda: _edited(_CALL, "        ledger = release.read_ledger()\n"),
+        # the validator kept under another name
+        lambda: _edited(_CALL, "        decode = release._decode\n        ledger = decode(text)\n"),
+        lambda: _edited(_CALL, '        ledger = getattr(release, "_decode")(text)\n'),
+        lambda: _edited(
+            _IMPORT, _IMPORT + "        from churnsense.evaluation.release import _decode\n"
+        ),
+        # another module passed off as the validating one
+        lambda: _edited(_IMPORT, "        import json as release\n"),
+        lambda: _edited(_IMPORT, "        from tests import ledger_payloads as release\n"),
+        lambda: _edited(_CALL, "        release = problems\n" + _CALL),
+        # a second use, outside the one reader
+        lambda: (
+            _bundle_check_source()
+            + "\n\ndef again(release, text):\n    return release._decode(text)\n"
+        ),
+        lambda: _edited(_CALL, _CALL + "        release._decode(text)\n"),
+        lambda: _edited(_CALL, "        ledger = release._decode(text, strict=False)\n"),
+    ],
+)
+def test_the_bundle_check_exception_admits_no_other_use_of_the_reader(bypass):
+    """Each way round the validator, tried on a copy of the real source, is caught."""
+    assert _bundle_check_validator_faults(_bundle_check_source()) == []
+    assert _bundle_check_validator_faults(bypass()) != []
+
+
+def test_no_other_program_may_borrow_the_bundle_check_exception():
+    """The permission is one exact path, and the only private call into the release module."""
+    assert (ROOT / BUNDLE_CHECK).is_file()
+    private_call = re.compile(r"\brelease\._[a-z]")
+    callers = {
+        str(path.relative_to(ROOT))
+        for folder in ("src", "app", "scripts")
+        for path in sorted((ROOT / folder).rglob("*.py"))
+        if path != ROOT / "src/churnsense/evaluation/release.py"
+        and private_call.search(path.read_text(encoding="utf-8"))
+    }
+    assert callers == {BUNDLE_CHECK}
+    assert len(private_call.findall(_bundle_check_source())) == 1
 
 
 def test_every_consumer_of_a_release_gets_it_from_the_validating_module():
@@ -263,3 +448,43 @@ def test_no_file_in_the_repository_names_a_real_customer():
         and set(found) - {_ID_FORMAT_HINT}
     }
     assert not named, f"real customer IDs in tracked files: {named}"
+
+
+def test_the_deploy_bundle_check_writes_nothing():
+    """It may name the ledger only because it reads it: no write of any kind is in it."""
+    source = (ROOT / "scripts" / "verify_deploy_bundle.py").read_text(encoding="utf-8")
+    for writer in (
+        "write_text",
+        "write_bytes",
+        "json.dump",
+        "unlink",
+        "rename(",
+        "rmtree",
+        "mkdir",
+    ):
+        assert writer not in source, writer
+    modes = re.findall(r"open\(([^)]*)\)", source)
+    assert modes == ['"rb"'], f"files are opened for reading only, not {modes}"
+
+
+def test_the_deploy_bundle_check_loads_no_model_and_no_model_library():
+    """It hashes the model file; it never imports what could unpickle or run it."""
+    tree = ast.parse((ROOT / BUNDLE_CHECK).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom):
+            imported.add(node.module or "")
+    assert imported & {"churnsense.evaluation", "churnsense.exceptions"}
+    for module in imported:
+        root = module.split(".")[0]
+        assert root not in ("joblib", "sklearn", "pickle", "numpy", "pandas", "shap"), module
+        assert not module.startswith("churnsense.models"), module
+    called = {
+        node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+    }
+    assert not called & {"load", "Predictor", "import_module", "__import__"}, called
+    assert "pickle" not in called and "joblib" not in called

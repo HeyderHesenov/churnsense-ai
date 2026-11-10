@@ -281,4 +281,9 @@ describe('the words', () => {
       expect(text).not.toMatch(/in your browser|nothing is uploaded|nothing leaves/i);
     }
   });
+
+  it('warns that the file is sent to an unauthenticated service, so no real customer data', () => {
+    expect(LEDE).toMatch(/no authentication/i);
+    expect(LEDE).toMatch(/real or personally identifiable customer data/i);
+  });
 });

@@ -187,11 +187,15 @@ def monkeypatch_session():
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _api_guards(monkeypatch_session):
-    """No test reads the real dataset through the API, and none waits on a rate limit.
+def _api_guards(monkeypatch_session, tmp_path_factory):
+    """No test reads the real dataset or the real model through the API, and none
+    waits on a rate limit.
 
-    A test that needs a book points ``state.BOOK_LOADER`` at the synthetic one;
-    the rate-limit tests set their own budgets.
+    A test that needs a book points ``state.BOOK_LOADER`` at the synthetic one
+    and one that needs a model points ``state.ARTIFACTS_DIR`` at a synthetic
+    artifact; the service loads both at startup, so without these defaults any
+    test that only starts it would load the real ones. The rate-limit tests set
+    their own budgets.
     """
     from churnsense.api import middleware, state
     from churnsense.exceptions import DataError
@@ -200,6 +204,7 @@ def _api_guards(monkeypatch_session):
         raise DataError("tests never read the real dataset")
 
     monkeypatch_session.setattr(state, "BOOK_LOADER", no_real_dataset)
+    monkeypatch_session.setattr(state, "ARTIFACTS_DIR", tmp_path_factory.mktemp("no_artifacts"))
     monkeypatch_session.setattr(middleware, "RATE_LIMITS", {})
 
 

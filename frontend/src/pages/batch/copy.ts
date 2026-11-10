@@ -13,7 +13,7 @@ type Bounds = ModelInfo['numeric_bounds'];
 type Limits = NonNullable<ModelInfo['limits']>;
 
 export const LEDE =
-  'Checked against the same contract as POST /predict/batch, then every row is scored by the served model. One refused value and nothing is scored; the file is not stored.';
+  'Checked against the same contract as POST /predict/batch, then every row is scored by the served model. One refused value and nothing is scored; the file is not stored. The service has no authentication: never upload real or personally identifiable customer data.';
 
 export const DEMO_NOTE = 'Synthetic customers from tests/fixtures, labels included.';
 

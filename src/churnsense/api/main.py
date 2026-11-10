@@ -60,11 +60,20 @@ from churnsense.api.schemas import (
     NumericBounds,
     PredictionResponse,
     Provenance,
+    ReadinessResponse,
     RiskBand,
     UploadContract,
     UploadLimits,
 )
-from churnsense.api.state import Dashboard, get_predictor, optional_dashboard, require_predictor
+from churnsense.api.state import (
+    Dashboard,
+    batch_slot,
+    get_predictor,
+    optional_dashboard,
+    readiness,
+    require_predictor,
+    warm_up,
+)
 from churnsense.api.uploads import read_upload
 from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
@@ -89,16 +98,19 @@ _SCORING_ERRORS: dict[int | str, dict] = {
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load the model at startup so the first request is not the slow one."""
+    """Load the model and build the book at startup, so the first visitor is not the slow one."""
     configure_logging()
     try:
         predictor = get_predictor()
-        logger.info(
-            "service ready model=%s threshold=%.2f", predictor.model_key, predictor.threshold
-        )
     except ModelNotAvailableError as exc:
         # Not fatal: /health must stay reachable so an operator can see why.
         logger.error("starting without a model: %s", exc)
+    else:
+        logger.info(
+            "model loaded model=%s threshold=%.2f", predictor.model_key, predictor.threshold
+        )
+        warm_up()
+        logger.info("service ready=%s", all(readiness().values()))
     yield
 
 
@@ -195,6 +207,26 @@ def health() -> HealthResponse:
 
 
 @service.get(
+    "/ready",
+    response_model=ReadinessResponse,
+    tags=["service"],
+    responses={503: {"model": ReadinessResponse}},
+)
+def ready() -> JSONResponse:
+    """Readiness: 200 only when the model, the book and the built front end are all in place.
+
+    ``/health`` is liveness and stays 200 while the process runs; this is what a
+    container health check or a proxy should poll. It reads only what is
+    already in memory - nothing is loaded, read or scored - and names no reason
+    or path: the log says why.
+    """
+    checks = {**readiness(), "frontend": spa.is_built()}
+    ok = all(checks.values())
+    body = ReadinessResponse(status="ready" if ok else "not_ready", **checks)
+    return JSONResponse(body.model_dump(), status_code=200 if ok else 503)
+
+
+@service.get(
     "/model-info",
     response_model=ModelInfoResponse,
     tags=["service"],
@@ -284,11 +316,13 @@ def predict_batch(
 
     A plain ``def`` rather than ``async def``: parsing and scoring are
     CPU-bound, so FastAPI runs them in its threadpool instead of on the event
-    loop.
+    loop. At most ``state.BATCH_SLOTS`` uploads are scored at once; another
+    gets 429 at once.
     """
     predictor = require_predictor()
-    _, frame = read_upload(file, load_config(), predictor.feature_columns)
-    scored = predictor.predict_frame(frame)
+    with batch_slot():
+        _, frame = read_upload(file, load_config(), predictor.feature_columns)
+        scored = predictor.predict_frame(frame)
 
     return BatchResponse(
         n_scored=len(scored),

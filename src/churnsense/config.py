@@ -21,6 +21,7 @@ import yaml
 
 from churnsense.exceptions import ConfigError
 from churnsense.hosts import allowed_host_entry
+from churnsense.proxies import trusted_network
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -175,6 +176,11 @@ class RateLimit:
 DEFAULT_RATE_LIMITS: tuple[tuple[str, RateLimit], ...] = (
     ("explain", RateLimit(burst=10, per_seconds=2.0)),
     ("batch", RateLimit(burst=5, per_seconds=6.0)),
+    # A page's worth of filtering, sorting or slider moves at once, then two a second.
+    ("query", RateLimit(burst=30, per_seconds=0.5)),
+    ("predict", RateLimit(burst=20, per_seconds=0.5)),
+    # A whole CSV of the book: a few, then one every ten seconds.
+    ("export", RateLimit(burst=3, per_seconds=10.0)),
 )
 
 
@@ -191,6 +197,9 @@ class ApiConfig:
     # Per-client budgets for the expensive endpoints; see churnsense.api.middleware.
     # YAML gives a mapping; a frozen config holds (name, RateLimit) pairs.
     rate_limits: tuple[tuple[str, RateLimit], ...] = DEFAULT_RATE_LIMITS
+    # Reverse proxies whose forwarded headers are believed; see churnsense.proxies.
+    # Empty: nobody's are, and only this machine is answered (the local default).
+    trusted_proxies: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         # YAML gives a list; a frozen config holds a tuple. A bare string would
@@ -207,6 +216,7 @@ class ApiConfig:
             raise ConfigError(f"allowed_hosts: {exc}") from exc
         object.__setattr__(self, "allowed_hosts", names)
         object.__setattr__(self, "rate_limits", _rate_limits(self.rate_limits))
+        object.__setattr__(self, "trusted_proxies", _trusted_proxies(self.trusted_proxies))
         limits = (self.max_batch_rows, self.max_upload_bytes, self.max_upload_columns)
         if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 1 for v in limits):
             raise ConfigError("api upload limits must each be a whole number of at least 1")
@@ -216,6 +226,17 @@ class ApiConfig:
                 f"max_upload_columns must be at least {CONTRACT_WIDTH}, the width of the "
                 "raw data contract"
             )
+
+
+def _trusted_proxies(given: object) -> tuple[str, ...]:
+    """Configured proxy addresses, normalised and checked; see ``churnsense.proxies``."""
+    # A bare string would become a tuple of its characters, so it is refused.
+    if isinstance(given, str) or not isinstance(given, tuple | list):
+        raise ConfigError("trusted_proxies must be a list of IP addresses or ranges")
+    try:
+        return tuple(dict.fromkeys(trusted_network(entry) for entry in given))
+    except ValueError as exc:
+        raise ConfigError(f"trusted_proxies: {exc}") from exc
 
 
 def _rate_limits(given: object) -> tuple[tuple[str, RateLimit], ...]:

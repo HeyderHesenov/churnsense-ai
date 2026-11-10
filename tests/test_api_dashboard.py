@@ -2240,6 +2240,7 @@ def test_the_reserved_first_segments_are_the_apps_own_non_page_routes():
         "model-info",
         "openapi.json",
         "predict",
+        "ready",
         "redoc",
     }
 

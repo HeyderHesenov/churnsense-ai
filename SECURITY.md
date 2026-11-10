@@ -83,11 +83,18 @@ and scoring pipeline, and the GitHub Actions workflows.
 The API, the front end it serves (`frontend/`) and the dashboard are **local
 by design**: they have no authentication and bind to `127.0.0.1`, and the API
 answers loopback peers only. That is documented in the
-[README](README.md#security) and is not a vulnerability in itself. A way around
-one of the mitigations described there (the body-size limit, upload
-validation, export neutralisation, the Host and Origin checks, the per-client
-limits on explanations and batch uploads, the front end's Content-Security-Policy)
-is in scope.
+[README](README.md#security) and is not a vulnerability in itself. The one
+deployment the repository supports, a public portfolio demo of the sample
+dataset behind Caddy ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), adds exactly
+one peer: the proxy address listed in `api.trusted_proxies`, whose forwarded
+client address and scheme are the only ones believed. It is still
+unauthenticated, so it must never hold real customer data. Its image never holds
+the sample dataset (the operator mounts it read-only), and every request body is
+limited by path: 5 MiB on the three upload paths, 64 KiB everywhere else. A way around one of
+the mitigations described there (the body-size limit, upload validation,
+export neutralisation, the Host and Origin checks, the trusted-proxy rule, the
+per-client limits on explanations and batch uploads and the process-wide
+batch limit, the front end's Content-Security-Policy) is in scope.
 
 Out of scope: a vulnerable third-party dependency with no demonstrated effect
 on this project (report it upstream; Dependabot tracks advisories here), and
