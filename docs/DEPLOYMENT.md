@@ -248,8 +248,13 @@ It checks the following without loading the model:
   - `.dockerignore` re-includes exactly the expected paths.
   - The domain is not a documentation domain.
 
-It only reads. It prints hash prefixes, never file contents. Its release reader imports
-pandas and numpy, never scikit-learn, joblib or the model.
+It only reads. When every check passes it prints one fixed line to stdout,
+`deployment bundle ready`, and nothing else: no hash prefix and no file contents are
+written to stdout. When bundle validation finds problems it prints nothing to stdout;
+each problem is written to stderr as a diagnostic `PROBLEM:` line, and the exit status
+is 1. Wrong command-line usage is a different case: the argument parser reports it and
+the exit status is 2. Its release reader imports pandas and numpy, never scikit-learn,
+joblib or the model.
 
 The image build runs it again with `--in-image` on the copied files. That run also
 refuses:

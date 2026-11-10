@@ -8,6 +8,7 @@ Dockerfile, .dockerignore), which hold no data.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -290,12 +291,73 @@ def test_the_command_fails_loudly_and_prints_no_contents(image, capsys):
     assert "PROBLEM" in out.err and "NOT ready" in out.err
     assert "secret-looking" not in out.out + out.err
     meta_sha = json.loads((image / bundle.META).read_text())["model_sha256"]
-    assert meta_sha not in out.out + out.err, "only hash prefixes are printed"
+    assert meta_sha not in out.out + out.err, "no recorded hash is printed"
+    assert out.out == "", "a failing run prints nothing to stdout"
 
 
 def test_the_command_passes_a_complete_bundle(image, capsys):
     assert bundle.main(["--in-image", "--allow-example-domain", "--root", str(image)]) == 0
-    assert "deployment bundle ready" in capsys.readouterr().out
+    out = capsys.readouterr()
+    assert out.out == "deployment bundle ready\n" == bundle.PASSED + "\n"
+    assert out.err == ""
+
+
+def _repo_bundle(tmp_path: Path, image: Path) -> Path:
+    """The synthetic bundle laid out as a checkout: the committed deployment files beside it."""
+    root = tmp_path / "checkout"
+    shutil.copytree(image, root)
+    for name in ("Dockerfile", ".dockerignore", "deploy/compose.yaml", "deploy/Caddyfile"):
+        _write(root, name, (REPO / name).read_text())
+    return root
+
+
+@pytest.mark.parametrize("mode", ["image", "checkout"])
+def test_a_passing_run_prints_one_fixed_line_and_nothing_it_found(image, tmp_path, capsys, mode):
+    """What the checks found - hash prefixes, hosts, proxy addresses - never reaches the output."""
+    if mode == "image":
+        root, argv = image, ["--in-image"]
+    else:
+        root, argv = _repo_bundle(tmp_path, image), []
+    dataset = tmp_path / "operator" / "Telco-Customer-Churn.csv"
+    argv += ["--allow-example-domain", "--root", str(root), "--dataset", str(dataset)]
+    problems, notes = bundle.verify(
+        root, in_image=mode == "image", allow_example_domain=True, dataset=dataset
+    )
+    assert list(problems) == []
+    assert len(notes) >= 5, "the checks still record what they found, for a caller"
+    assert bundle.main(argv) == 0
+    out = capsys.readouterr()
+    assert out.out == bundle.PASSED + "\n" and out.err == ""
+    deploy = yaml.safe_load((root / bundle.DEPLOY_CONFIG).read_text())
+    meta = json.loads((root / bundle.META).read_text())
+    found = [
+        *notes,
+        meta["model_sha256"][:12],
+        _sha(OPERATOR_DATASET)[:12],
+        *deploy["api"]["allowed_hosts"],
+        *deploy["api"]["trusted_proxies"],
+        "172.30.10.3",
+    ]
+    for item in found:
+        assert str(item) not in out.out, item
+
+
+def test_the_output_is_fixed_text_never_a_note():
+    """No print in the command takes its text from the notes."""
+    tree = ast.parse((REPO / "scripts" / "verify_deploy_bundle.py").read_text())
+    main = next(
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    prints = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "print"
+    ]
+    assert prints and all(call in list(ast.walk(main)) for call in prints)
+    for call in prints:
+        names = {node.id for node in ast.walk(call) if isinstance(node, ast.Name)}
+        assert not names & {"note", "notes"}, ast.unparse(call)
+    assert bundle.PASSED == "deployment bundle ready"
 
 
 def test_the_check_never_loads_a_model_or_the_data_stack(image):
@@ -346,7 +408,10 @@ def test_the_example_domain_is_refused_until_replaced():
     deploy = yaml.safe_load((REPO / bundle.DEPLOY_CONFIG).read_text())
     problems = bundle.Problems()
     bundle.check_domain(deploy, problems)
-    assert len(problems) == 1 and "demo.example.com" in problems[0]
+    assert list(problems) == [
+        "demo.example.com is a documentation domain: set the real one in "
+        "configs/deploy.yaml and deploy/Caddyfile"
+    ]
     real = {**deploy, "api": {**deploy["api"], "allowed_hosts": ["churn.heyder.dev", "127.0.0.1"]}}
     problems = bundle.Problems()
     bundle.check_domain(real, problems)

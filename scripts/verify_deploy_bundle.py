@@ -39,8 +39,10 @@ What "approved" means, for each asset:
 
 Nothing is unpickled, loaded or scored: files are hashed and JSON/YAML metadata
 read. Importing the release reader brings pandas and numpy, never scikit-learn,
-joblib or the model. Only hash prefixes are printed, never file contents. Exit status 0 when
-the bundle is complete and consistent, 1 when it is not, 2 on bad usage.
+joblib or the model. On success it prints one fixed line and nothing about what
+it read - no hash, host name or address; a failure names each problem on stderr,
+never file contents. Exit status 0 when the bundle is complete and consistent,
+1 when it is not, 2 on bad usage.
 """
 
 from __future__ import annotations
@@ -58,6 +60,11 @@ from typing import Any
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+#: All that is printed about a passing check: fixed text. What a check found
+#: (hash prefixes, host names, proxy addresses) stays in ``verify()``'s notes,
+#: for a caller to read; it is never written to the output.
+PASSED = "deployment bundle ready"
 
 MODEL = "artifacts/model.joblib"
 META = "artifacts/model_meta.json"
@@ -584,20 +591,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         parser.error(f"no such directory: {args.root}")
-    problems, notes = verify(
+    problems, _notes = verify(
         args.root.resolve(),
         in_image=args.in_image,
         allow_example_domain=args.allow_example_domain,
         dataset=args.dataset,
     )
-    for note in notes:
-        print(f"ok: {note}")
     for problem in problems:
         print(f"PROBLEM: {problem}", file=sys.stderr)
     if problems:
         print(f"deployment bundle NOT ready: {len(problems)} problem(s)", file=sys.stderr)
         return 1
-    print("deployment bundle ready")
+    print(PASSED)
     return 0
 
 
