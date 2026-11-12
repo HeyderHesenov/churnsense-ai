@@ -63,6 +63,12 @@ LONG_ID = ID_PREFIX + "X" * 28
 DATASET_FILENAME = "synthetic_customers.csv"
 DEFAULT_PORT = 8799
 DEFAULT_ROWS = 2000
+#: The public server's book. Its sweep is published only at cuts with twenty churners and
+#: twenty stayers between any two, the threshold among them (E8). Below its threshold the
+#: e2e model leaves about 7% of churners, so twenty there need about 300 churners in
+#: validation. Measured 2026-11-12: 4,000 rows leave 12 (no safe cuts); 8,000 leave 33
+#: and give 7 cuts, prepared in about 15 s.
+PUBLIC_ROWS = 8000
 DEFAULT_SEED = 11
 #: The deployment a ``--public`` server states: the deployed demo's own.
 PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
@@ -288,10 +294,22 @@ def _stop(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
+def rows_for(rows: int | None, *, public: bool) -> int:
+    """The rows asked for, or the default for the kind of server: see ``PUBLIC_ROWS``."""
+    if rows is not None:
+        return rows
+    return PUBLIC_ROWS if public else DEFAULT_ROWS
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.getenv("E2E_PORT", DEFAULT_PORT)))
-    parser.add_argument("--rows", type=int, default=DEFAULT_ROWS)
+    parser.add_argument(
+        "--rows",
+        type=int,
+        default=None,
+        help=f"default {DEFAULT_ROWS}; {PUBLIC_ROWS} with --public",
+    )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     parser.add_argument(
         "--public",
@@ -308,7 +326,7 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGTERM, _stop)
     with tempfile.TemporaryDirectory(prefix="churnsense-e2e-") as folder:
         root = Path(folder)
-        cfg = prepare(root, rows=args.rows, seed=args.seed)
+        cfg = prepare(root, rows=rows_for(args.rows, public=args.public), seed=args.seed)
         if args.public:
             publish(root, cfg)
         serve(root, args.port, public=args.public)

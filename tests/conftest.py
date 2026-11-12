@@ -38,15 +38,20 @@ TRACKED_REPORTS = Path(__file__).resolve().parents[1] / "reports"
 INTEGRATION_REPORTS = frozenset(
     {"eda_report.md", "model_comparison.csv", "model_comparison.md", "threshold_sweep.csv"}
 )
+#: Reports `make train` writes that are kept out of git (E8): the validation sweep at every
+#: 0.01 and segment cells of a few customers. A check that needs one runs where it exists.
+LOCAL_REPORTS = frozenset({"model_comparison.md", "threshold_sweep.csv"})
 
 
 def tracked_report(name: str) -> Path:
-    """A tracked validation or EDA report, for an integration check that compares against it.
+    """A validation or EDA report, for an integration check that compares against it.
 
-    These files are in Git, so GitHub Actions always has them and their absence there is a
-    failure. Elsewhere the check is skipped, saying why: it neither fails for the wrong reason
-    nor passes without having looked. ``CI`` alone does not mean GitHub Actions, so a generic
-    CI gets a skip that names it, not GitHub's failure and not a local copy's excuse.
+    Most are in Git, so GitHub Actions always has them and their absence there is a
+    failure. ``LOCAL_REPORTS`` are not: no checkout has them, and a check that needs one is
+    skipped wherever `make train` has not written it, saying so. Elsewhere a missing report
+    is skipped, saying why: it neither fails for the wrong reason nor passes without having
+    looked. ``CI`` alone does not mean GitHub Actions, so a generic CI gets a skip that
+    names it, not GitHub's failure and not a local copy's excuse.
     Messages give the file's name only; the file is never opened here.
     """
     if name not in INTEGRATION_REPORTS:
@@ -54,6 +59,10 @@ def tracked_report(name: str) -> Path:
     path = TRACKED_REPORTS / name
     if path.is_file():
         return path
+    if name in LOCAL_REPORTS:
+        pytest.skip(
+            f"integration check: reports/{name} is not tracked; run `make train` to write it"
+        )
     if os.environ.get("GITHUB_ACTIONS") == "true":
         pytest.fail(f"integration check: tracked reports/{name} is missing in GitHub Actions")
     if os.environ.get("CI", "").strip().lower() not in ("", "0", "false"):
@@ -274,6 +283,52 @@ def book(clean_frame: pd.DataFrame, dashboard_predictor):
     from churnsense.book import score_book
 
     return score_book(clean_frame, SYNTHETIC_SHA256, dashboard_predictor)
+
+
+#: The larger synthetic dataset a public demo's sweep is built from (E8). Eighty validation
+#: customers cannot keep twenty churners and twenty stayers between two thresholds; six
+#: hundred can, so the published sweep has cuts to check.
+PUBLIC_SHA256 = hashlib.sha256(b"synthetic customers, public demo").hexdigest()
+
+
+@pytest.fixture(scope="session")
+def public_raw() -> pd.DataFrame:
+    return make_synthetic_raw(n=3000, seed=11)
+
+
+@pytest.fixture(scope="session")
+def public_frame(public_raw: pd.DataFrame) -> pd.DataFrame:
+    from churnsense.data.loader import clean_frame as _clean
+
+    return _clean(public_raw)[0]
+
+
+@pytest.fixture(scope="session")
+def public_parts(public_frame: pd.DataFrame, cfg: Config):
+    from churnsense.data.loader import features_and_target
+    from churnsense.data.split import make_splits
+
+    return make_splits(*features_and_target(public_frame, cfg), cfg, log=False)
+
+
+@pytest.fixture(scope="session")
+def public_predictor(public_parts, dashboard_predictor, tmp_path_factory):
+    """The synthetic model - the same estimator, not retrained - recording the larger dataset."""
+    import shutil
+
+    from churnsense.models.predict import load_predictor
+
+    directory = tmp_path_factory.mktemp("public_artifacts") / "artifacts"
+    shutil.copytree(dashboard_predictor.source, directory)
+    edit_sidecar(directory, data_sha256=PUBLIC_SHA256, split_digest=public_parts.digest())
+    return load_predictor(directory)
+
+
+@pytest.fixture(scope="session")
+def public_book(public_frame: pd.DataFrame, public_predictor):
+    from churnsense.book import score_book
+
+    return score_book(public_frame, PUBLIC_SHA256, public_predictor)
 
 
 @pytest.fixture

@@ -37,7 +37,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from churnsense.api import spa
-from churnsense.api.dashboard import recorded_evaluation
+from churnsense.api.dashboard import recorded_evaluation, validation_metrics_served
 from churnsense.api.dashboard import router as dashboard_router
 from churnsense.api.middleware import (
     BodySizeLimit,
@@ -69,6 +69,7 @@ from churnsense.api.schemas import (
 from churnsense.api.state import (
     Dashboard,
     batch_slot,
+    deployment_of,
     get_predictor,
     optional_dashboard,
     readiness,
@@ -252,7 +253,12 @@ def model_info(
         dropped_columns=meta["dropped_columns"],
         n_train=meta["n_train"],
         n_validation=meta["n_validation"],
-        validation_metrics=meta["validation_metrics"],
+        validation_metrics=validation_metrics_served(
+            meta["validation_metrics"],
+            None if dashboard is None else dashboard.evidence.sweep_basis(),
+            # Fail closed: a public demo whose book failed to build states no count.
+            dashboard.synthetic if dashboard is not None else deployment_of(predictor).synthetic,
+        ),
         test_metrics=None if record is None else record.metrics.model_dump(),
         sklearn_version=meta["sklearn_version"],
         limitations=LIMITATIONS,
@@ -287,7 +293,9 @@ def model_info(
         ),
         data_source=None
         if dashboard is None
-        else DataSource.of(dashboard.synthetic, len(dashboard.book.frame)),
+        else DataSource.of(
+            dashboard.synthetic, len(dashboard.book.frame), dashboard.evidence.sweep_withheld
+        ),
     )
 
 

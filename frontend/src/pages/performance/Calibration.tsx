@@ -11,15 +11,16 @@ import { Card, CardHeader, Tag } from '../../components/ui/Surface';
 import { int } from '../../lib/format';
 import {
   AT_HALF_CAVEAT,
+  calibrationSubtitle,
   calibrationSentence,
   ECE_NOTE,
   notDrawn,
   SMALL,
-  UNAVAILABLE,
-  withheld,
+  unavailableText,
 } from './copy';
 import { binLabel, REL, relX, relY, score, type Bin } from './performance';
 import styles from './Performance.module.css';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 
 const TICKS = [0, 0.2, 0.4, 0.6, 0.8, 1];
 
@@ -113,6 +114,7 @@ function Reliability({ bins }: { bins: readonly Bin[] }) {
 }
 
 export function Calibration({ figures }: { figures: Performance }) {
+  const sweepNote = useSweepNote();
   const calibration = figures.calibration;
   const measured = figures.validation_evaluation;
   const rows: { label: string; key: 'precision' | 'recall' | 'brier' }[] = [
@@ -130,7 +132,7 @@ export function Calibration({ figures }: { figures: Performance }) {
       <CardHeader
         id="calibration-title"
         title="Does a probability mean what it says?"
-        subtitle="Observed churn against the mean stated probability, for validation customers in tenths of probability."
+        subtitle={calibrationSubtitle(measured?.reliability ?? null)}
         aside={<Tag>VALIDATION</Tag>}
       />
       {measured ? (
@@ -144,9 +146,7 @@ export function Calibration({ figures }: { figures: Performance }) {
           </p>
         </>
       ) : (
-        <p className={styles.unavailable}>
-          {figures.withheld_reason ? withheld(figures.withheld_reason) : UNAVAILABLE}
-        </p>
+        <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>
       )}
       <table className={styles.halfTable}>
         <caption className={styles.tableCaption}>At a cut of 0.50</caption>

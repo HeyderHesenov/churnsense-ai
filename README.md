@@ -61,7 +61,7 @@ treats it as such and makes the trade-off explicit and adjustable.
 | Capability | Where |
 |---|---|
 | Reproducible EDA with written interpretation | `make eda` → [`reports/eda_report.md`](reports/eda_report.md) |
-| Four-model comparison, operating point and per-segment view | `make train` → [`reports/model_comparison.md`](reports/model_comparison.md) |
+| Four-model comparison, operating point and per-segment view | `make train` → `reports/model_comparison.md` (written locally, not tracked: [§ Limitations](#limitations)) |
 | Final evaluation on the held-out test partition (explicit opt-in) | `make evaluate CONFIRM=yes`, the official release: `governance/held_out_release.json` |
 | Threshold economics under adjustable assumptions | dashboard → *Retention simulator* |
 | SHAP explanations, global and per customer | `make explain`, dashboard → *Explainability* |
@@ -260,7 +260,7 @@ also a concrete argument for a model that can express non-linearity.
 excluded from the model as a protected attribute, and the exclusion costs
 nothing measurable: putting it back changes cross-validated PR-AUC by
 −0.0010 against a fold-to-fold standard deviation of 0.0244 (the ablation in
-[`reports/model_comparison.md`](reports/model_comparison.md)). Excluding a
+`reports/model_comparison.md`, which `make train` writes). Excluding a
 column does not make the model treat the groups alike — other columns can
 correlate with it — so recall and flag rate per gender are reported too. See
 [`docs/MODEL_CARD.md`](docs/MODEL_CARD.md).
@@ -463,8 +463,8 @@ reason.
 The threshold is chosen by `make train`, on validation, with the model that
 ships, and stored with it; the final evaluation receives it and cannot move it.
 How the choice moves with the one assumption nobody can measure — the offer
-success rate — is tabulated in
-[`reports/model_comparison.md`](reports/model_comparison.md): from 0.88 at an
+success rate — is tabulated in `reports/model_comparison.md`, which `make train`
+writes: from 0.88 at an
 assumed 10 % to 0.22 at 50 %. A high churn risk does not mean an offer would
 keep that customer; the model estimates risk, not the effect of an offer.
 
@@ -885,7 +885,14 @@ Found a vulnerability? Please report it privately, as described in
 > labelled as synthetic and with no outcome, and the dataset is shown only as
 > aggregates published once by `make demo-data`
 > ([`src/churnsense/evidence.py`](src/churnsense/evidence.py)), with no rate for a
-> group of fewer than 20. The dataset is not in the image or the container. A
+> group of fewer than 20. Figures that split validation customers by score - the
+> threshold sweep, the calibration bins, the operating point - are given only at
+> cuts with at least 20 churners and 20 stayers between any two
+> ([`src/churnsense/score_disclosure.py`](src/churnsense/score_disclosure.py)), so
+> the demo's sweep has 11 cuts, among them the 0.30 peak and the 0.36 operating
+> point stated here. This is minimum-cohort suppression, not differential privacy
+> or anonymity: the IBM sample is itself public. The
+> dataset is not in the image or the container. A
 > configuration that would list the dataset's rows publicly does not load, and the
 > deployment check refuses it. On a developer's machine, on loopback, the default
 > (`customer_records: dataset`) lists the dataset's own customers as before.
@@ -902,21 +909,22 @@ Found a vulnerability? Please report it privately, as described in
 - **No time dimension.** Churn is labelled at a single cut, with no event dates.
   Nothing here is a survival or time-to-event analysis.
 - **One global threshold leaves segments unscanned.** At 0.36 the model flags
-  **no two-year-contract customer and no customer without internet** — on
-  validation, with 35 churners between them. Within those segments the model still ranks
-  customers (ROC-AUC 0.75–0.79 on validation): the global cut simply sits above
-  their scores. `make train` publishes the per-segment table with intervals in
-  [`reports/model_comparison.md`](reports/model_comparison.md), and the
-  dashboard shows it. No flags means *not scanned*, not *no risk*. Per-segment
-  thresholds are one policy option, not a fix: they would decide who receives
-  an offer partly by segment membership, a differential-treatment question with
-  governance and legal sides, and each would be tuned on 13 or 22 validation
-  churners. They are not implemented; the trade-offs are in the
-  [model card](docs/MODEL_CARD.md).
+  **no two-year-contract customer and no customer without internet** on
+  validation, so their churners (22 without internet) go unflagged. Without
+  internet the model still ranks customers (ROC-AUC 0.75 on validation): the
+  global cut simply sits above their scores. The per-segment table is in the
+  [model card](docs/MODEL_CARD.md), with the outcome figures of segments too
+  small on one side of the threshold suppressed. No flags means *not scanned*,
+  not *no risk*. Per-segment thresholds are one policy option, not a fix: they
+  would decide who receives an offer partly by segment membership, a
+  differential-treatment question with governance and legal sides, and each
+  would be tuned on a segment's few validation churners. They are not
+  implemented; the trade-offs are in the [model card](docs/MODEL_CARD.md).
 - **Group differences are measured, not certified away.** On validation the
   model catches 0.735 of churners among women and 0.658 among men (95 %
   intervals 0.67–0.79 and 0.59–0.72, overlapping), and flags senior citizens at
-  twice the rate of others, in line with their churn rate (41.9 % vs 23.6 %).
+  twice the rate of others, in line with their churn on the training partition
+  (40.8 % vs 23.7 %).
   This is a descriptive check of one sample, not a fairness audit.
 - **The test partition is re-used.** Its history is in the
   [model card](docs/MODEL_CARD.md#evaluation-history); an independent estimate

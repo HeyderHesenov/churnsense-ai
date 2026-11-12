@@ -10,7 +10,7 @@ import pytest
 from tests import conftest
 from tests.conftest import tracked_report
 
-NAME = "model_comparison.md"
+NAME = "model_comparison.csv"
 SECRET = "0.8123"
 
 _LOCAL = [{}, {"CI": ""}, {"CI": "false"}, {"CI": "0"}, {"GITHUB_ACTIONS": "false"}]
@@ -130,3 +130,49 @@ def test_the_reports_a_check_may_need_are_validation_and_eda_only():
         "model_comparison.md",
         "threshold_sweep.csv",
     ]
+    assert {"model_comparison.md", "threshold_sweep.csv"} == conftest.LOCAL_REPORTS
+    assert conftest.LOCAL_REPORTS < conftest.INTEGRATION_REPORTS
+
+
+# --- reports kept out of git (E8): written by `make train`, checked where they exist -----------
+
+_LOCAL_ONLY = sorted(conftest.LOCAL_REPORTS)
+
+
+@pytest.mark.parametrize("name", _LOCAL_ONLY)
+@pytest.mark.parametrize("values", _EVERYWHERE, ids=_ids(_EVERYWHERE))
+def test_a_report_kept_out_of_git_is_skipped_everywhere_when_absent(
+    reports, environment, values, name
+):
+    """GitHub Actions cannot have it: its absence there is expected, not a failure."""
+    environment(values)
+    kind, said = _outcome(name)
+    assert kind == "skipped"
+    assert name in said
+    assert "not tracked" in said and "make train" in said
+
+
+@pytest.mark.parametrize("name", _LOCAL_ONLY)
+@pytest.mark.parametrize("values", _EVERYWHERE, ids=_ids(_EVERYWHERE))
+def test_a_report_kept_out_of_git_is_checked_where_it_exists(reports, environment, values, name):
+    environment(values)
+    (reports / name).write_text(SECRET)
+    assert _outcome(name) == ("returned", "")
+
+
+def test_the_reports_kept_out_of_git_are_ignored_and_untracked():
+    """They state validation figures at every 0.01 and segment cells of a few customers."""
+    import subprocess
+
+    from churnsense.config import PROJECT_ROOT
+
+    ignored = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    tracked = subprocess.run(
+        ["git", "ls-files", "reports"], cwd=PROJECT_ROOT, capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    assert tracked, "git lists no report: this checks nothing"
+    for name in conftest.LOCAL_REPORTS:
+        assert f"reports/{name}" in ignored
+        assert f"reports/{name}" not in tracked
+    for name in conftest.INTEGRATION_REPORTS - conftest.LOCAL_REPORTS:
+        assert f"reports/{name}" in tracked

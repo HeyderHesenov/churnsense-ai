@@ -253,6 +253,8 @@ describe('retries', () => {
     expect(retryOutcomes(0, new ApiError(0, 'network_error'))).toBe(true);
     expect(retryOutcomes(1, new ApiError(503, 'dataset_unavailable'))).toBe(false);
     expect(retryOutcomes(0, new ApiError(503, 'outcomes_withheld'))).toBe(false);
+    // No sweep is published: as lasting as withheld outcomes, never asked for again.
+    expect(retryOutcomes(0, new ApiError(503, 'sweep_withheld'))).toBe(false);
     expect(retryOutcomes(0, new ApiError(429, 'rate_limited', [], 2))).toBe(false);
     expect(retryOutcomes(0, new ApiError(422, 'validation_error'))).toBe(false);
     expect(retryOutcomes(0, new Error('not from the API'))).toBe(false);

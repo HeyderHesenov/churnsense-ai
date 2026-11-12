@@ -1010,6 +1010,8 @@ export interface components {
       figures_note?: string | null;
       /** Notice */
       notice?: string | null;
+      /** Sweep Note */
+      sweep_note?: string | null;
       /** Title */
       title: string;
     };

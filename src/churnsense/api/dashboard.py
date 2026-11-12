@@ -25,6 +25,7 @@ can reach a dataset row, because none is in the process.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -61,7 +62,12 @@ from churnsense.api.uploads import read_upload
 from churnsense.config import Business, Config, load_config
 from churnsense.data import schema
 from churnsense.evaluation import disclosure, release
-from churnsense.evaluation.threshold import DISCLAIMER, ThresholdScenario, scenario_at
+from churnsense.evaluation.threshold import (
+    DISCLAIMER,
+    SweepBasis,
+    ThresholdScenario,
+    scenario_at,
+)
 from churnsense.exceptions import DataError
 from churnsense.explainability.shap_explain import (
     ADDITIVITY_TOLERANCE,
@@ -76,6 +82,7 @@ from churnsense.explainability.shap_explain import (
 from churnsense.exports import csv_bytes
 from churnsense.models.predict import Predictor, ignored_columns
 from churnsense.models.registry import DISPLAY_NAMES
+from churnsense.score_disclosure import AT_HALF
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +105,13 @@ class OutcomesWithheldError(Unavailable):
             "outcomes_withheld",
             f"Historical outcomes are withheld: {reason or 'the partitions are unverified.'}",
         )
+
+
+class SweepWithheldError(Unavailable):
+    """Outcomes are known, but no thresholds keep the published rule: no sweep is shown."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("sweep_withheld", reason)
 
 
 def _invalid(location: str, message: str) -> RequestValidationError:
@@ -731,6 +745,8 @@ def threshold_sweep(
     )
     economics = d.economics(business)
     if economics is None:
+        if d.evidence.withheld is None and d.evidence.sweep_withheld is not None:
+            raise SweepWithheldError(d.evidence.sweep_withheld)
         raise OutcomesWithheldError(d.evidence.withheld)
     return out.SweepResponse(
         assumptions=_assumptions(business),
@@ -759,6 +775,84 @@ def _at_half(metrics: dict | None) -> out.AtHalf | None:
     return out.AtHalf(
         precision=metrics["precision"], recall=metrics["recall"], brier=metrics["brier"]
     )
+
+
+def _calibration(d: Dashboard) -> out.Calibration:
+    """Calibration before and after, at 0.5. A public demo states the after only where 0.5 is
+    a cut of its published sweep, read off that sweep, and never the before: the candidate's
+    own scores would split validation customers along edges of their own."""
+    meta = d.model.meta
+    uncalibrated = _at_half(meta.get("candidate_validation_metrics"))
+    calibrated = _at_half(meta.get("validation_metrics"))
+    if d.synthetic:
+        uncalibrated = None
+        calibrated = _published_at_half(d.evidence.sweep_basis(), calibrated)
+    return out.Calibration(
+        method=meta.get("calibration_method"),
+        epsilon=meta.get("probability_epsilon"),
+        uncalibrated=uncalibrated,
+        calibrated=calibrated,
+        uncalibrated_ece=meta.get("uncalibrated_ece"),
+        calibrated_ece=meta.get("calibrated_ece"),
+    )
+
+
+def _published_at_half(basis: SweepBasis | None, recorded: out.AtHalf | None) -> out.AtHalf | None:
+    if basis is None or recorded is None:
+        return None
+    at = [i for i, t in enumerate(basis.thresholds) if math.isclose(t, AT_HALF, abs_tol=1e-9)]
+    if not at:
+        return None
+    tp, fp = basis.true_positives[at[0]], basis.false_positives[at[0]]
+    return out.AtHalf(
+        precision=tp / (tp + fp) if tp + fp else 0.0,
+        recall=tp / basis.churners if basis.churners else 0.0,
+        brier=recorded.brier,
+    )
+
+
+#: Validation figures over the whole partition: no count at any cut follows from them.
+WHOLE_PARTITION_SCALARS = ("roc_auc", "average_precision", "brier")
+
+
+def validation_metrics_served(
+    recorded: dict[str, Any], basis: SweepBasis | None, synthetic: bool
+) -> dict[str, Any]:
+    """The model's validation record, as ``/model-info`` states it.
+
+    It is a count at a cut of its own (0.5). With the dataset's own book it is served as
+    recorded. A public demo states counts only at a cut of its published sweep, read off
+    that sweep; where the record's cut is not one, only the whole-partition scalars.
+    """
+    if not synthetic:
+        return recorded
+    scalars = {key: recorded[key] for key in WHOLE_PARTITION_SCALARS if key in recorded}
+    cut = recorded.get("threshold")
+    at = [
+        i
+        for i, t in enumerate(basis.thresholds if basis is not None else ())
+        if isinstance(cut, int | float) and math.isclose(t, cut, abs_tol=1e-9)
+    ]
+    if basis is None or not at:
+        return scalars
+    i = at[0]
+    tp, fp, fn = basis.true_positives[i], basis.false_positives[i], basis.false_negatives[i]
+    n = basis.customers
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    return {
+        "threshold": basis.thresholds[i],
+        "n": n,
+        "positives": tp + fn,
+        "tn": n - tp - fp - fn,
+        "fp": fp,
+        "fn": fn,
+        "tp": tp,
+        "accuracy": (n - fp - fn) / n,
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
+    } | scalars
 
 
 def _leader_gap(comparison: pd.DataFrame | None, leader_name: str) -> float | None:
@@ -811,14 +905,7 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
             out.Candidate(**row)
             for row in comparison[list(out.Candidate.model_fields)].to_dict(orient="records")
         ],
-        calibration=out.Calibration(
-            method=meta.get("calibration_method"),
-            epsilon=meta.get("probability_epsilon"),
-            uncalibrated=_at_half(meta.get("candidate_validation_metrics")),
-            calibrated=_at_half(meta.get("validation_metrics")),
-            uncalibrated_ece=meta.get("uncalibrated_ece"),
-            calibrated_ece=meta.get("calibrated_ece"),
-        ),
+        calibration=_calibration(d),
         bands=_bands(d),
         validation=None if economics is None else _curve(economics),
         validation_evaluation=d.evidence.validation_evaluation(),

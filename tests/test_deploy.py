@@ -70,7 +70,11 @@ def _demo_data(root: Path, model_sha: str, data_sha: str, **evidence) -> None:
         "split_digest": SPLIT_DIGEST,
         "threshold": THRESHOLD,
     }
-    body = dict.fromkeys(bundle.EVIDENCE_KEYS) | {"format": 1, "identity": identity} | evidence
+    body = (
+        dict.fromkeys(bundle.EVIDENCE_KEYS)
+        | {"format": bundle.EVIDENCE_FORMAT, "identity": identity}
+        | evidence
+    )
     _write(root, bundle.EVIDENCE, json.dumps(body))
     _write(root, bundle.DEMO_EXPLANATIONS, json.dumps(_attributions(model_sha)))
 
@@ -428,6 +432,12 @@ _NOT_BOUND = f"{bundle.EVIDENCE} was not computed for this model, its dataset an
         (lambda body: body.update(customers=[{"tenure": 1}]), _NOT_CLOSED),
         (lambda body: body.update(note="kept"), _NOT_CLOSED),
         (lambda body: body.pop("sweep_basis"), _NOT_CLOSED),
+        # The first format held the validation sweep at every 0.01 and a histogram of
+        # validation customers: it must not ride into an image, served or not.
+        (lambda body: body.update(format=1, histogram_observed=[]), _NOT_CLOSED),
+        (lambda body: body.update(format=1), _NOT_CLOSED),
+        (lambda body: body.update(format=True), _NOT_CLOSED),
+        (lambda body: body.update(format=2.0), _NOT_CLOSED),
         (lambda body: body.update(identity=None), _NOT_BOUND),
         (lambda body: body.update(identity=[]), _NOT_BOUND),
     ],
@@ -462,6 +472,7 @@ def test_the_checks_own_lists_are_the_services():
     from churnsense.data import schema
 
     assert set(evidence._TOP_LEVEL) == bundle.EVIDENCE_KEYS
+    assert evidence.FORMAT == bundle.EVIDENCE_FORMAT
     assert set(schema.RAW_COLUMNS) == bundle.RECORD_COLUMNS
     assert Path(bundle.EVIDENCE).name == evidence.EVIDENCE_FILE
     assert Path(bundle.DEMO_EXPLANATIONS).name == evidence.DEMO_EXPLANATIONS_FILE

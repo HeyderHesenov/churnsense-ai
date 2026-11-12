@@ -6,6 +6,7 @@
  */
 import { scaleLinear } from 'd3-scale';
 import type { Overview } from '../../api/queries';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { icons } from '../../components/icons';
 import { ButtonLink } from '../../components/ui/Button';
@@ -20,13 +21,15 @@ const WIDTH = 260;
 const HEIGHT = 64;
 
 export function CampaignCard({ campaign }: { campaign: Campaign | null }) {
+  const sweepNote = useSweepNote();
   if (!campaign) {
     return (
       <Card titleId="campaign" variant="sim" className={styles.card}>
         <CardHeader id="campaign" title="Campaign" aside={<SimulatedBadge />} />
         <p className={styles.note}>
-          The simulated campaign needs observed outcomes on the validation partition, which are
-          withheld while the partitions cannot be verified.
+          {sweepNote ??
+            'The simulated campaign needs observed outcomes on the validation partition, which ' +
+              'are withheld while the partitions cannot be verified.'}
         </p>
       </Card>
     );

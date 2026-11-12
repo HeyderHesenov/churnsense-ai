@@ -116,6 +116,28 @@ describe('Overview: the book at a glance', () => {
     expect(distribution.querySelectorAll('circle')).toHaveLength(0);
   });
 
+  it('claims no observed churn where the service publishes none, though nothing is withheld', async () => {
+    // A public demo: validation customers per 0.05 of score would cut its sweep finer (E8).
+    const book = overview();
+    showOverview('/', {
+      ...book,
+      histogram: book.histogram.map((bin) => ({ ...bin, observed: null, observed_mean: null })),
+    });
+    await loaded();
+    const distribution = screen.getByRole('region', {
+      name: 'Where the book sits on the probability scale',
+    });
+    expect(distribution).not.toHaveTextContent('observed churn in that bin');
+    expect(distribution).not.toHaveTextContent('stated equals observed');
+    expect(distribution.querySelectorAll('circle')).toHaveLength(0);
+    const labelled = [...distribution.querySelectorAll('[aria-label], [aria-valuetext]')];
+    for (const element of labelled) {
+      const text = `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('aria-valuetext') ?? ''}`;
+      expect(text).not.toContain('with the churn observed');
+      expect(text).not.toContain('withheld');
+    }
+  });
+
   it('draws a rate at what its customers were told, not at the bin’s middle', async () => {
     const book = overview();
     const at = (mean: number | null) => ({

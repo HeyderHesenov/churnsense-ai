@@ -20,6 +20,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from churnsense.data import schema as columns
+from churnsense.evaluation.disclosure import MIN_CELL
 
 # Mirrors churnsense.data.schema.ALLOWED_CATEGORIES; tests/test_api.py asserts
 # the two stay identical.
@@ -263,7 +264,10 @@ SYNTHETIC_FIGURES_NOTE = (
 )
 EVIDENCE_NOTE = (
     "Observed churn rates, patterns and validation figures are aggregates of the IBM Telco "
-    "sample's training and validation partitions. No row of that dataset is served."
+    "sample's training and validation partitions. No row of that dataset is served. "
+    f"Figures that split validation customers by score are given only at cuts with at least "
+    f"{MIN_CELL} churners and {MIN_CELL} stayers between any two of them; the peak and the "
+    "recommendation are read among those cuts."
 )
 DATASET_TITLE = "IBM Telco sample"
 
@@ -281,9 +285,11 @@ class DataSource(BaseModel):
     figures_note: str | None = None
     #: Where the observed figures come from, when not from the customers listed.
     evidence_note: str | None = None
+    #: Why no validation sweep is published, when none is; printed where the sweep would be.
+    sweep_note: str | None = None
 
     @classmethod
-    def of(cls, synthetic: bool, customers: int) -> DataSource:
+    def of(cls, synthetic: bool, customers: int, sweep_note: str | None = None) -> DataSource:
         if not synthetic:
             return cls(customer_records="dataset", customers=customers, title=DATASET_TITLE)
         return cls(
@@ -293,6 +299,7 @@ class DataSource(BaseModel):
             notice=SYNTHETIC_NOTICE,
             figures_note=SYNTHETIC_FIGURES_NOTE,
             evidence_note=EVIDENCE_NOTE,
+            sweep_note=sweep_note,
         )
 
 

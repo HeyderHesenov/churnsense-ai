@@ -1,5 +1,6 @@
 import { curve, measured, performance } from '../../test/performanceApi';
 import {
+  binLabel,
   charted,
   contour,
   explored,
@@ -16,6 +17,7 @@ import {
   selectionScale,
   sweepPath,
   tabledCuts,
+  type Bin,
   type Cut,
 } from './performance';
 
@@ -139,5 +141,26 @@ describe('segments', () => {
     expect(segmentName('InternetService', 'Fiber optic')).toBe('Fiber optic');
     // "None" would read as no risk, or no data: it is customers without internet.
     expect(segmentName('InternetService', 'No')).toBe('No internet');
+  });
+});
+
+describe('a public demo’s sweep, published at a few cuts only', () => {
+  // Every interval between these holds twenty churners and twenty stayers (E8).
+  const at = [0, 0.24, 0.28, 0.35000000000000003, 0.5];
+  const coarse = at.flatMap((threshold) => {
+    const point = points[Math.round(threshold * 100)];
+    return point ? [{ ...point, threshold }] : [];
+  });
+
+  it('tables every published cut, not only those on a 0.05', () => {
+    expect(tabledCuts(coarse, []).map((p) => p.threshold)).toEqual(at);
+  });
+
+  it('labels a bin between uneven cuts to the hundredth, and a tenth as a tenth', () => {
+    const bin = (low: number, high: number) => ({ low, high }) as Bin;
+    expect(binLabel(bin(0.24, 0.28))).toBe('0.24–0.28');
+    expect(binLabel(bin(0.35000000000000003, 0.5))).toBe('0.35–0.50');
+    expect(binLabel(bin(0.3, 0.4))).toBe('0.3–0.4');
+    expect(binLabel(bin(0.30000000000000004, 0.4))).toBe('0.3–0.4');
   });
 });

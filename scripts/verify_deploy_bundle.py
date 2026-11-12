@@ -24,8 +24,9 @@ deploy configuration must say ``deployment: {mode: public_demo,
 customer_records: synthetic}``; the app container must mount no volume at all;
 neither the dataset (by name or by content) nor ``make explain``'s cache (which
 holds validation rows) may be in the build context or the image; the published
-evidence must have the format's top-level keys and no customer column anywhere
-in it; and the demo attributions must hold the builder's keys only, and rows of
+evidence must be the current format, with its top-level keys and no customer
+column anywhere in it (the first format held the validation sweep at every 0.01);
+and the demo attributions must hold the builder's keys only, and rows of
 generated customers only. The figures inside the evidence are not read here: the
 service's strict reader does that at start, with the model stack this check
 never loads.
@@ -167,8 +168,10 @@ EXACT_FOLDERS = {
 DEPLOY_ONLY_KEYS = frozenset({"allowed_hosts", "trusted_proxies"})
 #: The one deployment a public bundle may state.
 PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
-#: The published evidence's top-level keys: a closed format (``churnsense.evidence``;
-#: tests/test_deploy.py holds the two lists equal).
+#: The published evidence's format and top-level keys: a closed format
+#: (``churnsense.evidence``; tests/test_deploy.py holds both equal). The first format held
+#: the validation sweep at every 0.01, which differences into single customers.
+EVIDENCE_FORMAT = 2
 EVIDENCE_KEYS = frozenset(
     {
         "format",
@@ -176,7 +179,6 @@ EVIDENCE_KEYS = frozenset(
         "dataset_customers",
         "observed",
         "band_observed",
-        "histogram_observed",
         "breakdowns",
         "lifecycle",
         "sweep_basis",
@@ -344,7 +346,12 @@ def check_demo_data(
 ) -> None:
     """The published evidence and the demo attributions: this model's, and no dataset row."""
     evidence = _json(root / EVIDENCE)
-    if evidence is None or set(evidence) != EVIDENCE_KEYS:
+    if (
+        evidence is None
+        or set(evidence) != EVIDENCE_KEYS
+        or type(evidence["format"]) is not int
+        or evidence["format"] != EVIDENCE_FORMAT
+    ):
         problems.add(f"{EVIDENCE} is not the published evidence's closed format")
     else:
         bound = evidence["identity"] if isinstance(evidence["identity"], dict) else {}

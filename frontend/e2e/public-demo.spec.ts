@@ -246,6 +246,32 @@ test('the batch page compares no label, whoever is uploaded', async ({ page }) =
   await expect(page.getByText(body.summary.labels_reason ?? '')).toBeVisible();
 });
 
+test('the sweep is published only at cuts with twenty churners and twenty stayers between them', async ({
+  request,
+}) => {
+  // Two neighbouring cuts difference into the customers between them (E8).
+  const sweep = (await (
+    await request.get('/api/threshold/sweep')
+  ).json()) as components['schemas']['SweepResponse'];
+  const points = sweep.points;
+  expect(points.length).toBeGreaterThan(1);
+  expect(points.length).toBeLessThan(101);
+  expect(points[0]?.threshold).toBe(0);
+  points.forEach((point, i) => {
+    const next = points[i + 1];
+    expect(point.true_positives - (next?.true_positives ?? 0)).toBeGreaterThanOrEqual(20);
+    expect(point.false_positives - (next?.false_positives ?? 0)).toBeGreaterThanOrEqual(20);
+  });
+  const performance = (await (
+    await request.get('/api/performance')
+  ).json()) as components['schemas']['PerformanceResponse'];
+  const cuts = points.map((point) => point.threshold);
+  for (const bin of performance.validation_evaluation?.reliability ?? []) {
+    expect(cuts).toContain(bin.low);
+  }
+  expect(performance.calibration.uncalibrated).toBeNull();
+});
+
 /** WCAG 2.2 level A and AA, and the earlier versions' rules it includes. */
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 

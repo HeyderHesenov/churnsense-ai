@@ -29,18 +29,25 @@ closed first:
    estimate until §16 is repeated.
 2. **The real domain is not set** (§5): `demo.example.com` is a placeholder the bundle
    check refuses.
-3. **Only the app container has been validated, and only locally, in the earlier
-   layout.** Caddy and TLS with a real certificate, the proxy headers in practice and
-   the host itself are unverified. The current image (no dataset mount, the two demo
-   files in place of `shap_global.json`) has been checked by the bundle check and the
-   test suite, but **has not been built or run in Docker**.
+3. **The stack has been run locally only, without a certificate.** On 2026-11-12 the
+   current image (`churnsense-ai:d6687995d4b3-dirty`, a local validation build with the
+   uncommitted E8 change) was built and started with Compose: the app reported healthy,
+   served generated customers only and answered 404 for a dataset ID; no file in it
+   hashes to the pinned dataset, and it has no `data/` folder, no `shap_global.json`,
+   no volume and no dataset path that exists. Caddy redirected HTTP to HTTPS, but could
+   not get a certificate for the placeholder domain (Let's Encrypt refuses it), so TLS
+   with a real certificate, the proxy headers in practice and the host itself are
+   still unverified. Idle, the app used about 197 MiB (peak 211 MiB after startup and
+   a few reads); the load phases of §16 were not run on this image.
 
 **Closed, 2026-11-11: the API no longer serves the dataset's rows.** It used to return
 all 7,043 customers of the IBM sample (a listing, a lookup by ID, a CSV export, and
 attributions that carried their values), against the project's own policy that the
 dataset is not redistributed. The public demo now lists generated customers only, and
 the dataset is not in its reach: see §6 and "What the demo serves instead of the
-dataset" in §20. One residual is recorded there and left open on purpose.
+dataset" in §20. Since 2026-11-12 the validation sweep is published only at cuts that
+cannot be differenced into fewer than 20 customers (E8, §20), and the two reports that held
+the full sweep are no longer tracked; earlier commits still hold them (§20).
 
 ## 1. Architecture
 
@@ -241,7 +248,13 @@ It reads what the service reads at every local start (training and validation
 outcomes; the test partition's are withheld by `churnsense.book`), fits nothing, runs no
 final evaluation, and writes two new files beside the model. It refuses a dataset the
 model was not trained on, and a generated customer that happens to have a dataset
-customer's exact inputs. `demo_explanations.json` holds attributions of 300 generated
+customer's exact inputs. Every figure that splits validation customers by score is
+written at one set of cuts only, chosen so that at least 20 churners **and** 20 stayers
+lie between any two (`churnsense.score_disclosure`): the sweep, the calibration bins and
+the operating point. The validation segments at the threshold and the observed churn
+per risk band keep the same rule, with complementary suppression, and no validation
+histogram is written. Where no such cuts exist, no sweep is written and the pages say
+why. The service's reader checks all of it again at start. `demo_explanations.json` holds attributions of 300 generated
 customers against a background of 100 generated customers: nothing of the dataset is in
 it. `artifacts/shap_global.json` (`make explain`'s cache) holds 300 **validation rows**
 and is therefore **not** in the image; the bundle check refuses it anywhere.
@@ -658,22 +671,49 @@ deployment step.
 | A customer listing, one customer, a CSV export, the examples | Generated demo customers only (`DEMO-` IDs), each `synthetic` / `withheld` / `active` |
 | An explanation of a customer, or of a typed record | Attributions against a background of 100 generated customers; the response says `background: synthetic` |
 | The explainability page's sample | 300 generated customers' attributions; no validation row |
-| Observed rates, breakdowns, the validation sweep, performance | The dataset's published aggregates; no group under 20 has a rate |
+| Observed rates, breakdowns, performance | The dataset's published aggregates; no group under 20 has a rate |
+| The validation sweep, its curve, the calibration bins, the operating point, the model's validation record at 0.5 | The sweep at 11 cuts (0.00, 0.08, 0.18, 0.23, 0.30, 0.36, 0.39, 0.50, 0.53, 0.58, 0.64), each interval between two with at least 20 churners and 20 stayers. The cuts include every threshold the documents state validation figures at (the peak 0.30, the operating point 0.36, and 0.50), so the demo's peak and recommendation are the model card's (0.30, $26,579; 0.36, $26,547), and a document read beside the demo cuts nothing finer. Under other assumptions the peak is read among the same cuts. If no such cuts existed, no sweep and no figure at a threshold would be shown, and the pages would say why |
+| Validation segments at 0.36, observed churn per risk band | Shown only where each side of the cut (each band) holds none or at least 20 churners and 20 stayers, and where the hidden ones together do too: Contract and SeniorCitizen are hidden whole |
 | A dataset customer by ID | 404, as for any ID the book does not hold |
 | A label check on an uploaded file | Nothing: no label is compared or returned, because the demo cannot tell a held-out customer apart, and so no answer depends on who was uploaded |
 
-**A residual that is known and left open.** The validation sweep
-(`GET /api/threshold/sweep`) and the precision-recall curve give cumulative counts and
-simulated money at every 0.01 of threshold. Where exactly one churner lies between two
-neighbouring thresholds, the difference of the two retained values is that one
-validation customer's value, from which their monthly charge follows; and the
-difference of the counts says how many customers scored in that step and how many of
-them churned. In the file built on 2026-11-11, of the 100 steps, 16 hold exactly one
-churner and 4 hold exactly one customer; 74 hold fewer than 20. It is one attribute and
-the outcome of an unnamed customer in a known score interval, not a record, and it was
-true of the API before this change. Closing it means pricing the sweep differently (and changing
-figures the model card states), so it is recorded here for a separate decision rather
-than changed silently.
+**Closed in the API, 2026-11-12: differencing the validation sweep (E8).** The sweep
+used to be published at every 0.01; of its 100 steps, 16 held exactly one churner, and
+the difference of two neighbouring retained values was that customer's monthly charge.
+Now every count an outsider can solve for *exactly* from the public answers - any
+difference of cuts, a total less the shown groups, a band less a validation interval,
+any union of those - holds none or at least 20 churners and 20 stayers.
+`make demo-data` checks this itself before it writes the file
+(`churnsense.disclosure_audit`) and writes nothing otherwise. On the real file, read
+through the service in-process, 4,130 counts can be solved for and none breaks the rule,
+also with the README's figures at 0.30, 0.36 and 0.50 added to what the outsider knows;
+the same arithmetic on the old file finds 1,248 that do. The tests hold the same checks,
+with controls that find the old leak.
+
+What this is not: it is minimum-cohort suppression, a rule about what the application
+publishes. It is not differential privacy and it does not make anyone anonymous. Counts
+still bound one another (a hidden segment's flagged customers bound its flagged churners
+from above), and the IBM sample is itself public: with it, the split seed in this
+repository and `/api/predict`, anyone can recompute every validation score and outcome.
+The rule keeps the demo from *publishing* finer groups; it protects nothing the dataset
+already gives away (see also `SECURITY.md`).
+
+**The repository's own reports, 2026-11-12.** `reports/threshold_sweep.csv` (the full
+validation sweep at every 0.01, with counts and money) and `reports/model_comparison.md`
+(validation figures at 0.88, 0.50, 0.36, 0.30, 0.23 and 0.22, and a segment table with
+groups of a few customers) are no longer tracked: `make train` still writes them, locally,
+and `.gitignore` keeps them out. The documents that quoted their segment figures now
+suppress the same groups the demo does. The held-out release report and the final
+evaluation report still name `reports/model_comparison.md` as where the validation
+figures came from; they are part of the published record and were not changed.
+
+**What removing them does not do.** The commit that removed them deletes them from the
+tree from that commit on. Every earlier commit still holds them - on GitHub, in every
+clone and fork, and in any copy GitHub or a search engine cached - and anyone can read
+them there (for example `git show afdd8257:reports/threshold_sweep.csv`). Only rewriting
+the history and asking GitHub to purge its caches would remove them; that was decided
+against, so their exposure is permanent for what was already published. Neither file was
+ever in the image.
 
 **What protects it:**
 

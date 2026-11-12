@@ -101,9 +101,12 @@ export neutralisation, the Host and Origin checks, the trusted-proxy rule, the
 per-client limits on explanations and batch uploads and the process-wide
 batch limit, the front end's Content-Security-Policy) is in scope. So is any way
 to make the public demo return a row of the dataset, name one of its customers,
-or state an outcome rate for fewer than 20 of them. One residual is known and
-recorded in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), section 20: the validation
-sweep's cumulative figures can give one validation customer's monthly charge.
+or state an outcome rate for fewer than 20 of them - including a count solved for
+by subtracting published figures from one another. One residual is known and recorded
+in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), section 20: `reports/threshold_sweep.csv` and
+`reports/model_comparison.md`, which state the full validation sweep, are no longer
+tracked, but every commit before 2026-11-12 still holds them; the history was not
+rewritten.
 
 Out of scope: a vulnerable third-party dependency with no demonstrated effect
 on this project (report it upstream; Dependabot tracks advisories here), and

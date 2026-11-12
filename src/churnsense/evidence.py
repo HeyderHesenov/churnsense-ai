@@ -16,6 +16,12 @@ rate is given for fewer than ``MIN_CELL`` customers is enforced again on what
 is read, so a file that breaks it is refused rather than served. It is bound to
 the model, the dataset and the split it was computed for; anything else reads as
 ``DemoDataError``, which the service answers with 503 and never with other data.
+
+Figures that split validation customers by score are published only where no
+interval between two cuts holds fewer than ``MIN_CELL`` churners or stayers
+(``churnsense.score_disclosure``): the sweep at safe cuts, the calibration bins
+on those same cuts, segments and risk bands with complementary suppression, and
+no validation histogram. The reader checks that rule again on its own.
 """
 
 from __future__ import annotations
@@ -30,8 +36,8 @@ from itertools import permutations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from churnsense import insights
-from churnsense.book import is_sha256
+from churnsense import disclosure_audit, insights, score_disclosure
+from churnsense.book import is_sha256, labelled
 from churnsense.data import schema
 from churnsense.evaluation.disclosure import MIN_CELL
 from churnsense.evaluation.metrics import ClassificationMetrics
@@ -51,7 +57,7 @@ EVIDENCE_FILE = "public_evidence.json"
 #: Attributions of generated demo customers (``churnsense.demo.build``).
 DEMO_EXPLANATIONS_FILE = "demo_explanations.json"
 #: Bump when the published file's layout changes: an older one is then refused.
-FORMAT = 1
+FORMAT = 2
 _MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -97,6 +103,14 @@ class LiveEvidence:
     @property
     def dataset_customers(self) -> int:
         return len(self._book.frame)
+
+    #: The dataset's own book shows the whole sweep: it is not published.
+    sweep_withheld: None = None
+
+    def validation_scores(self) -> tuple[Any, Any, Any]:
+        """The validation customers with outcomes, their outcomes and their scores."""
+        rows = labelled(self._book.frame, "validation", shown=self._book.outcomes)
+        return rows, rows[schema.TARGET].to_numpy(), rows["churn_probability"].to_numpy()
 
     def observed(self) -> insights.Observed | None:
         return self._once("observed", lambda: insights.observed_overall(self._book))
@@ -155,10 +169,9 @@ class PublishedEvidence:
     dataset_customers: int
     _observed: insights.Observed
     _bands: dict[str, insights.Observed]
-    _histogram: list[tuple[insights.Observed | None, float | None]]
     _breakdowns: dict[tuple[str, str | None], insights.Breakdown]
     _lifecycle: insights.Lifecycle
-    _basis: SweepBasis
+    _basis: SweepBasis | None
     _validation: insights.ValidationEvaluation | None
     _collinearity: float | None
     _importance: Ranking | None
@@ -173,7 +186,8 @@ class PublishedEvidence:
         return self._bands
 
     def histogram_observed(self) -> list[tuple[insights.Observed | None, float | None]]:
-        return self._histogram
+        """Not published: validation customers per 0.05 of score would cut the sweep finer."""
+        return [(None, None)] * insights.HISTOGRAM_BINS
 
     def breakdown(self, rows: str, columns: str | None = None) -> insights.Breakdown:
         return self._breakdowns[rows, columns]
@@ -181,11 +195,16 @@ class PublishedEvidence:
     def lifecycle(self) -> insights.Lifecycle:
         return self._lifecycle
 
-    def sweep_basis(self) -> SweepBasis:
+    def sweep_basis(self) -> SweepBasis | None:
         return self._basis
 
-    def economics(self, business: Business) -> insights.Economics:
-        return insights.economics_from(self._basis, business)
+    @property
+    def sweep_withheld(self) -> str | None:
+        """Why no sweep is published, or ``None`` when one is."""
+        return score_disclosure.SWEEP_WITHHELD if self._basis is None else None
+
+    def economics(self, business: Business) -> insights.Economics | None:
+        return None if self._basis is None else insights.economics_from(self._basis, business)
 
     def validation_evaluation(self) -> insights.ValidationEvaluation | None:
         return self._validation
@@ -227,36 +246,81 @@ def published_body(live: LiveEvidence, model: Predictor) -> dict[str, Any]:
     """
     if live.withheld is not None:
         raise DemoDataError(f"nothing can be published: {live.withheld}")
-    validation = live.validation_evaluation()
+    basis, validation, cells = _validation_on_safe_cuts(live, model)
     ranking = live.importance()
     body = {
         "format": FORMAT,
         "identity": identity_of(model),
         "dataset_customers": live.dataset_customers,
         "observed": _plain(live.observed()),
-        "band_observed": {name: _plain(seen) for name, seen in live.band_observed().items()},
-        "histogram_observed": [
-            {"observed": _plain(seen), "mean": mean} for seen, mean in live.histogram_observed()
-        ],
+        "band_observed": {
+            name: _plain(seen)
+            for name, seen in score_disclosure.guard_bands(
+                live.band_observed(), live.observed()
+            ).items()
+        },
         "breakdowns": [_plain(live.breakdown(rows, columns)) for rows, columns in all_breakdowns()],
         "lifecycle": _plain(live.lifecycle()),
-        "sweep_basis": _plain(live.sweep_basis()),
-        "validation": None
-        if validation is None
-        else {
-            "metrics": validation.metrics.as_dict(),
-            "churn_rate": validation.churn_rate,
-            "no_skill_accuracy": validation.no_skill_accuracy,
-            "ece": validation.ece,
-            "reliability": validation.reliability,
-            "segments": validation.segments,
-        },
+        "sweep_basis": _plain(basis),
+        "validation": validation,
         "collinearity": live.collinearity(),
         "importance": None if ranking is None else asdict(ranking),
     }
     # Parsed back before it is handed over: what is written is what will load.
-    parse(json.loads(dumps(body)), model)
+    written = json.loads(dumps(body))
+    parse(written, model)
+    # And read as an outsider would read it, every published figure against every other.
+    bands = [(band.name, band.min, band.max) for band in model.config.risk_bands]
+    if found := disclosure_audit.published_violations(written, bands, cells):
+        raise DemoDataError(
+            f"{len(found)} group(s) of fewer than {MIN_CELL} could be solved for from the "
+            f"published figures; nothing was written. First: {found[0]}"
+        )
     return body
+
+
+def _validation_on_safe_cuts(
+    live: LiveEvidence, model: Predictor
+) -> tuple[SweepBasis | None, dict[str, Any] | None, dict[Any, Any] | None]:
+    """The sweep at safe cuts, and the validation figures read on those cuts.
+
+    Nothing at all when no cuts keep the rule: every figure at the threshold
+    is a cut of its own, and so is published only beside a safe sweep.
+    """
+    fine = live.sweep_basis()
+    if fine is None:
+        return None, None, None
+    # The documents (model card, README) state the full sweep's peak and figures at 0.5: a
+    # cut they use must be a cut here too, or the two together cut finer than the rule.
+    peak = insights.economics_from(fine, model.config.business).peak.threshold
+    cuts = score_disclosure.safe_cuts(
+        fine, required=(model.threshold,), preferred=(peak, score_disclosure.AT_HALF)
+    )
+    if cuts is None:
+        return None, None, None
+    basis = score_disclosure.restrict(fine, cuts)
+    validation = live.validation_evaluation()
+    if validation is None:
+        return basis, None, None
+    rows, y, p = live.validation_scores()
+    present = [column for column in schema.VALIDATION_SEGMENTS if column in rows.columns]
+    cells = score_disclosure.segment_cells(y, p, rows, present, model.threshold)
+    segments = score_disclosure.guard_segments(validation.segments, cells)
+    identical = score_disclosure.identical_segments(rows, present)
+    if mixed := score_disclosure.betrayed(segments, identical):
+        raise DemoDataError(f"a segment hidden under one name is shown under another: {mixed[0]}")
+    return (
+        basis,
+        {
+            "metrics": validation.metrics.as_dict(),
+            "churn_rate": validation.churn_rate,
+            "no_skill_accuracy": validation.no_skill_accuracy,
+            "ece": validation.ece,
+            "reliability": score_disclosure.reliability_on(y, p, cuts),
+            "segments": segments,
+        },
+        cells,
+    )
 
 
 def dumps(body: dict[str, Any]) -> str:
@@ -436,21 +500,39 @@ def _lifecycle(value: Any) -> insights.Lifecycle:
     )
 
 
-def _histogram(value: Any) -> list[tuple[insights.Observed | None, float | None]]:
-    what = "histogram"
-    bins = _list(value, what)
-    if len(bins) != insights.HISTOGRAM_BINS:
-        _fail(what)
-    out = []
-    for item in bins:
-        record = _record(item, ("observed", "mean"), what)
-        seen = _maybe(record["observed"], _observed, what)
-        mean = _maybe(record["mean"], _share, what)
-        # A mean is drawn only where a rate is: never for a group too small to show.
-        if mean is not None and (seen is None or seen.rate is None):
-            _fail(what)
-        out.append((seen, mean))
-    return out
+def _bands(
+    value: Any, names: list[str], overall: insights.Observed
+) -> dict[str, insights.Observed]:
+    """The risk bands' observed churn: each shown band, and the hidden ones together, keep the
+    two-sided rule; they add up to ``overall``, so what is hidden is ``overall`` less the rest."""
+    record = _record(value, tuple(names), "the risk bands")
+    bands: dict[str, insights.Observed] = {}
+    for name in names:
+        what = f"band {name}"
+        band = _record(record[name], ("customers", "churned", "rate"), what)
+        customers = _count(band["customers"], what)
+        if band["churned"] is None and band["rate"] is None:
+            bands[name] = insights.Observed(customers, None, None)
+            continue
+        churned, rate = _rate_of(band["churned"], band["rate"], customers, what)
+        if not score_disclosure.two_sided(churned, customers - churned):
+            _fail(f"{what}: fewer than {MIN_CELL} churners or stayers")
+        bands[name] = insights.Observed(customers, churned, rate)
+    shown = [band for band in bands.values() if band.churned is not None]
+    if sum(band.customers for band in bands.values()) != overall.customers:
+        _fail("the risk bands do not add up to the customers observed")
+    if len(shown) < len(bands):
+        if overall.churned is None:
+            if shown:
+                _fail("a band's churn is shown where the total's is not")
+        else:
+            customers = overall.customers - sum(band.customers for band in shown)
+            churned = overall.churned - sum(band.churned or 0 for band in shown)
+            if churned < 0 or not score_disclosure.two_sided(churned, customers - churned):
+                _fail("the hidden risk bands can be solved for")
+    elif overall.churned is not None and sum(b.churned or 0 for b in shown) != overall.churned:
+        _fail("the risk bands do not add up to the churn observed")
+    return bands
 
 
 def _basis(value: Any) -> SweepBasis:
@@ -471,12 +553,13 @@ def _basis(value: Any) -> SweepBasis:
     tp, fp, fn = series["true_positives"], series["false_positives"], series["false_negatives"]
     churners = tp[0] + fn[0]
     for i in range(size):
-        if tp[i] + fn[i] != churners or tp[i] + fp[i] > customers or charges[i] < 0:
+        if tp[i] + fn[i] != churners or charges[i] < 0:
             _fail(what)
-        # Raising the cut flags nobody new.
-        if i and (tp[i] > tp[i - 1] or fp[i] > fp[i - 1] or charges[i] > charges[i - 1] + 1e-6):
+        # Raising the cut adds no charges. (Nor customers: a step that gained some would
+        # hold a negative count, which ``holds`` below refuses.)
+        if i and charges[i] > charges[i - 1] + 1e-6:
             _fail(what)
-    return SweepBasis(
+    basis = SweepBasis(
         customers=customers,
         thresholds=tuple(thresholds),
         true_positives=tuple(tp),
@@ -484,6 +567,14 @@ def _basis(value: Any) -> SweepBasis:
         false_negatives=tuple(fn),
         flagged_churner_charges=tuple(charges),
     )
+    # The first cut flags everyone: every later one flags fewer (``holds``), none more.
+    if fn[0] != 0 or tp[0] + fp[0] != customers:
+        _fail(f"{what}: its first cut does not flag every customer")
+    if not score_disclosure.holds(basis):
+        _fail(
+            f"{what}: it does not start with everyone, or a step holds fewer than {MIN_CELL} churners or stayers"
+        )
+    return basis
 
 
 _COUNTS = ("n", "positives", "tn", "fp", "fn", "tp")
@@ -491,8 +582,13 @@ _RELIABILITY = ("low", "high", "customers", "mean_predicted", "churned", "rate")
 _SEGMENT = ("dimension", "segment", "customers", "flagged", *insights.SEGMENT_OUTCOMES)
 
 
-def _validation(value: Any) -> insights.ValidationEvaluation:
+def _validation(
+    value: Any, basis: SweepBasis | None, threshold: float
+) -> insights.ValidationEvaluation:
+    """The validation figures, each read off the published sweep's own cuts."""
     what = "validation"
+    if basis is None:
+        _fail("validation figures without a sweep to read them on")
     record = _record(
         value,
         ("metrics", "churn_rate", "no_skill_accuracy", "ece", "reliability", "segments"),
@@ -506,32 +602,109 @@ def _validation(value: Any) -> insights.ValidationEvaluation:
             for name in names
         }
     )
-    if metrics.n < MIN_CELL or metrics.tn + metrics.fp + metrics.fn + metrics.tp != metrics.n:
-        _fail(what)
+    _at_the_threshold(metrics, basis, threshold)
+    reliability = _reliability(record["reliability"], basis)
+    segments = _segments(record["segments"], metrics)
+    return insights.ValidationEvaluation(
+        metrics=metrics,
+        churn_rate=_share(record["churn_rate"], what),
+        no_skill_accuracy=_share(record["no_skill_accuracy"], what),
+        ece=_share(record["ece"], what),
+        reliability=reliability,
+        segments=segments,
+    )
 
-    reliability = []
-    for item in _list(record["reliability"], what):
+
+def _at_the_threshold(metrics: ClassificationMetrics, basis: SweepBasis, threshold: float) -> None:
+    """The operating point is the sweep at the served threshold (``parse`` has made sure it
+    is a cut), and its rates are its own counts'."""
+    if not math.isclose(metrics.threshold, threshold, abs_tol=1e-9):
+        _fail("validation: the operating point is not at the served threshold")
+    i = _cut_index(basis, threshold)
+    tp, fp, fn = basis.true_positives[i], basis.false_positives[i], basis.false_negatives[i]
+    n, tn = basis.customers, basis.customers - tp - fp - fn
+    expected = (n, basis.churners, tp, fp, fn, tn)
+    found = (metrics.n, metrics.positives, metrics.tp, metrics.fp, metrics.fn, metrics.tn)
+    if found != expected:
+        _fail("validation: the operating point is not the sweep at the threshold")
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    rates = {
+        "accuracy": (tp + tn) / n,
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
+    }
+    if any(not math.isclose(getattr(metrics, k), v, abs_tol=1e-12) for k, v in rates.items()):
+        _fail("validation: the operating point's rates are not its counts'")
+
+
+def _cut_index(basis: SweepBasis, threshold: float) -> int:
+    for i, t in enumerate(basis.thresholds):
+        if math.isclose(t, threshold, abs_tol=1e-9):
+            return i
+    _fail("the served threshold is not a cut of the published sweep")
+
+
+def _reliability(value: Any, basis: SweepBasis) -> list[dict[str, Any]]:
+    """Calibration bins: exactly the intervals between the sweep's cuts, nothing finer."""
+    what = "validation reliability"
+    steps = score_disclosure.intervals(basis)
+    items = _list(value, what)
+    if len(items) != len(steps):
+        _fail(f"{what}: not the sweep's intervals")
+    out = []
+    for item, (low, high, churners, stayers) in zip(items, steps, strict=True):
         row = _record(item, _RELIABILITY, what)
         customers = _count(row["customers"], what)
-        out = {
+        bin_ = {
             "low": _share(row["low"], what),
             "high": _share(row["high"], what),
             "customers": customers,
             "mean_predicted": _share(row["mean_predicted"], what),
-            "churned": None,
-            "rate": None,
         }
-        if row["churned"] is not None or row["rate"] is not None:
-            out["churned"], out["rate"] = _rate_of(row["churned"], row["rate"], customers, what)
-        reliability.append(out)
+        churned, rate = _rate_of(row["churned"], row["rate"], customers, what)
+        if (
+            not math.isclose(bin_["low"], low, abs_tol=1e-9)
+            or not math.isclose(bin_["high"], high, abs_tol=1e-9)
+            or (customers, churned) != (churners + stayers, churners)
+        ):
+            _fail(f"{what}: not the sweep's intervals")
+        if not bin_["low"] <= bin_["mean_predicted"] <= bin_["high"]:
+            _fail(what)
+        out.append(bin_ | {"churned": churned, "rate": rate})
+    return out
 
+
+def _segment_cells(row: dict[str, Any], what: str) -> score_disclosure.Cells:
+    """A shown segment's four counts at the threshold, read back from its own figures."""
+    customers, flagged = row["customers"], row["flagged"]
+    churners = _count(row["churners"], what)
+    recall, precision = row["recall"], row["precision"]
+    tp = 0 if churners == 0 else round(_share(recall, what) * churners)
+    if flagged and (precision is None or not math.isclose(_share(precision, what), tp / flagged)):
+        _fail(what)
+    fp, fn = flagged - tp, churners - tp
+    tn = customers - flagged - fn
+    # A negative count breaks the two-sided rule its caller checks next.
+    if churners and not math.isclose(recall, tp / churners):
+        _fail(what)
+    return tp, fp, fn, tn
+
+
+def _segments(value: Any, metrics: ClassificationMetrics) -> list[dict[str, Any]]:
+    """Segments at the threshold: every shown one, and the hidden ones of each dimension
+    together, keep the rule on both sides of the cut."""
+    what = "validation segments"
     segments = []
-    for item in _list(record["segments"], what):
+    shown_cells: dict[str, list[score_disclosure.Cells]] = {}
+    totals: dict[str, tuple[int, int]] = {}
+    for item in _list(value, what):
         row = _record(item, _SEGMENT, what)
         customers = _count(row["customers"], what)
+        flagged = _count(row["flagged"], what)
+        dimension, segment = _text(row["dimension"], what), _text(row["segment"], what)
         shown = {key: row[key] for key in insights.SEGMENT_OUTCOMES if row[key] is not None}
-        if shown and customers < MIN_CELL:
-            _fail(f"{what}: an outcome for a segment of fewer than {MIN_CELL} customers")
         for key, figure in shown.items():
             if key == "unscanned":
                 if not isinstance(figure, bool):
@@ -541,22 +714,32 @@ def _validation(value: Any) -> insights.ValidationEvaluation:
                     _fail(what)
             else:
                 _share(figure, what)
-        segments.append(
-            row
-            | {
-                "dimension": _text(row["dimension"], what),
-                "segment": _text(row["segment"], what),
-                "flagged": _count(row["flagged"], what),
-            }
-        )
-    return insights.ValidationEvaluation(
-        metrics=metrics,
-        churn_rate=_share(record["churn_rate"], what),
-        no_skill_accuracy=_share(record["no_skill_accuracy"], what),
-        ece=_share(record["ece"], what),
-        reliability=reliability,
-        segments=segments,
-    )
+        if shown and not (
+            math.isclose(
+                _share(row["churn_rate"], what), row["churners"] / customers, abs_tol=1e-12
+            )
+            and math.isclose(_share(row["flagged_rate"], what), flagged / customers, abs_tol=1e-12)
+        ):
+            _fail(f"{what}: a rate that is not its counts'")
+        seen = totals.get(dimension, (0, 0))
+        totals[dimension] = (seen[0] + customers, seen[1] + flagged)
+        cells = shown_cells.setdefault(dimension, [])
+        if shown:
+            cells.append(c := _segment_cells(row, what))
+            if not (score_disclosure.two_sided(*c[:2]) and score_disclosure.two_sided(*c[2:])):
+                _fail(f"{what}: a shown segment has fewer than {MIN_CELL} churners or stayers")
+        segments.append(row | {"dimension": dimension, "segment": segment, "flagged": flagged})
+    everyone = (metrics.tp, metrics.fp, metrics.fn, metrics.tn)
+    for dimension, (customers, flagged) in totals.items():
+        if (customers, flagged) != (metrics.n, metrics.tp + metrics.fp):
+            _fail(f"{what}: {dimension} does not add up to the partition")
+        rest = [a - sum(c[k] for c in shown_cells[dimension]) for k, a in enumerate(everyone)]
+        if min(rest) < 0 or not (
+            score_disclosure.two_sided(rest[0], rest[1])
+            and score_disclosure.two_sided(rest[2], rest[3])
+        ):
+            _fail(f"{what}: the hidden segments of {dimension} can be solved for")
+    return segments
 
 
 def _importance(value: Any) -> Ranking:
@@ -590,7 +773,6 @@ _TOP_LEVEL = (
     "dataset_customers",
     "observed",
     "band_observed",
-    "histogram_observed",
     "breakdowns",
     "lifecycle",
     "sweep_basis",
@@ -603,7 +785,7 @@ _TOP_LEVEL = (
 def parse(body: Any, model: Predictor) -> PublishedEvidence:
     """``body`` as evidence for ``model``, or ``DemoDataError``: nothing is taken on trust."""
     record = _record(body, _TOP_LEVEL, "its top-level keys")
-    if record["format"] != FORMAT or isinstance(record["format"], bool):
+    if type(record["format"]) is not int or record["format"] != FORMAT:
         _fail("another format")
     expected = identity_of(model)
     if not all(is_sha256(expected[key]) for key in ("model_sha256", "data_sha256", "split_digest")):
@@ -614,16 +796,22 @@ def parse(body: Any, model: Predictor) -> PublishedEvidence:
             "its threshold or the configured risk bands"
         )
     names = [band.name for band in model.config.risk_bands]
-    bands = _record(record["band_observed"], tuple(names), "the risk bands")
+    observed = _observed(record["observed"], "observed")
+    basis = _maybe(record["sweep_basis"], lambda value, _what: _basis(value), "")
+    if basis is not None:
+        _cut_index(basis, model.threshold)  # the overview's campaign is read at it
     return PublishedEvidence(
         dataset_customers=_count(record["dataset_customers"], "dataset size"),
-        _observed=_observed(record["observed"], "observed"),
-        _bands={name: _observed(bands[name], f"band {name}") for name in names},
-        _histogram=_histogram(record["histogram_observed"]),
+        _observed=observed,
+        _bands=_bands(record["band_observed"], names, observed),
         _breakdowns=_breakdowns(record["breakdowns"]),
         _lifecycle=_lifecycle(record["lifecycle"]),
-        _basis=_basis(record["sweep_basis"]),
-        _validation=_maybe(record["validation"], lambda value, _what: _validation(value), ""),
+        _basis=basis,
+        _validation=_maybe(
+            record["validation"],
+            lambda value, _what: _validation(value, basis, model.threshold),
+            "",
+        ),
         _collinearity=_maybe(record["collinearity"], _number, "collinearity"),
         _importance=_maybe(record["importance"], lambda value, _what: _importance(value), ""),
     )

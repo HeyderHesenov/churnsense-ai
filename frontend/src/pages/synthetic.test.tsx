@@ -22,9 +22,9 @@ import { modelInfo } from '../test/fixtures';
 import { overviewApi, QUEUE_ROWS } from '../test/overviewApi';
 import { customerPage, overview } from '../test/overviewFixtures';
 import { patternsApi } from '../test/patternsApi';
-import { performanceApi } from '../test/performanceApi';
+import { performance, performanceApi } from '../test/performanceApi';
 import { renderAt, settleQueries } from '../test/render';
-import { answer, respond, server } from '../test/server';
+import { answer, recordRequests, refuse, respond, server } from '../test/server';
 import { sweepApi } from '../test/simulatorApi';
 import { asSynthetic, DATASET, SYNTHETIC, syntheticInfo } from '../test/syntheticSource';
 
@@ -236,6 +236,44 @@ describe('Performance and the simulator, as a public demo', () => {
     renderAt(<App />, '/simulator');
     await screen.findByRole('heading', { level: 1, name: 'Where should the cut-off sit?' });
     await expectNote({ evidence: true });
+  });
+});
+
+describe('A public demo that publishes no validation sweep', () => {
+  // The service's sentence, as the fixture words it: the page must print it, not its own.
+  const NOTE = 'Fixture sweep note: no cuts keep twenty of each, so no sweep is shown.';
+  const withoutSweep = () => syntheticInfo({ ...SYNTHETIC, sweep_note: NOTE });
+  const PARTITIONS = /partitions cannot be verified/i;
+
+  it('the simulator says why, in the service’s words, and asks once', async () => {
+    server.use(withoutSweep(), refuse('get', '/api/threshold/sweep', 503, 'sweep_withheld'));
+    const seen = recordRequests();
+    renderAt(<App />, '/simulator');
+    expect(await screen.findByText(NOTE)).toBeInTheDocument();
+    expect(screen.queryByText(PARTITIONS)).not.toBeInTheDocument();
+    await settleQueries();
+    expect(seen.filter((url) => url.pathname === '/api/threshold/sweep')).toHaveLength(1);
+  });
+
+  it('the overview’s campaign says why', async () => {
+    server.use(withoutSweep(), ...overviewApi(overview({ campaign: null })));
+    renderAt(<App />, '/');
+    const card = await screen.findByRole('region', { name: 'Campaign' });
+    expect(within(card).getByText(NOTE)).toBeInTheDocument();
+    expect(card).not.toHaveTextContent(PARTITIONS);
+  });
+
+  it('performance says why where each validation figure would be', async () => {
+    server.use(
+      withoutSweep(),
+      performanceApi(
+        performance({ validation: null, validation_evaluation: null, withheld_reason: null }),
+      ),
+    );
+    renderAt(<App />, '/performance');
+    await screen.findByRole('table', { name: 'Metrics by partition' });
+    expect((await screen.findAllByText(NOTE)).length).toBeGreaterThanOrEqual(3);
+    expect(screen.queryByText(/not available for the served model/)).not.toBeInTheDocument();
   });
 });
 

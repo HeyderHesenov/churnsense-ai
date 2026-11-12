@@ -20,6 +20,11 @@ export function useSynthetic(): boolean {
   return useDataSource()?.customer_records === 'synthetic';
 }
 
+/** Why the service publishes no validation sweep, in its own words; `null` when it does. */
+export function useSweepNote(): string | null {
+  return useDataSource()?.sweep_note ?? null;
+}
+
 export type NotePart = 'customers' | 'figures' | 'evidence';
 
 /** The service's sentence for each part, where it gave one. */

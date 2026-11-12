@@ -282,8 +282,8 @@ needs experimental data this dataset does not contain.
 
 **Operationally: one global threshold leaves whole segments unscanned.**
 On validation the model flags **not one** two-year-contract customer and no customer
-without internet, and 35 churners sit between those two segments, invisible to any
-campaign driven by this score. The test partition has no such table: its customers
+without internet, so every churner in those two segments (22 without internet; the
+two-year count is suppressed) is invisible to any campaign driven by this score. The test partition has no such table: its customers
 are listed with their flags and scores, so a figure about a group of them would be
 read against known people (docs/MODEL_CARD.md has the reason, and says what older
 reports and Git history still hold). That is the optimiser behaving correctly —

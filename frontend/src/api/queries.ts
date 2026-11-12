@@ -298,13 +298,16 @@ export interface Assumptions {
   margin: number;
 }
 
+const LASTING_REFUSALS = new Set(['outcomes_withheld', 'sweep_withheld']);
+
 /**
  * Figures that rest on observed outcomes (a sweep, a breakdown) are asked for
  * again once when the server or the network failed; never when the server
  * withholds the outcomes, which it does for as long as it runs.
  */
 export function retryOutcomes(failures: number, error: unknown): boolean {
-  if (error instanceof ApiError && error.code === 'outcomes_withheld') return false;
+  // Withheld outcomes, or no published sweep: both last as long as the server runs.
+  if (error instanceof ApiError && LASTING_REFUSALS.has(error.code)) return false;
   return shouldRetry(failures, error);
 }
 

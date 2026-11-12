@@ -2712,7 +2712,8 @@ Run one at a time on the final tree:
 
 ### Still open
 
-- **E8, differencing the validation sweep** (rated high by the review). The sweep and the
+- **E8, differencing the validation sweep** (rated high by the review). *Closed in the API on
+  2026-11-12: see the next section. The repository's tracked reports still hold it.* The sweep and the
   precision-recall curve give cumulative counts and money at every 0.01 of threshold; of the
   100 steps of the built file, 16 hold exactly one churner and 4 exactly one customer, 74 fewer than
   20. Between two such neighbours the difference gives one unnamed validation customer's monthly
@@ -2721,6 +2722,188 @@ Run one at a time on the final tree:
   because it moves figures the model card states. It is the maintainer's decision; nothing was
   changed.
 - **Not measured:** the current image's memory and the VPS's (the local Docker figures are of the
-  earlier layout, which held the dataset). The image of this change has not been built or run in
-  Docker.
+  earlier layout, which held the dataset). The image was built and smoke-tested locally on
+  2026-11-12 (see the E8 section's Docker check); the load phases were not run on it.
 - **Not set:** the real domain. The bundle check passes only with `--allow-example-domain`.
+
+## E8: the validation sweep at safe cuts (2026-11-12)
+
+A separate change on top of the Option C commit (`d668799`), uncommitted. The maintainer's
+rule: every interval between two published cuts holds at least 20 churners **and** 20
+stayers, merging cuts where needed; segments and other groups that would break it are hidden
+with their complements; anything that still gives a customer's charge away is removed, and if
+no safe sweep exists, the public demo shows none.
+
+### Why the sweep was not the only edge
+
+Every figure that splits validation customers by score is a cut, and two sets of cuts
+difference into intervals finer than either. Besides the sweep (101 cuts), the public answers
+carried the calibration bins (tenths), the operating point (0.36), precision and recall at
+0.5 (of the calibrated model, and of the uncalibrated candidate, whose scores are another
+ordering), the overview's observed churn per 0.05 of score (validation customers), the risk
+bands (training and validation together) and the segments at 0.36. All of them were brought
+under the one rule.
+
+### What was built
+
+- `src/churnsense/score_disclosure.py`: the rule (`two_sided`: none, or at least 20 of each),
+  `safe_cuts` (from the left, each cut the first that leaves enough behind it and before the
+  next required cut; the served threshold is required, 0.5 preferred; no grid cut can be added
+  to the result), `reliability_on` the same cuts, `guard_segments` and `guard_bands` with
+  complementary suppression (hiding grows, smallest first, until the hidden ones together keep
+  the rule).
+- The published evidence is format 2: the sweep at those cuts or none; the calibration bins
+  are the intervals between them; the operating point is a cut of them; no validation
+  histogram. The reader checks every part again and refuses a file that breaks any of it: a
+  step narrower than the rule, a sweep not starting at everyone, bins that are not the
+  intervals, an operating point that is not the sweep at the threshold, segment figures that
+  are not their own counts or whose hidden ones can be solved for, bands likewise. The bundle
+  check refuses the first format, which held the 0.01 sweep.
+- Routes: with no sweep the sweep answers 503 `outcomes_withheld` with the reason; in a public
+  demo the calibration card states the served model at 0.5 from the published cut, and not the
+  candidate.
+- Front end: a table of a sweep off the 0.01 grid lists every cut (`lib/cuts.ts`, shared by
+  the performance and simulator pages); a bin between uneven cuts is labelled to the hundredth;
+  the calibration subtitle says what the bins are; the overview claims, draws and labels no
+  observed churn where none is published.
+
+### What it gives on the real file
+
+11 cuts: 0.00, 0.08, 0.18, 0.23, 0.30, 0.36, 0.39, 0.50, 0.53, 0.58, 0.64 (first built with
+0.26 in place of 0.30; see "Final review" below). The thinnest intervals hold exactly 20
+churners (0.30-0.36) and 20 stayers (0.58-0.64). Contract and SeniorCitizen are hidden whole
+at 0.36 (One year has 2 flagged churners, so its complement would give it away);
+InternetService and gender are shown; every risk band is shown. The demo's peak and
+recommendation are the model card's: 0.30 ($26,579) and 0.36 ($26,547). Precision and recall
+at 0.5 are the model card's (0.672 / 0.532).
+
+### How it was checked
+
+- `src/churnsense/disclosure_audit.py` (first written as a test helper) does an outsider's arithmetic: every published count is a
+  linear function of the counts in the intervals between all published edges, per partition
+  and outcome; every interval (each partition, and both) whose churners or stayers lie in the
+  span of the published figures is solved for and must keep the rule. The same for every union
+  of a dimension's segments on each side of the threshold. It checks its own model of the API
+  against the book first, and runs once more from the published figures alone.
+- On a larger synthetic book (3,000 customers, the same estimator): nothing can be solved for
+  that breaks the rule; the control, the dataset's own answers, gives customers away.
+- On the real published file, served in-process: 4,130 counts can be solved for (every set
+  of atoms, not only intervals), none breaks the rule, also with the README's figures at 0.30,
+  0.36 and 0.50 added. The same arithmetic on the first-format file finds 1,248.
+- Rebuilding it read the dataset's training and validation partitions (`make demo-data`); it
+  fitted nothing and ran no evaluation. The model, its metadata, `shap_global.json`, `reports/`
+  and `governance/` hash as before.
+
+### Still open
+
+- `reports/threshold_sweep.csv` (tracked, public) holds the full validation sweep at every
+  0.01, and `reports/model_comparison.md` states validation figures at six thresholds and a
+  segment table with groups of a few customers. Both are written by fingerprinted code and are
+  part of the published record; they were not changed. Removing them from the repository, and
+  from its history, is the maintainer's decision.
+- The performance page serves each candidate's validation PR-AUC and ROC-AUC only: ranking
+  figures over the whole partition, with no cut. Their precision and recall at 0.5 are in
+  `reports/model_comparison.csv` in the repository, not in any answer; they are of other
+  models' scores, and belong with the tracked reports above.
+
+### Docker check (2026-11-12)
+
+- Built with the provenance helper's command as `churnsense-ai:d6687995d4b3-dirty` (a local
+  validation tag: the E8 change is uncommitted). The bundle check inside the build said
+  "deployment bundle ready".
+- In the image: of 24,760 files none hashes to the pinned dataset; no `data/` folder, no
+  `shap_global.json`, no `threshold_sweep.csv`; `artifacts/` holds the model, its metadata and the
+  two demo files (evidence format 2, the 11 cuts); the one string shaped like an IBM customer ID
+  is the search field's placeholder `1234-ABCDE`, which is not in the dataset.
+- Under Compose: the app healthy, no mount, read-only root, all capabilities dropped, no
+  published port, user `churnsense`; `configs/deploy.yaml` in force with `public_demo` /
+  `synthetic`; the dataset path does not exist. 2,000 customers listed, every one `DEMO-`,
+  `synthetic`, `withheld`, `active`; a dataset ID answered 404; no IBM-shaped ID in any answer.
+- The outsider arithmetic on the container's own answers: 158 counts could be solved for (the
+  auditor then tried intervals only), none broke the rule. This image predates the final cuts
+  (it has 0.26 where the file now has 0.30) and was not rebuilt: no Docker was run after.
+- Caddy redirected HTTP to HTTPS and could not get a certificate for `demo.example.com`, as
+  expected. Idle memory about 197 MiB, peak 211 MiB; no load was run. Stopped with
+  `docker compose down`.
+
+### Mutants and checks (2026-11-12)
+
+- **E8's own mutants: 53**, over the rule, the cuts, the guards, the builder, the reader, the
+  routes, the bundle check and the service's sentence. The first run left 7 alive besides the
+  control. Three were checks another check already made (the sweep starting at everyone, a
+  negative segment count, an outcome of a hidden segment): those checks were removed. Four were
+  tests that broke two rules at once, made to break one. Every applicable mutant is now caught.
+- **The earlier mutants of the files this change touched: 111**, run again against the changed
+  tests. Seven no longer apply (the code they mutated was rewritten; four of them were replaced
+  by mutants of the new code). Of the 104, 98 were caught at once. Of the six real survivors,
+  four were checks the new rule makes again (tp and fp falling as the cut rises, the metrics
+  adding up, a shown segment's size): removed; two needed a damage that breaks only their own
+  rule. Equivalent and left: the two bundle-check ones recorded above, and the overview's
+  histogram source (a public book and the published evidence both give no observed churn).
+- **After those changes, every mutant of `evidence.py`** (46 applicable): all caught.
+- **Checks:** `make lint`; full `pytest` 4,288 passed, none failed; front end lint, typecheck,
+  format check and build; vitest twice, 1,114 each; Playwright both projects, 99 passed and 2
+  skipped. The public e2e server now holds 8,000 synthetic rows: with 2,000 (or 4,000) its model
+  leaves fewer than 20 churners below the threshold, so it had, correctly, no sweep to show.
+  The bundle check is ready with the example-domain flag; the 13 fingerprinted sources, the
+  ledger, `reports/`, the lock files and the existing artifacts are unchanged, and the release
+  fingerprints recomputed from the tree match the ledger.
+
+### Final review (code-reviewer, 2026-11-12, before the commit)
+
+A second read-only pass over the whole E8 change, adversarial against every public answer,
+any assumption set, the repository and `/api/predict`. No critical finding; the mechanism was
+confirmed on the real file by recomputation. What it found, and what was done (test first):
+
+- **High: `/api/model-info` served the model's validation record at 0.5 as recorded**, counts
+  included, whatever the published cuts. In a public demo it is now read off the published cut
+  at 0.5, and where 0.5 is not a cut only the whole-partition scalars (ROC-AUC, average
+  precision, Brier) are stated; with no book built, the same. The outsider arithmetic in the
+  tests now models it.
+- **Preferred cuts were all or nothing.** They are tried in priority order and a cut that does
+  not fit is dropped alone. The full sweep's peak at the configured assumptions is now the first
+  preferred cut (0.30 on the real file), because the model card and the README state figures
+  there: with 0.26 published beside the README's 0.30 row, [0.26, 0.30) held 7 churners.
+- **The cross-table property was proved only by tests.** The auditor moved into the package;
+  `make demo-data` runs it on the file it is about to write, over every set of atoms (unions
+  that are not neighbours included) and every union of segments, and writes nothing if a group
+  under 20 can be solved for. It also refuses a segment hidden under one dimension and shown,
+  as the same customers, under another (none of the four dimensions does that today; an
+  add-on column would).
+- **Bounds remain.** A hidden segment's flagged customers bound its flagged churners (One year
+  ∪ Two year: at most 8). The documents now say "solved for exactly" and that bounds remain,
+  and that none of this is differential privacy or anonymity.
+- **The disabled path said the wrong thing.** With no published sweep the sweep answers 503
+  `sweep_withheld` (not `outcomes_withheld`), `/model-info`'s `data_source.sweep_note` carries
+  the reason, and the simulator, the overview's campaign and every performance figure print it;
+  the refusal is not asked for again.
+- **"Peak" among coarse cuts.** The service's evidence sentence now says the peak and the
+  recommendation are read among the published cuts; with 0.30 a cut, the default figures are
+  the model card's.
+- **The reader trusted more than it said.** It now refuses a first cut that does not flag
+  everyone, a served threshold that is not a cut (also without validation figures), metrics
+  whose rates are not their counts', segment rates that are not theirs, and a format given as
+  `2.0`; the bundle check refuses `2.0` too.
+- **Kept, and why:** the two ECE scalars. Each is one number over the whole partition, a sum of
+  absolute gaps over ten fixed bins; no count follows from it, and the calibration card needs
+  it. Recorded as a judgement, not a proof.
+
+### Repository disclosure cleanup (2026-11-12)
+
+- `reports/threshold_sweep.csv` and `reports/model_comparison.md` are removed from git with
+  `git rm --cached`; the files stay where `make train` writes them, and `.gitignore` names
+  exactly those two paths. Their hashes before and after are the same.
+- Neither is a fingerprinted source or part of the ledger. The held-out release report and the
+  final evaluation report name `reports/model_comparison.md`; both are published record and
+  unchanged.
+- Tests: `tracked_report` now knows `LOCAL_REPORTS`, which a check uses where they exist and
+  skips everywhere else, GitHub Actions included. The selection-rule quote check reads the
+  tracked `model_comparison.csv`; the CSV's columns are checked in CI; the report-text checks,
+  the tracked-sweep checks and the CSV-to-markdown check run where `make train` wrote the files.
+- Documents: no link to an untracked file; the model card's validation segment table, the
+  README and the interview notes suppress the Contract and SeniorCitizen outcomes the demo
+  hides, and no longer state the two-year segment's churners (13) or the 35 of both unflagged
+  segments.
+- **What it does not do:** every earlier commit, on GitHub and in every clone, still holds both
+  files (`git show afdd8257:reports/threshold_sweep.csv`). The history was not rewritten; that
+  exposure stays.

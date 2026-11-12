@@ -39,7 +39,8 @@ function binRange(bin: Bin): string {
 
 function observedText(bin: Bin, withheld: boolean): string {
   const observed = bin.observed;
-  if (withheld || observed === null) return 'withheld';
+  if (withheld) return 'withheld';
+  if (observed === null) return 'not published';
   if (observed.rate === null || observed.churned === null)
     return 'fewer than 20 validation customers';
   return `${pct(observed.rate)} (${int(observed.churned)} of ${int(observed.customers)} validation)`;
@@ -95,6 +96,8 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
   const top = y.domain()[1] ?? 1;
   const axis = (value: number) => (measure === 'customers' ? int(value) : moneyShort(value));
   const withheld = book.withheld_reason !== null;
+  // A public demo publishes no validation churn per 0.05 of score: none is drawn or claimed.
+  const seen = !withheld && bins.some((bin) => bin.observed !== null);
   const bin = active === null ? undefined : bins[active];
 
   const binAt = (event: MouseEvent<HTMLDivElement>) => {
@@ -125,9 +128,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
 
   const label =
     `Histogram of churn probability for ${int(book.customers)} customers in ${bins.length} bins` +
-    (book.withheld_reason === null
-      ? ', with the churn observed in each bin among validation customers.'
-      : '.');
+    (seen ? ', with the churn observed in each bin among validation customers.' : '.');
   const ticks = [...book.bands.map((band) => band.min), 1];
 
   return (
@@ -215,7 +216,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
             <span className={styles.ramp} aria-hidden="true" />
             {measure === 'customers' ? 'Customers' : 'Monthly charges'} per 0.05 of probability
           </span>
-          {!withheld && (
+          {seen && (
             <>
               <span className={styles.legendItem}>
                 <span className={styles.dot} aria-hidden="true" />
@@ -290,7 +291,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
             />
           );
         })}
-        {!withheld && (
+        {seen && (
           <>
             <line className={styles.diagonal} x1={LEFT} y1={BOTTOM} x2={RIGHT} y2={TOP} />
             <path className={styles.observed} d={observedPath(bins)} />

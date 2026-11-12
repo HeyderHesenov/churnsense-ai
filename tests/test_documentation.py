@@ -46,8 +46,22 @@ def _table_rows(section: str) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def comparison() -> dict[str, str]:
-    """The selection rule's steps and the operating point as `make train` wrote them."""
+    """The operating point as `make train` wrote it: a local report, not tracked since E8."""
     return _table_rows(tracked_report("model_comparison.md").read_text())
+
+
+@pytest.fixture(scope="module")
+def selection() -> dict[str, str]:
+    """The one-standard-error rule's figures, recomputed from the tracked comparison table,
+    as the report prints them (four decimals)."""
+    import pandas as pd
+
+    table = pd.read_csv(tracked_report("model_comparison.csv"), float_precision="round_trip")
+    leader = table.loc[table["cv_pr_auc"].idxmax()]
+    return {
+        "Standard error = leader's CV std / sqrt(5)": f"{leader['cv_se']:.4f}",
+        "Cutoff = leader - one standard error": f"{leader['cv_pr_auc'] - leader['cv_se']:.4f}",
+    }
 
 
 def _numbers_after(text: str, label: str) -> list[float]:
@@ -825,9 +839,9 @@ def test_the_documents_say_the_release_is_frozen_and_the_history_is_open():
     "step",
     ["Standard error = leader's CV std / sqrt(5)", "Cutoff = leader - one standard error"],
 )
-def test_the_documents_quote_the_selection_rule_as_measured(comparison: dict, step: str):
-    """The cutoff and its standard error, as the regenerated report has them."""
-    value = comparison[step].split("=")[-1].strip()
+def test_the_documents_quote_the_selection_rule_as_measured(selection: dict, step: str):
+    """The cutoff and its standard error, recomputed from the tracked comparison table."""
+    value = selection[step]
     for name in ("README.md", "docs/PROJECT_WALKTHROUGH.md"):
         assert value in (ROOT / name).read_text(), f"{name} does not quote {step} = {value}"
 

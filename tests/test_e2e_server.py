@@ -432,3 +432,12 @@ def test_the_public_server_refuses_a_book_it_was_not_asked_for():
     serve = source[source.index("def serve(") : source.index("def listed_dataset_customers(")]
     assert "dashboard.synthetic is not public" in serve
     assert "listed_dataset_customers(dashboard.frame)" in serve
+
+
+def test_the_public_server_holds_enough_customers_for_a_sweep_at_safe_cuts():
+    """Its sweep is published only where twenty churners and twenty stayers lie between two
+    cuts, the threshold among them (E8). The e2e model leaves about 7% of churners below its
+    threshold: 2,000 rows leave too few there, so the public server holds more."""
+    assert e2e_server.rows_for(None, public=False) == e2e_server.DEFAULT_ROWS == 2000
+    assert e2e_server.rows_for(None, public=True) == e2e_server.PUBLIC_ROWS >= 8000
+    assert e2e_server.rows_for(500, public=True) == 500

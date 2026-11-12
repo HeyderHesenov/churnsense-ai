@@ -17,7 +17,7 @@ import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button } from '../../components/ui/Button';
-import { DataSourceNote } from '../../components/ui/DataSourceNote';
+import { DataSourceNote, useSweepNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState, Skeleton } from '../../components/ui/States';
@@ -46,6 +46,7 @@ const RESET = { cost: null, success: null, horizon: null, margin: null, t: '' } 
 export default function SimulatorPage() {
   const [state, set] = useParams(SIMULATOR_PARAMS);
   const info = useModelInfo();
+  const sweepNote = useSweepNote();
   const bounds = info.data?.assumption_bounds ?? null;
   const defaults = info.data?.business_defaults ?? null;
   const scenario = bounds && defaults ? scenarioOf(state, bounds, defaults) : null;
@@ -54,7 +55,9 @@ export default function SimulatorPage() {
   const unverified = info.data?.provenance?.verified === false;
   const [never, setNever] = useState(false);
   const sweep = useSweep(never || unverified ? null : (scenario?.assumptions ?? null));
-  const refused = sweep.error instanceof ApiError && sweep.error.code === 'outcomes_withheld';
+  const refused =
+    sweep.error instanceof ApiError &&
+    (sweep.error.code === 'outcomes_withheld' || sweep.error.code === 'sweep_withheld');
   // Set while rendering, so the screen never shows the refusal before the latch.
   if (refused && !never) setNever(true);
   const status = statusOf({
@@ -167,6 +170,7 @@ export default function SimulatorPage() {
                 sweep={shown}
                 selected={selected}
                 error={sweep.error}
+                sweepNote={sweepNote}
                 onRetry={() => void sweep.refetch()}
               />
               {drawn && (
