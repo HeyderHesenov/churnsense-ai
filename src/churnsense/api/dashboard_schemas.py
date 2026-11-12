@@ -21,7 +21,10 @@ Share = Annotated[float, Field(ge=0, le=1)]
 Outcome = Literal["churned", "stayed", "withheld"]
 #: What is known of a customer today. ``unknown`` is neither of the others.
 CustomerStatus = Literal["active", "churned", "unknown"]
-Partition = Literal["train", "validation", "test", "unknown"]
+#: ``synthetic``: a public demo's generated customer, in no partition of any dataset.
+Partition = Literal["train", "validation", "test", "unknown", "synthetic"]
+#: Who an explanation is measured against.
+Background = Literal["training", "synthetic"]
 
 
 class _Model(BaseModel):
@@ -330,6 +333,8 @@ class ExplainResponse(_Model):
     permutations: int
     seed: int
     background_customers: int
+    #: Whose customers the background is: the training partition's, or generated ones.
+    background: Background
     explanations: list[Explanation]
     caveat: str
 
@@ -369,7 +374,11 @@ Dependence = Annotated[NumericDependence | CategoricalDependence, Field(discrimi
 
 
 class GlobalExplanation(_Model):
-    """``make explain``'s attributions for a validation sample, for the artifact served."""
+    """Cached attributions of a sample of the book's customers, for the artifact served.
+
+    ``partition`` is ``validation`` for the dataset's sample and ``synthetic``
+    for a public demo's generated customers.
+    """
 
     model_sha256: str
     partition: str

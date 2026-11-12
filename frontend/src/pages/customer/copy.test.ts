@@ -138,6 +138,7 @@ describe('the attributions', () => {
         {
           model_sha256: null,
           background_customers: 100,
+          background: 'training',
           permutations: 10,
           seed: 42,
           caveat: '',
@@ -204,6 +205,7 @@ describe('every sentence', () => {
         {
           model_sha256: null,
           background_customers: 100,
+          background: 'training',
           permutations: 10,
           seed: 42,
           caveat: '',

@@ -4,16 +4,10 @@ Two modes (docs/DEPLOYMENT.md):
 
 ``python scripts/verify_deploy_bundle.py``
     In the checkout, before ``docker build``. Checks the approved assets, the
-    deploy configuration, the proxy wiring and the dataset mount of
-    ``deploy/compose.yaml`` and ``deploy/Caddyfile`` against it, the
+    deploy configuration, the proxy wiring of ``deploy/compose.yaml`` and
+    ``deploy/Caddyfile`` against it, that the app mounts nothing, the
     ``.dockerignore`` allowlist, that every base image is pinned by digest,
     and that the site address is a real domain.
-
-``python scripts/verify_deploy_bundle.py --dataset /srv/churnsense/Telco-Customer-Churn.csv``
-    On the host, before ``docker compose up``: also hashes the operator's
-    dataset file against the pin and the release. The dataset is never in the
-    image (it is not redistributed); the service checks the same pin itself
-    whenever it reads the file, and stays not ready if it does not match.
 
 ``python scripts/verify_deploy_bundle.py --in-image --root /app``
     Inside the image build, on what was copied. Checks the assets, the
@@ -25,6 +19,17 @@ Both refuse a documentation domain (``demo.example.com``) in the deploy config;
 ``--allow-example-domain`` waives that one check, for a local test build only
 (the Dockerfile passes it only when built with ``--build-arg ALLOW_EXAMPLE_DOMAIN=1``).
 
+**No customer record of the dataset may be in reach of a public demo.** The
+deploy configuration must say ``deployment: {mode: public_demo,
+customer_records: synthetic}``; the app container must mount no volume at all;
+neither the dataset (by name or by content) nor ``make explain``'s cache (which
+holds validation rows) may be in the build context or the image; the published
+evidence must have the format's top-level keys and no customer column anywhere
+in it; and the demo attributions must hold the builder's keys only, and rows of
+generated customers only. The figures inside the evidence are not read here: the
+service's strict reader does that at start, with the model stack this check
+never loads.
+
 What "approved" means, for each asset:
 
 * The release ledger passes the service's own strict reader
@@ -33,13 +38,16 @@ What "approved" means, for each asset:
 * ``model.joblib`` hashes to the ``model_sha256`` its metadata records, and
   that is the model the published release names, at the same threshold.
 * The dataset SHA-256 pinned in ``configs/config.yaml`` is the one the release
-  names (and, with ``--dataset``, the operator's file hashes to it).
-* The SHAP cache was computed for that model; the runtime lock pins the
-  scikit-learn version the model was trained with.
+  names.
+* The published evidence is bound to that model, that dataset and its split;
+  the demo attributions were computed for that model, name the generated book
+  by its hash, and every row in them is one of that book's customers.
+* The runtime lock pins the scikit-learn version the model was trained with.
 
-Nothing is unpickled, loaded or scored: files are hashed and JSON/YAML metadata
-read. Importing the release reader brings pandas and numpy, never scikit-learn,
-joblib or the model. On success it prints one fixed line and nothing about what
+Nothing is unpickled, loaded or scored: files are hashed, JSON/YAML metadata
+read, and the demo book generated to compare rows with. Importing the release
+reader and the generator brings pandas and numpy, never scikit-learn, joblib or
+the model. On success it prints one fixed line and nothing about what
 it read - no hash, host name or address; a failure names each problem on stderr,
 never file contents. Exit status 0 when the bundle is complete and consistent,
 1 when it is not, 2 on bad usage.
@@ -68,10 +76,10 @@ PASSED = "deployment bundle ready"
 
 MODEL = "artifacts/model.joblib"
 META = "artifacts/model_meta.json"
-SHAP_CACHE = "artifacts/shap_global.json"
-DATASET = "data/raw/Telco-Customer-Churn.csv"
-#: Where the operator's dataset file is mounted, read-only, in the container.
-DATASET_MOUNT = f"/app/{DATASET}"
+#: The dataset's aggregates, published for a service that holds no dataset.
+EVIDENCE = "artifacts/public_evidence.json"
+#: Attributions of generated demo customers.
+DEMO_EXPLANATIONS = "artifacts/demo_explanations.json"
 LEDGER = "governance/held_out_release.json"
 CONFIG = "configs/config.yaml"
 DEPLOY_CONFIG = "configs/deploy.yaml"
@@ -79,8 +87,8 @@ LOCK = "requirements.txt"
 REPORTS = ("reports/association_ranking.csv", "reports/model_comparison.csv")
 
 #: Every file the image holds for the service, besides its source and front end.
-#: Not the dataset: the operator mounts it (DATASET_MOUNT).
-ASSETS = (MODEL, META, SHAP_CACHE, LEDGER, CONFIG, DEPLOY_CONFIG, LOCK, *REPORTS)
+#: No dataset and no row of one: a public demo lists generated customers.
+ASSETS = (MODEL, META, EVIDENCE, DEMO_EXPLANATIONS, LEDGER, CONFIG, DEPLOY_CONFIG, LOCK, *REPORTS)
 
 #: Source modules the service cannot start without.
 MODULES = (
@@ -111,7 +119,8 @@ DOCKER_CONTEXT = frozenset(
         *REPORTS,
         MODEL,
         META,
-        SHAP_CACHE,
+        EVIDENCE,
+        DEMO_EXPLANATIONS,
         "frontend/",
         "tests/fixtures/demo_customers.csv",
     }
@@ -119,8 +128,11 @@ DOCKER_CONTEXT = frozenset(
 
 #: Top-level entries an image may hold under its root, and only these.
 IMAGE_TOP_LEVEL = frozenset(
-    {"src", "configs", "governance", "reports", "artifacts", "data", "frontend", "scripts", LOCK}
+    {"src", "configs", "governance", "reports", "artifacts", "frontend", "scripts", LOCK}
 )
+#: File names that must never appear anywhere in an image: ``make explain``'s
+#: cache holds rows of the dataset's validation partition.
+FORBIDDEN_NAMES = frozenset({"shap_global.json"})
 #: Path parts that must never appear anywhere in an image.
 FORBIDDEN_PARTS = frozenset(
     {
@@ -143,16 +155,96 @@ FORBIDDEN_SUFFIXES = (".pem", ".key", ".p12", ".pfx")
 FORBIDDEN_PART_SUFFIXES = (".egg-info",)
 #: The only files these folders may hold in an image.
 EXACT_FOLDERS = {
-    "artifacts": {MODEL, META, SHAP_CACHE},
-    "data": set(),  # the dataset is mounted, never copied in
+    "artifacts": {MODEL, META, EVIDENCE, DEMO_EXPLANATIONS},
     "reports": set(REPORTS),
     "governance": {LEDGER},
     "configs": {CONFIG, DEPLOY_CONFIG},
     "scripts": {"scripts/verify_deploy_bundle.py"},
 }
 
-#: The deploy config may differ from the development one in these keys only.
+#: The deploy config may differ from the development one in these ``api`` keys,
+#: and in its ``deployment`` section, only.
 DEPLOY_ONLY_KEYS = frozenset({"allowed_hosts", "trusted_proxies"})
+#: The one deployment a public bundle may state.
+PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
+#: The published evidence's top-level keys: a closed format (``churnsense.evidence``;
+#: tests/test_deploy.py holds the two lists equal).
+EVIDENCE_KEYS = frozenset(
+    {
+        "format",
+        "identity",
+        "dataset_customers",
+        "observed",
+        "band_observed",
+        "histogram_observed",
+        "breakdowns",
+        "lifecycle",
+        "sweep_basis",
+        "validation",
+        "collinearity",
+        "importance",
+    }
+)
+#: What the evidence is bound to, as the model's metadata records it.
+EVIDENCE_IDENTITY = ("model_sha256", "data_sha256", "split_digest", "threshold")
+#: Every key of the demo attributions (``churnsense.demo.build`` writes exactly these;
+#: a test holds the two equal). Anything under another key would ride into the image.
+DEMO_EXPLANATION_KEYS = frozenset(
+    {
+        "model_key",
+        "trained_at",
+        "model_sha256",
+        "n_explained",
+        "n_background",
+        "permutations",
+        "seed",
+        "partition",
+        "caveat",
+        "importance",
+        "base_value",
+        "features",
+        "values",
+        "x",
+        "max_additivity_gap",
+        "records_sha256",
+    }
+)
+#: Compose merges these into ``compose.yaml`` on its own, when they sit beside it.
+COMPOSE_OVERRIDES = (
+    "compose.override.yaml",
+    "compose.override.yml",
+    "docker-compose.override.yaml",
+    "docker-compose.override.yml",
+)
+#: The columns of a customer record (``churnsense.data.schema.RAW_COLUMNS``; held
+#: equal by tests/test_deploy.py). None may be a key anywhere in the published
+#: evidence: an aggregate is never keyed by a customer's column.
+RECORD_COLUMNS = frozenset(
+    {
+        "customerID",
+        "gender",
+        "SeniorCitizen",
+        "Partner",
+        "Dependents",
+        "tenure",
+        "PhoneService",
+        "MultipleLines",
+        "InternetService",
+        "OnlineSecurity",
+        "OnlineBackup",
+        "DeviceProtection",
+        "TechSupport",
+        "StreamingTV",
+        "StreamingMovies",
+        "Contract",
+        "PaperlessBilling",
+        "PaymentMethod",
+        "MonthlyCharges",
+        "TotalCharges",
+        "Churn",
+    }
+)
+_HEX64 = re.compile(r"[0-9a-f]{64}")
 #: Host names reserved for documentation (RFC 2606): never a real deployment.
 EXAMPLE_HOST = re.compile(r"(^|\.)(example(\.(com|net|org))?|test|invalid)$")
 LOOPBACK_NAMES = frozenset({"localhost"})
@@ -240,11 +332,102 @@ def read_release(root: Path, problems: Problems) -> Any | None:
     return ledger
 
 
-def check_assets(
-    root: Path, problems: Problems, notes: list[str], dataset: Path | None = None
+def holds_a_record(value: Any) -> bool:
+    """Whether a customer's column is a key anywhere in ``value``: an aggregate has none."""
+    if isinstance(value, dict):
+        return bool(RECORD_COLUMNS.intersection(value)) or any(map(holds_a_record, value.values()))
+    return isinstance(value, list) and any(map(holds_a_record, value))
+
+
+def check_demo_data(
+    root: Path, meta: dict[str, Any], pinned: object, problems: Problems, notes: list[str]
 ) -> None:
+    """The published evidence and the demo attributions: this model's, and no dataset row."""
+    evidence = _json(root / EVIDENCE)
+    if evidence is None or set(evidence) != EVIDENCE_KEYS:
+        problems.add(f"{EVIDENCE} is not the published evidence's closed format")
+    else:
+        bound = evidence["identity"] if isinstance(evidence["identity"], dict) else {}
+        if any(key not in bound or bound[key] != meta.get(key) for key in EVIDENCE_IDENTITY):
+            problems.add(f"{EVIDENCE} was not computed for this model, its dataset and its split")
+        elif bound["data_sha256"] != pinned:
+            problems.add(f"{EVIDENCE} is not of the dataset pinned in {CONFIG}")
+        else:
+            notes.append("published evidence is bound to the model and the pinned dataset")
+        if holds_a_record(evidence):
+            problems.add(f"{EVIDENCE} holds a customer record: it may hold aggregates only")
+    demo = _json(root / DEMO_EXPLANATIONS)
+    if demo is None or demo.get("model_sha256") != meta.get("model_sha256"):
+        problems.add(f"{DEMO_EXPLANATIONS} was not computed for this model")
+    elif demo.get("partition") != "synthetic" or not _HEX64.fullmatch(
+        str(demo.get("records_sha256"))
+    ):
+        problems.add(f"{DEMO_EXPLANATIONS} is not of generated demo customers")
+    elif set(demo) != DEMO_EXPLANATION_KEYS:
+        problems.add(f"{DEMO_EXPLANATIONS} is not the demo attributions' closed format")
+    else:
+        check_demo_rows(demo, problems, notes)
+
+
+def _cell(value: object) -> str | float:
+    """A cell as the file and the generator both spell it: text, or a number as a float."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError("a cell is text or a number")
+    return float(value)
+
+
+def check_demo_rows(demo: dict[str, Any], problems: Problems, notes: list[str]) -> None:
+    """Every row the attributions would show is a generated customer's, whole.
+
+    What the file says of itself is not trusted: validation rows under a correct
+    header would otherwise be built into the image. The book is generated here by
+    the service's own generator (a pure function: it opens no file), the file must
+    name that book by hash, and each of its rows must be one of that book's
+    customers over every feature - no fewer, and nothing beside them. The service
+    makes the same check at start; this one is made before an image exists.
+    """
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        from churnsense.demo.customers import COLUMNS, demo_customers, records_sha256
+    except ImportError as exc:
+        problems.add(f"the demo customer generator could not be imported: {exc}")
+        return
+    finally:
+        sys.path.pop(0)
+    book = demo_customers()
+    if demo["records_sha256"] != records_sha256(book):
+        problems.add(
+            f"{DEMO_EXPLANATIONS} does not explain the demo customers the service generates"
+        )
+        return
+    inputs = COLUMNS[1:]  # every generated column but the ID
+    features, rows = demo.get("features"), demo.get("x")
+    try:
+        if not isinstance(features, list) or sorted(features) != sorted(inputs):
+            raise TypeError("the features are not the generated inputs")
+        if not isinstance(rows, list) or not rows:
+            raise TypeError("no rows")
+        listed = {
+            tuple(map(_cell, row))
+            for row in book.loc[:, features].itertuples(index=False, name=None)
+        }
+        for row in rows:
+            if not isinstance(row, dict) or len(row) != len(features):
+                raise TypeError("a row is its features and nothing else")
+            if tuple(_cell(row[feature]) for feature in features) not in listed:
+                raise LookupError("no generated customer has this row")
+    except (TypeError, KeyError, LookupError):
+        # One answer, and never the row: a failure names the file, not its contents.
+        problems.add(f"{DEMO_EXPLANATIONS} draws a row that is no generated customer's")
+        return
+    notes.append("demo attributions draw generated customers only")
+
+
+def check_assets(root: Path, problems: Problems, notes: list[str]) -> None:
     """Every asset present; the ledger strict and published; model, ledger, dataset
-    pin, SHAP cache and lock all agree. ``dataset``: an operator's file to hash too."""
+    pin, published evidence, demo attributions and lock all agree."""
     missing = [name for name in ASSETS if not (root / name).is_file()]
     for name in missing:
         problems.add(f"missing: {name}")
@@ -280,17 +463,8 @@ def check_assets(
         problems.add(f"the dataset pinned in {CONFIG} is not the one the published release names")
     else:
         notes.append(f"dataset pin {_short(pinned)} is the release's")
-    if dataset is not None:
-        if not dataset.is_file():
-            problems.add("the dataset file given with --dataset does not exist")
-        elif sha256_of(dataset) != pinned:
-            problems.add("the dataset file given with --dataset does not hash to the pin")
-        else:
-            notes.append("the operator's dataset file matches the pin")
 
-    cache = _json(root / SHAP_CACHE)
-    if cache is None or cache.get("model_sha256") != recorded:
-        problems.add(f"{SHAP_CACHE} was not computed for this model")
+    check_demo_data(root, meta, pinned, problems, notes)
 
     trained_with = meta.get("sklearn_version")
     lock = (root / LOCK).read_text(encoding="utf-8")
@@ -303,7 +477,8 @@ def check_assets(
 
 def _without_deploy_keys(config: dict[str, Any]) -> dict[str, Any]:
     api = {k: v for k, v in (config.get("api") or {}).items() if k not in DEPLOY_ONLY_KEYS}
-    return {**config, "api": api}
+    rest = {k: v for k, v in config.items() if k != "deployment"}
+    return {**rest, "api": api}
 
 
 def public_hosts(deploy: dict[str, Any]) -> list[str]:
@@ -312,15 +487,22 @@ def public_hosts(deploy: dict[str, Any]) -> list[str]:
 
 
 def check_config(root: Path, problems: Problems, notes: list[str]) -> dict[str, Any] | None:
-    """The deploy config: valid, only its two keys apart from the development one, no wildcard."""
+    """The deploy config: valid, a public demo of synthetic records, and otherwise only
+    its two ``api`` keys apart from the development one; no wildcard."""
     config, deploy = _yaml(root / CONFIG), _yaml(root / DEPLOY_CONFIG)
     if config is None or deploy is None:
         problems.add(f"{CONFIG} and {DEPLOY_CONFIG} must both be YAML mappings")
         return None
     if _without_deploy_keys(config) != _without_deploy_keys(deploy):
         problems.add(
-            f"{DEPLOY_CONFIG} differs from {CONFIG} outside api.allowed_hosts and "
-            "api.trusted_proxies"
+            f"{DEPLOY_CONFIG} differs from {CONFIG} outside deployment, api.allowed_hosts "
+            "and api.trusted_proxies"
+        )
+    # Stated, never inferred: the one deployment that cannot list a dataset's rows.
+    if deploy.get("deployment") != PUBLIC_DEPLOYMENT:
+        problems.add(
+            f"{DEPLOY_CONFIG} must set deployment to mode public_demo with customer_records "
+            "synthetic: a public demo lists generated customers only"
         )
     # The service's own validation, from this script's checkout (in the image: /app/src).
     sys.path.insert(0, str(ROOT / "src"))
@@ -380,13 +562,17 @@ def check_wiring(root: Path, deploy: dict[str, Any], problems: Problems, notes: 
     if compose is None:
         problems.add("deploy/compose.yaml is missing or not a YAML mapping")
         return
+    if compose.get("include"):
+        problems.add(
+            "deploy/compose.yaml must not include another file: nothing in it would be checked"
+        )
     services = compose.get("services") or {}
     app, caddy = services.get("app") or {}, services.get("caddy") or {}
     if "ports" in app:
         problems.add("deploy/compose.yaml publishes the app's port: only Caddy may")
     if set(app.get("networks") or {}) != {"proxy"}:
         problems.add("the app must join the internal proxy network and nothing else")
-    check_dataset_mount(app, problems)
+    check_nothing_mounted(root, app, problems)
     members = {name for name, s in services.items() if "proxy" in ((s or {}).get("networks") or {})}
     if members != {"app", "caddy"}:
         problems.add(f"only the app and Caddy may join the proxy network, not {sorted(members)}")
@@ -431,21 +617,28 @@ def check_wiring(root: Path, deploy: dict[str, Any], problems: Problems, notes: 
         )
 
 
-def check_dataset_mount(app: dict[str, Any], problems: Problems) -> None:
-    """The app's one volume: the operator's dataset file, read-only, never created on the host."""
-    volumes = app.get("volumes") or []
-    mount = volumes[0] if len(volumes) == 1 and isinstance(volumes[0], dict) else {}
-    if not (
-        mount.get("type") == "bind"
-        and mount.get("target") == DATASET_MOUNT
-        and mount.get("read_only") is True
-        and (mount.get("bind") or {}).get("create_host_path") is False
-        and str(mount.get("source", "")).startswith("${CHURNSENSE_DATASET:?")
-    ):
-        problems.add(
-            "the app must mount exactly one volume: the dataset file from CHURNSENSE_DATASET, "
-            f"read-only at {DATASET_MOUNT}, with create_host_path false"
-        )
+def check_nothing_mounted(root: Path, app: dict[str, Any], problems: Problems) -> None:
+    """The app reaches no host path: a public demo holds no dataset, so it mounts nothing.
+
+    Its ``tmpfs`` is memory, not a host path, and stays. Anything that could
+    bring a file in from the host - a volume of any kind, another container's
+    volumes, a config, a secret, an environment file, or a service definition
+    taken from another file - is refused, and so is any mention of the variable
+    an earlier layout named the dataset file with. An override file beside
+    ``compose.yaml`` is refused too: Compose merges it unasked, and it is not read here.
+    """
+    for key in ("volumes", "volumes_from", "configs", "secrets", "devices", "env_file", "extends"):
+        if app.get(key):
+            problems.add(
+                f"the app must not declare {key}: a public demo holds no dataset and "
+                "reaches no host path"
+            )
+    for name in COMPOSE_OVERRIDES:
+        if (root / "deploy" / name).exists():
+            problems.add(f"deploy/{name} would be merged into compose.yaml unchecked: remove it")
+    compose = root / "deploy" / "compose.yaml"
+    if compose.is_file() and "CHURNSENSE_DATASET" in compose.read_text(encoding="utf-8"):
+        problems.add("deploy/compose.yaml names CHURNSENSE_DATASET: no dataset is mounted")
 
 
 def _from_images(dockerfile: str) -> list[str]:
@@ -519,6 +712,14 @@ def _files(root: Path) -> Iterator[Path]:
             yield path.relative_to(root)
 
 
+def _hashes_to(path: Path, digest: str) -> bool:
+    """Whether ``path`` is a readable file with this SHA-256 (a dangling link is not)."""
+    try:
+        return path.is_file() and sha256_of(path) == digest
+    except OSError:
+        return False
+
+
 def check_image(root: Path, problems: Problems, notes: list[str]) -> None:
     """The source and front end are there, and nothing else is."""
     for module in MODULES:
@@ -527,14 +728,22 @@ def check_image(root: Path, problems: Problems, notes: list[str]) -> None:
     dist = root / "frontend" / "dist"
     if not (dist / "index.html").is_file() or not any((dist / "assets").glob("*.js")):
         problems.add("missing: the built front end (frontend/dist/index.html and assets)")
+    # The dataset's own file name, wherever a copy of it might be put - and its
+    # own bytes, whatever a copy of it might be called.
+    dataset = (_yaml(root / CONFIG) or {}).get("dataset") or {}
+    dataset_name, pinned = dataset.get("filename"), dataset.get("sha256")
     count = 0
     for rel in _files(root):
         count += 1
         parts, name = rel.parts, rel.as_posix()
         if parts[0] not in IMAGE_TOP_LEVEL:
             problems.add(f"unexpected in the image: {name}")
+        elif _HEX64.fullmatch(str(pinned)) and _hashes_to(root / rel, pinned):
+            problems.add(f"forbidden in the image: {name} is the pinned dataset")
         elif (
             FORBIDDEN_PARTS.intersection(parts)
+            or rel.name in FORBIDDEN_NAMES
+            or rel.name == dataset_name
             or any(part.endswith(FORBIDDEN_PART_SUFFIXES) for part in parts)
             or rel.name.startswith(".env")
             or rel.name.endswith(FORBIDDEN_SUFFIXES)
@@ -555,10 +764,9 @@ def verify(
     *,
     in_image: bool,
     allow_example_domain: bool = False,
-    dataset: Path | None = None,
 ) -> tuple[Problems, list[str]]:
     problems, notes = Problems(), []
-    check_assets(root, problems, notes, dataset)
+    check_assets(root, problems, notes)
     deploy = check_config(root, problems, notes)
     if deploy is not None and not allow_example_domain:
         check_domain(deploy, problems)
@@ -579,11 +787,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--in-image", action="store_true", help="check an image's copied files")
     parser.add_argument(
-        "--dataset",
-        type=Path,
-        help="the operator's dataset file to hash against the pin (at deploy time, on the host)",
-    )
-    parser.add_argument(
         "--allow-example-domain",
         action="store_true",
         help="accept demo.example.com (a local test build only; never for a real deployment)",
@@ -595,7 +798,6 @@ def main(argv: list[str] | None = None) -> int:
         args.root.resolve(),
         in_image=args.in_image,
         allow_example_domain=args.allow_example_domain,
-        dataset=args.dataset,
     )
     for problem in problems:
         print(f"PROBLEM: {problem}", file=sys.stderr)

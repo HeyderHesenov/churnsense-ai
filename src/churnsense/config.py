@@ -59,6 +59,16 @@ class Paths:
     def shap_cache_file(self) -> Path:
         return self.artifacts_dir / "shap_global.json"
 
+    @property
+    def public_evidence_file(self) -> Path:
+        """The dataset's published aggregates; see ``churnsense.evidence``."""
+        return self.artifacts_dir / "public_evidence.json"
+
+    @property
+    def demo_explanations_file(self) -> Path:
+        """Attributions of generated demo customers; see ``churnsense.demo.build``."""
+        return self.artifacts_dir / "demo_explanations.json"
+
     def ensure(self) -> None:
         """Create every output directory. Never touches the raw data directory."""
         for d in (
@@ -228,6 +238,63 @@ class ApiConfig:
             )
 
 
+#: Where the service runs. ``public_demo`` is the deployed, unauthenticated demo.
+DEPLOYMENT_MODES: tuple[str, ...] = ("local", "public_demo")
+#: Whose rows a customer listing holds: the dataset's, or generated demo customers'.
+CUSTOMER_RECORDS: tuple[str, ...] = ("dataset", "synthetic")
+
+
+@dataclass(frozen=True, slots=True)
+class Deployment:
+    """Where the service runs and which customers it may list: two stated choices.
+
+    The data-source policy is its own setting, read from nothing else - not from
+    the host names, not from the proxies. The one rule between the two: a public
+    demo lists generated customers only, so the combination that would put the
+    dataset's rows in front of anonymous visitors does not load.
+    """
+
+    mode: str = "local"
+    customer_records: str = "dataset"
+
+    def __post_init__(self) -> None:
+        # Compared as text only: YAML reads a bare ``yes`` as a boolean.
+        if not isinstance(self.mode, str) or self.mode not in DEPLOYMENT_MODES:
+            raise ConfigError(f"deployment.mode must be one of {list(DEPLOYMENT_MODES)}")
+        if (
+            not isinstance(self.customer_records, str)
+            or self.customer_records not in CUSTOMER_RECORDS
+        ):
+            raise ConfigError(
+                f"deployment.customer_records must be one of {list(CUSTOMER_RECORDS)}"
+            )
+        if self.mode == "public_demo" and self.customer_records != "synthetic":
+            raise ConfigError(
+                "a public demo lists synthetic customer records only: set "
+                "deployment.customer_records to synthetic"
+            )
+
+    @property
+    def synthetic(self) -> bool:
+        """Whether the customers listed are generated, and the dataset is never opened."""
+        return self.customer_records == "synthetic"
+
+    @property
+    def public(self) -> bool:
+        return self.mode == "public_demo"
+
+
+def _deployment(given: object) -> Deployment:
+    """The configured deployment; a config written before the setting existed is local."""
+    if given is None:
+        return Deployment()
+    if not isinstance(given, dict):
+        raise ConfigError("deployment must map mode and customer_records to their values")
+    if unknown := sorted(set(given) - {"mode", "customer_records"}):
+        raise ConfigError(f"deployment may only set mode and customer_records, not {unknown}")
+    return Deployment(**given)
+
+
 def _trusted_proxies(given: object) -> tuple[str, ...]:
     """Configured proxy addresses, normalised and checked; see ``churnsense.proxies``."""
     # A bare string would become a tuple of its characters, so it is refused.
@@ -275,6 +342,8 @@ class Config:
     api: ApiConfig
     log_level: str
     log_format: str
+    # Defaulted so a config written before the setting existed still loads, as local.
+    deployment: Deployment = Deployment()
 
     @property
     def raw_data_file(self) -> Path:
@@ -300,6 +369,7 @@ def _build(raw: dict[str, Any], root: Path) -> Config:
             api=ApiConfig(**raw["api"]),
             log_level=raw["logging"]["level"],
             log_format=raw["logging"]["format"],
+            deployment=_deployment(raw.get("deployment")),
         )
     except ConfigError:
         raise

@@ -331,6 +331,14 @@ re-checked estimate, not an independent one, and it is presented that way.
   partitions only for the dataset and split the model was trained on.
 - The final report records the artifact's SHA-256, and evaluation refuses an
   artifact whose split or dataset no longer matches the one it was trained on.
+- Since 2026-11-11 the public demo lists **generated demo customers only**
+  (`deployment.customer_records: synthetic`). They are in no partition, have no
+  outcome, and are never part of training, validation, calibration or the
+  held-out release: every figure in this card is of the dataset, and none is of
+  them. The demo shows the dataset as aggregates of its training and validation
+  partitions (`make demo-data`), and its explanations are measured against a
+  background of generated customers, so a base value read there differs from the
+  one stated here. The model, its threshold and the release are unchanged.
 - Reproducibility checks compare the model file's hash and the validation
   outputs instead of re-scoring test: the same bytes cannot score differently.
 - The model-selection rule was corrected (see `docs/PROJECT_WALKTHROUGH.md`

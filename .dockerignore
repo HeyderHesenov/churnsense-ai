@@ -1,6 +1,6 @@
 # An allowlist: everything is excluded, then exactly what the Dockerfile copies
 # is let back in. A new file never reaches the image by accident - not a .env,
-# not audit-reports/, not the held-out report, not the dataset's other folders.
+# not audit-reports/, not the held-out report, not the dataset or any row of it.
 # scripts/verify_deploy_bundle.py checks that every re-included path below is
 # one it expects, and that the image holds nothing it forbids.
 *
@@ -17,12 +17,15 @@
 !reports/association_ranking.csv
 !reports/model_comparison.csv
 
-# The approved model artifact (hash-checked in the build). The sample dataset is
-# deliberately absent: it is not redistributed, so the operator mounts it at run
-# time (docs/DEPLOYMENT.md, section 6), and it never enters the build context.
+# The approved model artifact (hash-checked in the build), the dataset's
+# published aggregates and the attributions of generated customers
+# (`make demo-data`). The sample dataset is deliberately absent, and so is
+# artifacts/shap_global.json, which holds rows of its validation partition:
+# neither enters the build context (docs/DEPLOYMENT.md, section 6).
 !artifacts/model.joblib
 !artifacts/model_meta.json
-!artifacts/shap_global.json
+!artifacts/public_evidence.json
+!artifacts/demo_explanations.json
 
 # The front end's sources and lockfile, and the demo file its batch page bundles.
 !frontend/

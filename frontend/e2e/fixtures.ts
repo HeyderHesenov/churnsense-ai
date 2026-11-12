@@ -9,10 +9,13 @@
  * - the same request sent again by one document while the first is in flight;
  * - an outcome of a held-out (test or unverified) customer, a figure of a
  *   suppressed group, or a final-evaluation figure in any API response, or an
- *   IBM Telco customer ID in any response or in the final page.
+ *   IBM Telco customer ID in any response or in the final page;
+ * - on the public-demo server, a customer of its "dataset" (an ``E2E-`` ID) in
+ *   any response or in the final page: that server may know none.
  */
 import { expect, test as base, type Page, type Request, type Route } from '@playwright/test';
 import type { components } from '../src/api/schema';
+import { DATASET_PREFIX, PUBLIC_PROJECT } from './global-setup';
 
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
@@ -185,7 +188,7 @@ export async function hold(page: Page, url: Match): Promise<() => void> {
 
 export const test = base.extend<{ guard: Guard }>({
   guard: [
-    async ({ page, baseURL }, use) => {
+    async ({ page, baseURL }, use, testInfo) => {
       const origin = new URL(baseURL ?? '').origin;
       const problems: string[] = [];
       const allowedConsole: { text: RegExp; path: RegExp | null }[] = [];
@@ -288,9 +291,21 @@ export const test = base.extend<{ guard: Guard }>({
         allowCspViolation: (directive) => allowedCsp.push(directive),
       });
 
-      for (const body of await Promise.all(bodies)) if (body) problems.push(...leaks(body));
-      if (!page.isClosed() && datasetIds(await page.content()).length > 0) {
-        problems.push('the page shows an IBM Telco customer ID');
+      const publicDemo = testInfo.project.name === PUBLIC_PROJECT;
+      for (const body of await Promise.all(bodies)) {
+        if (!body) continue;
+        problems.push(...leaks(body));
+        if (publicDemo && body.text.includes(DATASET_PREFIX)) {
+          problems.push(`${new URL(body.url).pathname}: a customer of the dataset`);
+        }
+      }
+      if (!page.isClosed()) {
+        const content = await page.content();
+        if (datasetIds(content).length > 0)
+          problems.push('the page shows an IBM Telco customer ID');
+        if (publicDemo && content.includes(DATASET_PREFIX)) {
+          problems.push('the page shows a customer of the dataset');
+        }
       }
       expect(problems, 'what no page may do').toEqual([]);
     },

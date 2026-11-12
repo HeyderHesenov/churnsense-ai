@@ -16,6 +16,7 @@ import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button, ButtonLink } from '../../components/ui/Button';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState, Skeleton } from '../../components/ui/States';
@@ -141,7 +142,10 @@ export default function PerformancePage() {
           Model card <icons.arrowUpRight size={14} />
         </ButtonLink>
       </Header>
-      <Page>{body}</Page>
+      <Page>
+        <DataSourceNote parts={['evidence']} />
+        {body}
+      </Page>
     </>
   );
 }

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import os
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -311,3 +312,123 @@ def test_nothing_is_written_before_the_paths_are_checked(base, tmp_path, monkeyp
         e2e_server.prepare(root, rows=300, seed=1)
     assert not (tmp_path / "escaped").exists()
     assert list(root.iterdir()) == []
+
+
+# --- the public server: the deployed demo's own deployment, with no dataset in reach ------------
+
+
+def test_the_ordinary_server_lists_its_dataset_and_says_so(e2e_cfg):
+    assert (e2e_cfg.deployment.mode, e2e_cfg.deployment.customer_records) == ("local", "dataset")
+
+
+def test_the_public_server_states_the_deployed_demos_deployment(base, tmp_path):
+    from scripts import verify_deploy_bundle as bundle
+
+    assert e2e_server.PUBLIC_DEPLOYMENT == bundle.PUBLIC_DEPLOYMENT
+    conf = e2e_server.e2e_config(base, tmp_path, sha256="0" * 64, rows=2000)
+    conf["deployment"] = dict(e2e_server.PUBLIC_DEPLOYMENT)
+    path = tmp_path / e2e_server.PUBLIC_CONFIG
+    path.write_text(yaml.safe_dump(conf), encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.deployment.public and loaded.deployment.synthetic
+    e2e_server.confine(loaded, tmp_path)
+
+
+def test_a_public_server_counts_any_dataset_customer_it_would_list():
+    import pandas as pd
+
+    from churnsense.data import schema
+    from churnsense.demo.customers import demo_customers
+
+    assert e2e_server.listed_dataset_customers(demo_customers(n=50)) == 0
+    mixed = pd.DataFrame({schema.ID_COLUMN: ["DEMO-000001", "E2E-00007", e2e_server.LONG_ID]})
+    assert e2e_server.listed_dataset_customers(mixed) == 2
+
+
+def test_publishing_touches_nothing_in_the_repository(e2e_cfg):
+    """Refused before anything is built or deleted when the folder is the repository's."""
+    with pytest.raises(ValueError, match="inside the repository"):
+        e2e_server.publish(PROJECT_ROOT / "artifacts", e2e_cfg)
+
+
+@pytest.fixture
+def prepared(base, tmp_path, monkeypatch):
+    """A prepared folder as ``publish`` finds it, with the evidence builder replaced.
+
+    The builder records whether the dataset and the cache were still there when
+    it ran; restoring ``CHURNSENSE_CONFIG`` and the config cache is the teardown.
+    """
+    from churnsense.demo import build
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "config.yaml").write_text(
+        yaml.safe_dump(e2e_server.e2e_config(base, root, sha256="0" * 64, rows=2000)),
+        encoding="utf-8",
+    )
+    cfg = load_config(root / "config.yaml")
+    for held in (cfg.raw_data_file, cfg.paths.shap_cache_file):
+        held.parent.mkdir(parents=True, exist_ok=True)
+        held.write_text("held", encoding="utf-8")
+    built = []
+    monkeypatch.setattr(
+        build,
+        "publish",
+        lambda cfg, **_: built.append(
+            (cfg.raw_data_file.exists(), cfg.paths.shap_cache_file.exists())
+        ),
+    )
+    monkeypatch.setenv("CHURNSENSE_CONFIG", str(root / "config.yaml"))
+    yield root, cfg, built
+    load_config.cache_clear()
+
+
+def test_publishing_builds_then_removes_the_dataset_and_states_the_public_deployment(prepared):
+    root, cfg, built = prepared
+    public = e2e_server.publish(root, cfg)
+    assert built == [(True, True)], "the evidence is built from the dataset, then it is removed"
+    assert not cfg.raw_data_file.exists() and not cfg.paths.shap_cache_file.exists()
+    assert public.deployment.public and public.deployment.synthetic
+    written = root.resolve() / e2e_server.PUBLIC_CONFIG
+    assert os.environ["CHURNSENSE_CONFIG"] == str(written)
+    stated = yaml.safe_load(written.read_text(encoding="utf-8"))
+    assert stated["deployment"] == e2e_server.PUBLIC_DEPLOYMENT
+    original = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert {k: v for k, v in stated.items() if k != "deployment"} == {
+        k: v for k, v in original.items() if k != "deployment"
+    }
+
+
+def test_publishing_refuses_a_held_file_that_leads_out_of_the_folder(prepared, tmp_path):
+    """A link inside the folder to a file outside it: nothing is built and nothing removed."""
+    root, cfg, built = prepared
+    outside = tmp_path / "outside.json"
+    outside.write_text("kept", encoding="utf-8")
+    cfg.paths.shap_cache_file.unlink()
+    cfg.paths.shap_cache_file.symlink_to(outside)
+    with pytest.raises(ValueError, match="is outside"):
+        e2e_server.publish(root, cfg)
+    assert built == []
+    assert cfg.paths.shap_cache_file.is_symlink() and cfg.raw_data_file.exists()
+    assert outside.read_text(encoding="utf-8") == "kept"
+
+
+def test_publishing_refuses_to_write_beside_a_model_outside_the_folder(prepared, tmp_path):
+    """The builder writes beside the model: its folder must be inside, even where the
+    cache in it is a link back inside."""
+    root, cfg, built = prepared
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / cfg.paths.shap_cache_file.name).symlink_to(cfg.paths.shap_cache_file)
+    moved = replace(cfg, paths=replace(cfg.paths, artifacts_dir=elsewhere))
+    with pytest.raises(ValueError, match="artifacts_dir"):
+        e2e_server.publish(root, moved)
+    assert built == [] and cfg.raw_data_file.exists() and cfg.paths.shap_cache_file.exists()
+
+
+def test_the_public_server_refuses_a_book_it_was_not_asked_for():
+    """``serve`` cannot run here (it blocks): its refusals are read from its source."""
+    source = (PROJECT_ROOT / "scripts" / "e2e_server.py").read_text(encoding="utf-8")
+    serve = source[source.index("def serve(") : source.index("def listed_dataset_customers(")]
+    assert "dashboard.synthetic is not public" in serve
+    assert "listed_dataset_customers(dashboard.frame)" in serve

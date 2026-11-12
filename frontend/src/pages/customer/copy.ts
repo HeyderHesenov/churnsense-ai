@@ -67,12 +67,20 @@ const PARTITION_WORD: Record<CustomerDetail['partition'], string> = {
   validation: 'validation',
   test: 'test',
   unknown: 'unverified',
+  synthetic: 'synthetic',
 };
 
-/** "validation · stayed", "test · withheld". */
+/** "validation · stayed", "test · withheld"; a generated customer has no outcome at all. */
 export function cardMeta(detail: CustomerDetail): string {
+  if (detail.partition === 'synthetic') return 'synthetic · no outcome';
   return `${PARTITION_WORD[detail.partition]} · ${detail.outcome}`;
 }
+
+/** Whose customers an explanation was measured against, as the API names them. */
+export const BACKGROUND_WORD: Record<ExplainResponse['background'], string> = {
+  training: 'training',
+  synthetic: 'synthetic demo-customer',
+};
 
 export function notFound(id: string): string {
   return `There is no customer ${id} in the book.`;
@@ -115,7 +123,7 @@ export function waterfallNote(response: ExplainResponse, threshold: number): str
   return (
     'Base plus contributions reproduces the served probability; the server checks that sum. ' +
     `Permutation explainer, ${int(response.permutations)} orderings, fixed seed, the same ` +
-    `${int(response.background_customers)}-customer training background on every page. ` +
+    `${int(response.background_customers)}-customer ${BACKGROUND_WORD[response.background]} background on every page. ` +
     `Dashed line: threshold ${cut(threshold)}.`
   );
 }

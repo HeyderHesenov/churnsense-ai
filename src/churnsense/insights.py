@@ -19,7 +19,7 @@ which every customer has.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
@@ -40,10 +40,14 @@ from churnsense.evaluation.metrics import (
     wilson_interval,
 )
 from churnsense.evaluation.threshold import (
+    SweepBasis,
     ThresholdScenario,
     indifference_band,
     recommend_threshold_from,
     scenario_at,
+    sensitivity_from_basis,
+    sweep_basis,
+    sweep_from_basis,
     sweep_thresholds,
     threshold_sensitivity,
 )
@@ -304,16 +308,34 @@ class ValidationEvaluation:
 # --- the book, scored --------------------------------------------------------
 
 
-def band_summaries(book: books.Book, cfg: Config) -> list[BandSummary]:
-    """Customers, charges, flags and observed churn per fixed risk band."""
+def band_observed(book: books.Book, cfg: Config) -> dict[str, Observed | None]:
+    """Observed churn among each band's training and validation customers.
+
+    ``None`` for every band when no outcome may be shown.
+    """
+    seen = books.labelled(book.frame, shown=book.outcomes)
+    return {
+        band.name: _observed(seen[seen["risk_band"] == band.name]) if len(seen) else None
+        for band in cfg.risk_bands
+    }
+
+
+def band_summaries(
+    book: books.Book, cfg: Config, observed: Mapping[str, Observed | None] | None = None
+) -> list[BandSummary]:
+    """Customers, charges, flags and observed churn per fixed risk band.
+
+    ``observed`` is what was seen of each band where the book's own customers
+    have no outcome to count (a public demo's generated ones); by default it is
+    counted over ``book`` itself.
+    """
     frame = book.frame
-    seen = books.labelled(frame, shown=book.outcomes)
+    seen_by_band = band_observed(book, cfg) if observed is None else observed
     total, charges = len(frame), float(frame["MonthlyCharges"].sum())
     can_leave = frame["flagged"] & (books.outcome_codes(frame, book.outcomes) != books.CHURNED)
     out = []
     for band in cfg.risk_bands:
         rows = frame[frame["risk_band"] == band.name]
-        seen_rows = seen[seen["risk_band"] == band.name]
         monthly = float(rows["MonthlyCharges"].sum())
         out.append(
             BandSummary(
@@ -326,7 +348,7 @@ def band_summaries(book: books.Book, cfg: Config) -> list[BandSummary]:
                 monthly_share=_rate(monthly, charges),
                 flagged=int(rows["flagged"].sum()),
                 flagged_not_churned=int(can_leave[rows.index].sum()),
-                observed=_observed(seen_rows) if len(seen) else None,
+                observed=seen_by_band.get(band.name),
             )
         )
     return out
@@ -340,17 +362,41 @@ def _observed(rows: pd.DataFrame) -> Observed:
     return Observed(customers=len(rows), churned=churned, rate=_rate(churned, len(rows)))
 
 
-def probability_histogram(book: books.Book, cfg: Config) -> list[HistogramBin]:
+def histogram_observed(book: books.Book) -> list[tuple[Observed | None, float | None]]:
+    """Per 0.05 of probability: observed churn of the validation customers in the bin,
+    and the mean probability they were given (where their rate is drawn).
+
+    Validation customers only, which the model was not fitted on, so a bin's
+    rate can be read against its probability range. They did inform the cut
+    and the choice to calibrate, so it is no independent test.
+    """
+    seen = books.labelled(book.frame, "validation", shown=book.outcomes)
+    seen_bins = histogram_bins(seen["churn_probability"])
+    out: list[tuple[Observed | None, float | None]] = []
+    for i in range(HISTOGRAM_BINS):
+        observed = _observed(seen[seen_bins == i]) if len(seen) else None
+        mean = (
+            None
+            if observed is None or observed.rate is None
+            else float(seen.loc[seen_bins == i, "churn_probability"].mean())
+        )
+        out.append((observed, mean))
+    return out
+
+
+def probability_histogram(
+    book: books.Book,
+    cfg: Config,
+    observed: Sequence[tuple[Observed | None, float | None]] | None = None,
+) -> list[HistogramBin]:
     """Customers and charges per 0.05 of probability, with observed churn per bin.
 
-    Observed churn counts validation customers only, which the model was not
-    fitted on, so a bin's rate can be read against its probability range. They
-    did inform the cut and the choice to calibrate, so it is no independent test.
+    ``observed`` is ``histogram_observed`` of the customers whose outcomes are
+    known; by default, of ``book`` itself.
     """
     frame = book.frame
     bins = histogram_bins(frame["churn_probability"])
-    seen = books.labelled(frame, "validation", shown=book.outcomes)
-    seen_bins = histogram_bins(seen["churn_probability"])
+    seen_by_bin = histogram_observed(book) if observed is None else observed
     names = _band_names(cfg)
     edges = [band.min for band in cfg.risk_bands]
     out = []
@@ -365,10 +411,8 @@ def probability_histogram(book: books.Book, cfg: Config) -> list[HistogramBin]:
                 band=band,
                 customers=len(rows),
                 monthly_charges=float(rows["MonthlyCharges"].sum()),
-                observed=(observed := _observed(seen[seen_bins == i]) if len(seen) else None),
-                observed_mean=None
-                if observed is None or observed.rate is None
-                else float(seen.loc[seen_bins == i, "churn_probability"].mean()),
+                observed=seen_by_bin[i][0],
+                observed_mean=seen_by_bin[i][1],
             )
         )
     return out
@@ -601,6 +645,40 @@ def economics(book: books.Book, business: Business) -> Economics | None:
         band_high=float(band["threshold"].max()),
         band_floor=float(sweep["net_benefit"].max() - max(business.retention_offer_cost, 0.0)),
         sensitivity=threshold_sensitivity(y, p, charges, business),
+    )
+
+
+def validation_sweep_basis(book: books.Book) -> SweepBasis | None:
+    """The validation partition's totals per threshold; ``None`` when no outcome may be shown.
+
+    What ``economics_from`` needs, and all a published copy of the sweep holds.
+    """
+    validation = books.labelled(book.frame, "validation", shown=book.outcomes)
+    if validation.empty:
+        return None
+    return sweep_basis(
+        validation[schema.TARGET].to_numpy(),
+        validation["churn_probability"].to_numpy(),
+        validation["MonthlyCharges"].to_numpy(),
+    )
+
+
+def economics_from(basis: SweepBasis, business: Business) -> Economics:
+    """``economics``, from the validation totals alone: the same rule, the same fields."""
+    sweep = sweep_from_basis(basis, business)
+    band = indifference_band(sweep, business)
+    peak_threshold = float(sweep.loc[sweep["net_benefit"].idxmax(), "threshold"])
+    return Economics(
+        business=business,
+        customers=basis.customers,
+        churners=basis.churners,
+        sweep=sweep,
+        recommended=recommend_threshold_from(sweep, business),
+        peak=scenario_at(sweep, peak_threshold, business),
+        band_low=float(band["threshold"].min()),
+        band_high=float(band["threshold"].max()),
+        band_floor=float(sweep["net_benefit"].max() - max(business.retention_offer_cost, 0.0)),
+        sensitivity=sensitivity_from_basis(basis, business),
     )
 
 
@@ -843,8 +921,10 @@ def example_customers(book: books.Book) -> list[str]:
     A rule rather than a list of IDs, so no customer is named in the
     repository: the lower median of each group, ties broken by ID. Empty when
     the partitions are unverified, because "validation" then means nothing.
+    A book of generated customers has no validation partition; its examples
+    follow the same rule over the customers it has.
     """
-    frame = book.frame[book.frame["partition"] == "validation"]
+    frame = book.frame[book.frame["partition"].isin(("validation", books.SYNTHETIC))]
     chosen = []
     for band, flagged in EXAMPLE_CASES:
         group = frame[(frame["risk_band"] == band) & (frame["flagged"] == flagged)]

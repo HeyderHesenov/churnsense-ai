@@ -15,6 +15,7 @@ import {
 import { ApiError, request, type Schemas } from './client';
 
 export type ModelInfo = Schemas['ModelInfoResponse'];
+export type DataSource = Schemas['DataSource'];
 export type Overview = Schemas['OverviewResponse'];
 export type CustomerPage = Schemas['CustomerPage'];
 export type CustomerRow = Schemas['CustomerRow'];
@@ -86,7 +87,8 @@ export function useOverview(): UseQueryResult<Overview> {
 
 export type SortKey = 'id' | 'probability' | 'tenure' | 'monthly' | 'at_risk';
 export type Direction = 'asc' | 'desc';
-export type Partition = 'train' | 'validation' | 'test' | 'unknown';
+/** `synthetic`: a public demo's generated customer, in no partition of any dataset. */
+export type Partition = 'train' | 'validation' | 'test' | 'unknown' | 'synthetic';
 
 export interface CustomerFilter {
   q?: string;

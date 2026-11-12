@@ -17,6 +17,7 @@ import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button } from '../../components/ui/Button';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState, Skeleton } from '../../components/ui/States';
@@ -122,6 +123,7 @@ export default function SimulatorPage() {
         <PageHeader eyebrow="Retention simulator" tone="sim" title="Where should the cut-off sit?">
           {LEDE}
         </PageHeader>
+        <DataSourceNote parts={['evidence']} />
         <div role="note" className={styles.simNote}>
           <icons.warning size={18} className={styles.simNoteIcon} />
           <p>

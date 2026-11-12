@@ -305,6 +305,7 @@ export function explanations(ids: readonly string[]): ExplainResponse {
   return {
     model_sha256: 'a'.repeat(64),
     background_customers: 100,
+    background: 'training',
     permutations: 10,
     seed: 42,
     caveat: 'Attributions explain the model, not the customer.',

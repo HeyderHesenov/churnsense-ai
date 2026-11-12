@@ -1,15 +1,16 @@
 # Deploying the ChurnSense AI portfolio demo
 
 This is the one deployment the repository supports: a **public, unauthenticated
-portfolio demo** of the FastAPI service and the React front end it serves, on the
-public IBM Telco sample dataset, on one host. It is not a SaaS product. It has no
-accounts, no tenants, no persistent workspaces and no database, and it must never
-hold real customer data.
+portfolio demo** of the FastAPI service and the React front end it serves, on one
+host. It lists **generated demo customers** and shows the public IBM Telco sample
+only as **published aggregates**: the dataset is not in the image, not mounted, and
+not on the host at all (§6). It is not a SaaS product. It has no accounts, no tenants,
+no persistent workspaces and no database, and it must never hold real customer data.
 
 | | Portfolio demo (this document) | A future production SaaS (not built) |
 |---|---|---|
 | Users | Anonymous visitors | Authenticated users in organisations |
-| Data | The public sample dataset; uploads scored and discarded | Customer-owned data, stored and isolated per tenant |
+| Data | Generated demo customers; the sample dataset as aggregates only; uploads scored and discarded | Customer-owned data, stored and isolated per tenant |
 | Topology | One host: Caddy + one app container, one worker | Load balancer, replicas, shared state, job queue |
 | Persistence | None (Caddy's certificates only) | Database, object storage, audit log, backups |
 
@@ -19,23 +20,27 @@ hold real customer data.
 This repository is **not ready for a public deployment yet**. Each item below must be
 closed first:
 
-1. **The API exposes the whole sample dataset.** `GET /api/customers` (paged),
-   `GET /api/customers/{id}` and `GET /api/customers/export` (CSV) return all 7,043
-   rows of the IBM sample, features and scores included (test-partition outcomes stay
-   withheld). The project's policy is that the dataset is **not redistributed**
-   (`docs/MODEL_CARD.md`, `tests/test_governance.py`). Keeping it out of the image (§6)
-   does not change what the running API serves. A policy decision and, if needed, a
-   change to what the public API exposes must come first. **Do not deploy publicly until
-   then.**
-2. **Memory is measured in local Docker only** (§16, 2026-11-10): the app peaked at
-   762,073,088 bytes under its 1,610,612,736-byte limit, with no OOM. **The VPS's real
-   RAM use is not measured**; the VPS size in §2 is still an estimate until §16 is
-   repeated on the host.
-3. **The real domain is not set** (§5): `demo.example.com` is a placeholder the bundle
+1. **Memory is measured in local Docker only, and for the earlier layout** (§16,
+   2026-11-10): the app peaked at 762,073,088 bytes under its 1,610,612,736-byte limit,
+   with no OOM - while it still built its book from a mounted dataset. The service now
+   holds a smaller, generated book and no dataset, so that figure is expected to
+   overstate what is deployed, but that expectation is not measured. **Neither the
+   current image nor the VPS's real RAM use is measured**; the VPS size in §2 is an
+   estimate until §16 is repeated.
+2. **The real domain is not set** (§5): `demo.example.com` is a placeholder the bundle
    check refuses.
-4. **Only the app container has been validated, and only locally.** A local image was
-   built and its capacity measured (§16). Caddy and TLS with a real certificate, the
-   proxy headers in practice and the host itself are unverified.
+3. **Only the app container has been validated, and only locally, in the earlier
+   layout.** Caddy and TLS with a real certificate, the proxy headers in practice and
+   the host itself are unverified. The current image (no dataset mount, the two demo
+   files in place of `shap_global.json`) has been checked by the bundle check and the
+   test suite, but **has not been built or run in Docker**.
+
+**Closed, 2026-11-11: the API no longer serves the dataset's rows.** It used to return
+all 7,043 customers of the IBM sample (a listing, a lookup by ID, a CSV export, and
+attributions that carried their values), against the project's own policy that the
+dataset is not redistributed. The public demo now lists generated customers only, and
+the dataset is not in its reach: see §6 and "What the demo serves instead of the
+dataset" in §20. One residual is recorded there and left open on purpose.
 
 ## 1. Architecture
 
@@ -155,20 +160,40 @@ mismatch and refuses the example domain.
 
 **Other settings:**
 
-- `configs/deploy.yaml` must otherwise equal `configs/config.yaml`. A test and the
-  bundle check enforce this, so limits, risk bands and business assumptions cannot
-  drift.
+- `configs/deploy.yaml` must otherwise equal `configs/config.yaml` (apart from the
+  deployment policy below). A test and the bundle check enforce this, so limits, risk
+  bands and business assumptions cannot drift.
 - **Environment variables:** `CHURNSENSE_CONFIG=configs/deploy.yaml` (already set in
   the image and in compose) and `CHURNSENSE_LOG_LEVEL` (default `INFO`).
 - **Secrets:** there are none. The service calls no external API.
-- **Compose:** needs `CHURNSENSE_IMAGE` (the image tag to run, from §8) and
-  `CHURNSENSE_DATASET` (the absolute path of the verified dataset file, §6).
+- **Compose:** needs `CHURNSENSE_IMAGE` (the image tag to run, from §8). Nothing else:
+  no dataset path is given, because no dataset is deployed (§6).
 
-## 6. Model packaging and the dataset
+**The deployment policy** is its own section of the configuration, and the only thing
+that decides whose customers are listed:
+
+```yaml
+deployment:
+  mode: public_demo            # local | public_demo
+  customer_records: synthetic  # dataset | synthetic
+```
+
+- `configs/deploy.yaml` states exactly this. The bundle check (§7) refuses any other
+  value, and a missing section.
+- `public_demo` with `customer_records: dataset` does not load at all
+  (`ConfigError`): the combination that would list the dataset's rows to anonymous
+  visitors cannot be configured.
+- It is read from nothing else. The proxies and the host names (above) are network
+  settings; they do not select the data.
+- `configs/config.yaml` states `local` and `dataset`: on a developer's machine, on
+  loopback, the service builds its book from the dataset as before.
+
+## 6. Model packaging, and why no dataset is deployed
 
 The image holds exactly these runtime files (`.dockerignore` is an allowlist):
 
-- `artifacts/model.joblib`, `model_meta.json` and `shap_global.json`
+- `artifacts/model.joblib` and `model_meta.json`
+- `artifacts/public_evidence.json` and `demo_explanations.json` (below)
 - `governance/held_out_release.json`
 - `reports/association_ranking.csv` and `reports/model_comparison.csv`
 
@@ -176,46 +201,69 @@ The image holds exactly these runtime files (`.dockerignore` is an allowlist):
 never retrain for a deployment. It is served from inside the image, so a rollback
 brings the matching code and model back together.
 
-**The dataset is not in the image, and not in the build context.**
+**No dataset is in the image, in the build context, mounted into the container, or on
+the host.**
 
 *Why.* The IBM Telco sample is Apache-2.0 licensed, and this project's policy is not to
-redistribute it (`docs/MODEL_CARD.md`). An image is a distributable archive, so anyone
-who could pull it would get the file.
+redistribute it (`docs/MODEL_CARD.md`). A public, unauthenticated API that lists its
+rows redistributes it, whatever the image holds. Keeping the file in the container and
+trusting every route never to hand a row out would rest the policy on the absence of
+bugs. So the file is not there: a route cannot return what the process does not have.
 
-*How the operator provides it, privately, on the host:*
+*What the service lists instead.* 2,000 **generated demo customers**
+(`src/churnsense/demo/customers.py`): a pure function of a size and a seed that opens
+no file and takes no frame, so no value in it was sampled, copied or perturbed from a
+dataset. Their IDs are `DEMO-` and six digits. They have no outcome and no protected
+attribute. The served model scores them through the same path as `POST /predict`.
+Every customer listing, lookup, export, example and explanation is of these, and each
+is labelled synthetic (the partition is `synthetic`, the outcome `withheld`, the status
+`active`).
 
-1. Obtain the file yourself from its official source (the URL in
-   `configs/config.yaml`, `dataset.url`). The service never downloads it.
-2. Check it against the pin and the release before starting:
-   `.venv/bin/python scripts/verify_deploy_bundle.py --dataset /srv/churnsense/Telco-Customer-Churn.csv`
-3. Make it read-only and readable by the container's user (uid 10001):
-   `chmod 0444 /srv/churnsense/Telco-Customer-Churn.csv`.
-4. Start Compose with `CHURNSENSE_DATASET=/srv/churnsense/Telco-Customer-Churn.csv` (§9).
+*What it shows of the dataset.* Aggregates only, read from
+`artifacts/public_evidence.json`: observed churn overall and per risk band, the
+breakdowns of the training partition, the validation sweep's totals per threshold, the
+validation metrics, calibration bins and segments, and the validation sample's feature
+ranking. Every group of fewer than 20 customers has no rate in it, and a table hides
+the further groups that would give one away (`src/churnsense/suppression.py`). It is a
+closed format (`src/churnsense/evidence.py`): every key is named, every count and rate
+is checked when the service reads it, and it is bound to the model, the dataset pin,
+the split and the threshold. A file that breaks a rule, or belongs to another model, is
+refused.
 
-*How it is mounted.* `deploy/compose.yaml` bind-mounts that one file, **read-only**, at
-`/app/data/raw/Telco-Customer-Churn.csv`, with `create_host_path: false`. A missing file
-is never replaced by an empty directory, and no broader host directory is mounted. The
-bundle check refuses any other mount. Compose refuses to start without
-`CHURNSENSE_DATASET`.
+*How the two files are made.* Once, by the maintainer, on a machine that has the
+dataset:
 
-*What readiness does.* The service checks the pinned SHA-256 every time it reads the
-file.
+```sh
+make demo-data
+```
 
-- A missing, unreadable or different file leaves the customer book unbuilt.
-- `/ready` then answers 503 with `"dataset": false`, the container stays `unhealthy`,
-  and Caddy does not start.
-- Nothing falls back to other data.
-- The pages that need the book stay unavailable (overview, customers, explorer, patterns,
-  performance, explainability, simulator, and the batch label check) until the right
-  file is mounted and the app restarted.
+It reads what the service reads at every local start (training and validation
+outcomes; the test partition's are withheld by `churnsense.book`), fits nothing, runs no
+final evaluation, and writes two new files beside the model. It refuses a dataset the
+model was not trained on, and a generated customer that happens to have a dataset
+customer's exact inputs. `demo_explanations.json` holds attributions of 300 generated
+customers against a background of 100 generated customers: nothing of the dataset is in
+it. `artifacts/shap_global.json` (`make explain`'s cache) holds 300 **validation rows**
+and is therefore **not** in the image; the bundle check refuses it anywhere.
+
+*What readiness does.*
+
+- A generator that fails, a published file that is missing, malformed, or bound to
+  another model, or attributions that are not of the customers being listed, leave the
+  book unbuilt. `/ready` then answers 503 with `"dataset": false`, every data route
+  answers 503 `demo_data_unavailable`, the container stays `unhealthy`, and Caddy does
+  not start.
+- **Nothing falls back to other data.** The dataset's loader is not on this path.
+- **A dataset file beside a public demo keeps it down.** In `public_demo` mode the
+  service refuses to build its book if the configured dataset file exists: a file that
+  should not be there is a misconfiguration, not something to ignore.
 
 **What the image is not:**
 
 - **Not a public file server.** The front end route serves only `frontend/dist/assets`
-  files, by a strict name pattern. The model and the dataset are never reachable as
-  files over HTTP. The API, however, serves the dataset's rows: see "Blockers" above.
+  files, by a strict name pattern. The model is never reachable as a file over HTTP.
 - **Not for a public registry.** Whoever can pull the image has the bundled model (a
-  pickle).
+  pickle). The image holds no dataset row, so that is the only reason left.
 
 ## 7. Bundle integrity check
 
@@ -234,16 +282,31 @@ It checks the following without loading the model:
 - **Model:** `model.joblib` hashes to the `model_sha256` its metadata records, and it
   is the model the release names, at the same threshold.
 - **Dataset pin:** the SHA-256 pinned in `configs/config.yaml` is the one the release
-  names. With `--dataset PATH` it also hashes the operator's file against that pin. The
-  dataset itself is never in the image.
-- **SHAP cache:** it was computed for that model.
+  names. No dataset file is checked: none is deployed.
+- **Published evidence:** it has exactly the format's top-level keys; it is bound to
+  that model, that dataset pin, the split and the threshold; and no customer column is
+  a key anywhere in it. The check does not read the figures themselves: the service's
+  strict reader does that at start (§6), and it needs the model stack this check never
+  loads.
+- **Demo attributions:** computed for that model; exactly the builder's keys and no
+  other; they name the generated book by its hash, and every row in them is one of that
+  book's customers, whole (the check generates the book itself to compare).
+- **No dataset by another name:** in the image, no file hashes to the pinned dataset,
+  whatever it is called and wherever it sits.
 - **Lock:** it pins the scikit-learn version that trained the model.
 - **Images:** every external image is `name:version@sha256:<digest>`.
 - **Configuration and wiring:**
-  - `configs/deploy.yaml` is valid and differs from the development config only in its
-    two keys.
+  - `configs/deploy.yaml` is valid, states `deployment: {mode: public_demo,
+    customer_records: synthetic}`, and otherwise differs from the development config
+    only in its two `api` keys.
   - The compose network gives Caddy the trusted address.
-  - The app publishes no port and has exactly the read-only dataset mount.
+  - The app publishes no port and **mounts nothing**: any volume, another container's
+    volumes, a config, a secret, a device or an environment file on the app is refused,
+    and so is any mention of `CHURNSENSE_DATASET`.
+  - Nothing unchecked is merged in: the app may not `extends` another file's service,
+    `compose.yaml` may not `include` another file, and no override file
+    (`compose.override.yaml` and its three other spellings) may sit beside it, since
+    `docker compose up` would merge one unasked.
   - The Caddyfile site equals the allowed host.
   - `.dockerignore` re-includes exactly the expected paths.
   - The domain is not a documentation domain.
@@ -260,7 +323,8 @@ The image build runs it again with `--in-image` on the copied files. That run al
 refuses:
 
 - the example domain;
-- any file under `data/`;
+- any file under `data/`, the dataset's own file name anywhere, and
+  `shap_global.json` anywhere (it holds validation rows);
 - `.egg-info`, `.env*`, `.git`, `audit-reports/`, tests, the held-out report, other
   reports, and keys.
 
@@ -308,10 +372,10 @@ The tag depends on the build context (every path `.dockerignore` re-includes, pl
 **Runtime stage:**
 
 - Installs the hash-locked runtime packages and runs `pip check`.
-- Copies the source and the approved files (never the dataset) and runs the bundle
-  check.
-- Creates the empty `data/raw/` mount point, compiles the source, and drops to the
-  non-root user `churnsense` (uid 10001).
+- Copies the source and the approved files (never the dataset, never
+  `shap_global.json`) and runs the bundle check.
+- Compiles the source, and drops to the non-root user `churnsense` (uid 10001). No
+  `data/` folder is created: there is nothing to mount.
 
 To get the image to the host, either build it there from the same checkout, or
 `docker save … | ssh host docker load`. Do not push it to a public registry.
@@ -320,9 +384,7 @@ To get the image to the host, either build it there from the same checkout, or
 
 ```sh
 cd deploy
-CHURNSENSE_IMAGE=churnsense-ai:<tag> \
-CHURNSENSE_DATASET=/srv/churnsense/Telco-Customer-Churn.csv \
-  docker compose up -d
+CHURNSENSE_IMAGE=churnsense-ai:<tag> docker compose up -d
 docker compose ps        # app: healthy; caddy: running
 ```
 
@@ -330,12 +392,12 @@ How the two containers start:
 
 - **Caddy** waits for the app's health check to pass (`depends_on: service_healthy`).
 - **The app:**
-  - mounts the dataset file read-only (§6);
+  - mounts nothing of the host (§6);
   - runs with a read-only root filesystem and a 384 MB memory-backed `/tmp`, which
     holds uploads over 1 MB while they arrive and the numba and matplotlib caches;
   - has no capabilities, `no-new-privileges`, and `init: true`;
-  - is limited to 1 CPU and 1.5 GB RAM; measured locally, its peak was about 47% of
-    that limit (§16).
+  - is limited to 1 CPU and 1.5 GB RAM; measured locally in the earlier layout, its
+    peak was about 47% of that limit (§16).
 
 ## 10. TLS
 
@@ -360,18 +422,15 @@ How the two containers start:
 - The book is built once, at startup, so the first visitor does not wait for it.
 - `/ready` only reads what is in memory. It never loads, reads or scores anything, and
   it names no path or reason; the log says why.
-- **Healthy container, wrong data:** a model, dataset or front end that is missing or
-  fails its check leaves the container `unhealthy`, but still running, so the log
-  explains it.
+- **Healthy container, wrong data:** a model, demo data or front end that is missing
+  or fails its check leaves the container `unhealthy`, but still running, so the log
+  explains it. (`/ready` still calls the book `dataset`: the field name is kept.)
 - **Probes:** the container health check calls `/ready` on `127.0.0.1` from inside the
   container. From outside, probe `https://<your-domain>/ready`.
 - **No automatic recovery from a failed startup build.** If the book fails to build at
   startup, readiness stays 503 and Caddy never starts, because it waits for a healthy
-  app. The model artifact is inside the image, and the dataset is provided from outside
-  through the read-only bind mount (§6), so the cause is one of the two: a broken image
-  (fix the bundle, §7, and redeploy) or a dataset file that is missing, unreadable or
-  not the pinned one (check it with §7's `--dataset`, fix the mount, and restart the
-  app).
+  app. Everything the book is built from is inside the image, so the cause is a broken
+  image: fix the bundle (§7) and redeploy. A restart alone changes nothing.
 - **The readiness read takes no lock**, so a health check never waits on a rebuild.
 
 ## 12. Logs
@@ -404,8 +463,8 @@ CHURNSENSE_IMAGE=churnsense-ai:<previous-tag> docker compose up -d app
 
 - The model and ledger are inside the image, so a rollback can never pair code with a
   model it was not built with.
-- The dataset stays the same pinned file across tags. An image whose release names
-  another dataset stays not ready until that file is mounted.
+- The published evidence is inside the image too, bound to that model: a rollback
+  brings the matching aggregates back with it.
 - Keep the last two or three tags on the host (`docker image ls churnsense-ai`).
 
 ## 15. Backups
@@ -416,13 +475,19 @@ Keep these:
 
 - The Caddy volumes (`caddy_data`, for certificates and the ACME account), or let Caddy
   issue certificates again.
-- An offline copy of the approved model artifact and dataset (with their SHA-256 hashes)
-  and of the image tags you deploy.
+- An offline copy of the approved model artifact, the two demo files and - on the
+  maintainer's machine only, never on the host - the dataset (with their SHA-256
+  hashes), and of the image tags you deploy.
 
 ## 16. Resource monitoring and the memory measurement
 
-**Status: LOCAL DOCKER MEASUREMENT DONE (2026-11-10). VPS NOT MEASURED.** The app
-container's memory has been measured in local Docker, and the figures are below. The
+**Status: LOCAL DOCKER MEASUREMENT DONE (2026-11-10), FOR THE EARLIER LAYOUT. THE
+CURRENT IMAGE AND THE VPS ARE NOT MEASURED.** The figures below were taken while the app
+built its book from a mounted dataset (7,043 customers). It now holds 2,000 generated
+customers and reads its aggregates from a file, so they are expected to overstate the
+current image's use, but that expectation is not measured. Repeat the procedure before
+relying on them.
+The app container's memory was measured in local Docker, and the figures are below. The
 real RAM use of a VPS — the host, Caddy and the app together, on the deployment's own
 machine — has not been measured: repeat the procedure there. Startup time was not
 recorded.
@@ -464,7 +529,7 @@ recorded.
 
 **Procedure** (local first, then on the host):
 
-1. Build an image (§8) and start Compose with the dataset mounted (§9).
+1. Build an image (§8) and start Compose (§9).
 2. Wait for `docker compose ps` to show `healthy`, and record how long it took.
 3. Run the load **inside** the app container, so its own cgroup is measured:
 
@@ -542,9 +607,8 @@ are enough for this demo.
 | Symptom | Likely cause | What to do |
 |---|---|---|
 | App `unhealthy`; `/ready` says `model: false` | Artifact missing, or its hash disagrees with its metadata | Rebuild from the approved checkout; run §7 |
-| `/ready` says `dataset: false` | The mounted file is missing, unreadable by uid 10001, or not the pinned file | Run §7 with `--dataset`; `chmod 0444`; restart the app |
-| Compose refuses to start: `set CHURNSENSE_DATASET` | The dataset path was not given | Set it (§9) |
-| Compose refuses to start: bind source does not exist | The file is not at that path (`create_host_path: false`) | Put the file there; nothing is created for you |
+| `/ready` says `dataset: false`; data routes answer 503 `demo_data_unavailable` | A demo file is missing, malformed or built for another model; or a dataset file is present beside a public demo | Read the app's log line `demo data unavailable`; rebuild the two files with `make demo-data` on the maintainer's machine, run §7, rebuild the image; remove any dataset file from the container |
+| The bundle check refuses a volume on the app | Something was mounted into the app container | Remove it: the app mounts nothing (§6) |
 | Every request 403 `loopback_only` | Caddy's address is not `api.trusted_proxies`, or the network changed | Check `deploy/compose.yaml` against `configs/deploy.yaml`; run §7 |
 | 400 `invalid_host` | Domain differs between Caddyfile and `api.allowed_hosts` | Set both; rebuild |
 | Explanations or batch uploads 403 `cross_origin` | The app is not seeing `X-Forwarded-Proto: https` | Caddy must be the peer, and HTTPS must work |
@@ -586,6 +650,30 @@ deployment step.
   through the server.
 - **Never upload real or personally identifiable customer data.** The batch page says
   so.
+
+**What the demo serves instead of the dataset** (§6 has the mechanism):
+
+| A visitor asks for | What answers |
+|---|---|
+| A customer listing, one customer, a CSV export, the examples | Generated demo customers only (`DEMO-` IDs), each `synthetic` / `withheld` / `active` |
+| An explanation of a customer, or of a typed record | Attributions against a background of 100 generated customers; the response says `background: synthetic` |
+| The explainability page's sample | 300 generated customers' attributions; no validation row |
+| Observed rates, breakdowns, the validation sweep, performance | The dataset's published aggregates; no group under 20 has a rate |
+| A dataset customer by ID | 404, as for any ID the book does not hold |
+| A label check on an uploaded file | Nothing: no label is compared or returned, because the demo cannot tell a held-out customer apart, and so no answer depends on who was uploaded |
+
+**A residual that is known and left open.** The validation sweep
+(`GET /api/threshold/sweep`) and the precision-recall curve give cumulative counts and
+simulated money at every 0.01 of threshold. Where exactly one churner lies between two
+neighbouring thresholds, the difference of the two retained values is that one
+validation customer's value, from which their monthly charge follows; and the
+difference of the counts says how many customers scored in that step and how many of
+them churned. In the file built on 2026-11-11, of the 100 steps, 16 hold exactly one
+churner and 4 hold exactly one customer; 74 hold fewer than 20. It is one attribute and
+the outcome of an unnamed customer in a known score interval, not a record, and it was
+true of the API before this change. Closing it means pricing the sweep differently (and changing
+figures the model card states), so it is recorded here for a separate decision rather
+than changed silently.
 
 **What protects it:**
 

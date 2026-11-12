@@ -84,17 +84,26 @@ The API, the front end it serves (`frontend/`) and the dashboard are **local
 by design**: they have no authentication and bind to `127.0.0.1`, and the API
 answers loopback peers only. That is documented in the
 [README](README.md#security) and is not a vulnerability in itself. The one
-deployment the repository supports, a public portfolio demo of the sample
-dataset behind Caddy ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), adds exactly
+deployment the repository supports, a public portfolio demo behind Caddy
+([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), adds exactly
 one peer: the proxy address listed in `api.trusted_proxies`, whose forwarded
 client address and scheme are the only ones believed. It is still
-unauthenticated, so it must never hold real customer data. Its image never holds
-the sample dataset (the operator mounts it read-only), and every request body is
+unauthenticated, so it must never hold real customer data. It holds no dataset
+either: it is configured as `deployment: {mode: public_demo, customer_records:
+synthetic}`, lists generated demo customers only, and shows the sample dataset
+solely as published aggregates in which no group of fewer than 20 customers has a
+rate. The dataset is not in its image, not mounted into its container and not read
+by that code path; a missing or untrusted demo file is answered with 503, never
+with other data. Every request body is
 limited by path: 5 MiB on the three upload paths, 64 KiB everywhere else. A way around one of
 the mitigations described there (the body-size limit, upload validation,
 export neutralisation, the Host and Origin checks, the trusted-proxy rule, the
 per-client limits on explanations and batch uploads and the process-wide
-batch limit, the front end's Content-Security-Policy) is in scope.
+batch limit, the front end's Content-Security-Policy) is in scope. So is any way
+to make the public demo return a row of the dataset, name one of its customers,
+or state an outcome rate for fewer than 20 of them. One residual is known and
+recorded in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), section 20: the validation
+sweep's cumulative figures can give one validation customer's monthly charge.
 
 Out of scope: a vulnerable third-party dependency with no demonstrated effect
 on this project (report it upstream; Dependabot tracks advisories here), and

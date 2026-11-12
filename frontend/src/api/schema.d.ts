@@ -128,9 +128,11 @@ export interface paths {
      * Explain
      * @description Every feature's signed contribution to the served probability.
      *
-     *     Measured against the same 100 training customers, with the same seed and
-     *     number of orderings, on every page. These attribute the model's output;
-     *     they say nothing about why a customer stays or leaves.
+     *     Measured against the same 100 customers, with the same seed and number of
+     *     orderings, on every page: training customers, or - where the book is a
+     *     public demo's generated one - generated customers, as ``background`` says.
+     *     These attribute the model's output; they say nothing about why a customer
+     *     stays or leaves.
      */
     post: operations['explain_api_explain_post'];
     delete?: never;
@@ -148,7 +150,10 @@ export interface paths {
     };
     /**
      * Global Explanation
-     * @description ``make explain``'s attributions for a validation sample, as the explainability page draws them.
+     * @description The cached attributions of a sample of the book's customers, as the explainability page draws them.
+     *
+     *     ``partition`` says whose: the dataset's validation sample (``make explain``),
+     *     or a public demo's generated customers (``make demo-data``).
      */
     get: operations['global_explanation_api_explain_global_get'];
     put?: never;
@@ -807,7 +812,7 @@ export interface components {
        * Partition
        * @enum {string}
        */
-      partition: 'train' | 'validation' | 'test' | 'unknown';
+      partition: 'train' | 'validation' | 'test' | 'unknown' | 'synthetic';
       /** Risk Band */
       risk_band: string;
       /** Threshold */
@@ -974,7 +979,7 @@ export interface components {
        * Partition
        * @enum {string}
        */
-      partition: 'train' | 'validation' | 'test' | 'unknown';
+      partition: 'train' | 'validation' | 'test' | 'unknown' | 'synthetic';
       /** Payment Method */
       payment_method: string;
       /** Risk Band */
@@ -986,6 +991,27 @@ export interface components {
       status: 'active' | 'churned' | 'unknown';
       /** Tenure */
       tenure: number;
+    };
+    /**
+     * DataSource
+     * @description Whose customers the pages list, and what to say of them where they appear.
+     */
+    DataSource: {
+      /**
+       * Customer Records
+       * @enum {string}
+       */
+      customer_records: 'dataset' | 'synthetic';
+      /** Customers */
+      customers: number;
+      /** Evidence Note */
+      evidence_note?: string | null;
+      /** Figures Note */
+      figures_note?: string | null;
+      /** Notice */
+      notice?: string | null;
+      /** Title */
+      title: string;
     };
     /**
      * DependenceBin
@@ -1039,6 +1065,11 @@ export interface components {
     };
     /** ExplainResponse */
     ExplainResponse: {
+      /**
+       * Background
+       * @enum {string}
+       */
+      background: 'training' | 'synthetic';
       /** Background Customers */
       background_customers: number;
       /** Caveat */
@@ -1065,7 +1096,10 @@ export interface components {
     };
     /**
      * GlobalExplanation
-     * @description ``make explain``'s attributions for a validation sample, for the artifact served.
+     * @description Cached attributions of a sample of the book's customers, for the artifact served.
+     *
+     *     ``partition`` is ``validation`` for the dataset's sample and ``synthetic``
+     *     for a public demo's generated customers.
      */
     GlobalExplanation: {
       /** Association Rank */
@@ -1274,6 +1308,7 @@ export interface components {
       calibrated: boolean;
       /** Calibration Method */
       calibration_method: string | null;
+      data_source?: components['schemas']['DataSource'] | null;
       /** Display Name */
       display_name: string;
       /** Dropped Columns */
@@ -2037,7 +2072,7 @@ export interface operations {
         tenure_min?: number | null;
         tenure_max?: number | null;
         flagged?: boolean | null;
-        partition?: ('train' | 'validation' | 'test' | 'unknown') | null;
+        partition?: ('train' | 'validation' | 'test' | 'unknown' | 'synthetic') | null;
         exclude_churned?: boolean;
       };
       header?: never;
@@ -2188,7 +2223,7 @@ export interface operations {
         tenure_min?: number | null;
         tenure_max?: number | null;
         flagged?: boolean | null;
-        partition?: ('train' | 'validation' | 'test' | 'unknown') | null;
+        partition?: ('train' | 'validation' | 'test' | 'unknown' | 'synthetic') | null;
         exclude_churned?: boolean;
       };
       header?: never;

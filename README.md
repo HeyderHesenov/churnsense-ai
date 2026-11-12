@@ -151,6 +151,7 @@ make data       # download the dataset and verify its SHA-256
 make eda        # EDA on the training partition: reports/eda_report.md + figures
 make train      # select (CV), calibrate, set the threshold (validation); artifacts/ + reports
 make explain    # cache global SHAP importance and its figure
+make demo-data  # publish the dataset's aggregates and the demo attributions for the public demo
 make test       # pytest
 make lint       # ruff check + format --check
 make audit      # pip-audit
@@ -872,10 +873,22 @@ Found a vulnerability? Please report it privately, as described in
 > `.streamlit/config.toml`, and consider disabling the API's `/docs` (it loads
 > Swagger UI from a CDN). The one exception the repository supports is a public,
 > unauthenticated portfolio demo of the API and front end (not the Streamlit
-> dashboard) on the sample dataset, behind Caddy with TLS: its configuration,
+> dashboard), behind Caddy with TLS: its configuration,
 > the trusted-proxy rule that keeps `LoopbackOnly` meaningful there, and its
 > limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It is not a
 > multi-user product and must never hold real customer data.
+>
+> **The public demo serves no row of the dataset.** It is configured as
+> `deployment: {mode: public_demo, customer_records: synthetic}`: every customer
+> it lists, looks up, exports or explains is a generated demo customer
+> ([`src/churnsense/demo/customers.py`](src/churnsense/demo/customers.py)),
+> labelled as synthetic and with no outcome, and the dataset is shown only as
+> aggregates published once by `make demo-data`
+> ([`src/churnsense/evidence.py`](src/churnsense/evidence.py)), with no rate for a
+> group of fewer than 20. The dataset is not in the image or the container. A
+> configuration that would list the dataset's rows publicly does not load, and the
+> deployment check refuses it. On a developer's machine, on loopback, the default
+> (`customer_records: dataset`) lists the dataset's own customers as before.
 
 ## Limitations
 

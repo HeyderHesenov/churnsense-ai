@@ -2,7 +2,7 @@
 import type { GlobalExplanation } from '../../api/queries';
 import { StatTile } from '../../components/ui/Surface';
 import { int, pct } from '../../lib/format';
-import { additivity, explainedSub, METHOD_NOTES } from './copy';
+import { additivity, backgroundNote, explainedSub, METHOD_NOTES } from './copy';
 import styles from './Explain.module.css';
 
 export function MethodStrip({ global }: { global: GlobalExplanation }) {
@@ -19,7 +19,7 @@ export function MethodStrip({ global }: { global: GlobalExplanation }) {
         compact
         label="Background"
         value={int(global.n_background)}
-        sub={METHOD_NOTES.background}
+        sub={backgroundNote(global)}
       />
       <StatTile
         compact

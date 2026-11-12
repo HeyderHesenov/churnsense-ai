@@ -53,6 +53,7 @@ from churnsense.api.schemas import (
     BatchResponse,
     BusinessAssumptions,
     CustomerFeatures,
+    DataSource,
     ErrorResponse,
     HealthResponse,
     HoldoutSummary,
@@ -272,10 +273,10 @@ def model_info(
         provenance=None
         if dashboard is None
         else Provenance(
-            verified=dashboard.book.withheld is None,
+            verified=dashboard.evidence.withheld is None,
             data_sha256=meta.get("data_sha256"),
             split_digest=meta.get("split_digest"),
-            withheld_reason=dashboard.book.withheld,
+            withheld_reason=dashboard.evidence.withheld,
         ),
         test_evaluation=None
         if record is None
@@ -284,6 +285,9 @@ def model_info(
             precision=record.metrics.precision,
             recall=record.metrics.recall,
         ),
+        data_source=None
+        if dashboard is None
+        else DataSource.of(dashboard.synthetic, len(dashboard.book.frame)),
     )
 
 

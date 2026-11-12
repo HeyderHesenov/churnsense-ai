@@ -1,7 +1,7 @@
 # ChurnSense AI - the deployed demo's configuration (docs/DEPLOYMENT.md).
-# Identical to configs/config.yaml except api.allowed_hosts and
-# api.trusted_proxies (tests/test_deploy.py and scripts/verify_deploy_bundle.py
-# refuse any other difference). The image reads it through
+# Identical to configs/config.yaml except the deployment section,
+# api.allowed_hosts and api.trusted_proxies (tests/test_deploy.py and
+# scripts/verify_deploy_bundle.py refuse any other difference). The image reads it through
 # CHURNSENSE_CONFIG=configs/deploy.yaml. No secrets.
 
 project:
@@ -89,6 +89,14 @@ business:
   offer_success_rate: 0.30            # P(stays | would have churned AND was offered)
   expected_horizon_months: 12         # window over which retained revenue is counted
   gross_margin: 0.65                  # margin fraction of revenue; avoids treating revenue as profit
+
+# The deployed demo is public and unauthenticated, so it lists generated
+# customers only and never opens the dataset (src/churnsense/config.py,
+# Deployment). scripts/verify_deploy_bundle.py refuses any other value here,
+# and the configuration itself does not load with customer_records: dataset.
+deployment:
+  mode: public_demo
+  customer_records: synthetic
 
 api:
   max_batch_rows: 10000

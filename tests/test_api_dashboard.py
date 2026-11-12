@@ -1578,9 +1578,15 @@ def test_a_label_check_counts_only_the_rows_it_compares(served, raw_frame, ids, 
     15 compared and 10 held out are still too few for a rate."""
     held_out = raw_frame[raw_frame[schema.ID_COLUMN].isin(ids["test"])].head(10)
     upload = pd.concat([_labelled_churners(raw_frame, ids, model, 15), held_out])
-    labels = _ok(_upload(served, upload))["summary"]["labels"]
+    body = _ok(_upload(served, upload))
+    labels = body["summary"]["labels"]
     assert (labels["labelled"], labels["excluded_test"]) == (15, 10)
     assert labels["precision"] is None and labels["recall"] is None
+    # Beside its dataset the service does compare, and its note about the column says so.
+    assert (
+        "Churn is never used to score; it is kept only to compare against the predictions"
+        in body["notes"]
+    )
 
 
 def _compared_customers(raw_frame, ids, model, *, flagged: bool, churned: bool) -> pd.DataFrame:

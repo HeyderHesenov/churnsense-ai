@@ -2527,3 +2527,200 @@ differs from the sections above, it stands.
   through `make lock LOCK_ARGS="--upgrade-package tornado"`. No other pin moved. Both locks audit
   clean, `pip check` passes, and a notebook kernel runs, on Python 3.12 and 3.13.
 
+
+## Public demo data safety (2026-11-11/12)
+
+The last blocker of the deployment guide was the API itself: unauthenticated, it handed out the
+dataset's rows, against the project's own policy that the IBM sample is not redistributed. A read-only
+audit (2026-11-11) found seven ways:
+
+| | Route | What it gave |
+|---|---|---|
+| E1 | `GET /api/customers/export` | the whole book in one request: ID, 18 inputs, scores, partition, outcome |
+| E2 | `GET /api/customers` | the same, 100 rows a page |
+| E3 | `GET /api/customers/{id}` | one customer's 18 inputs, under no rate budget |
+| E4 | `POST /api/explain` with IDs | each `Contribution.value` is an input |
+| E5 | `GET /api/customers/examples` | four validation customers |
+| E6 | `GET /api/explain/global` | `x`: 300 validation rows of 18 raw inputs; the same file sat in the image |
+| E7 | batch `labels.excluded_test` | whether an uploaded customer is in the test partition |
+
+Dropping the ID would not have helped: 6,661 of the 7,043 rows are unique on tenure and the two
+charges alone. The aggregates (overview, segments, sweep, performance) were already held to 20
+customers a group with complementary suppression, and stay.
+
+### What was built
+
+- **A stated policy.** `deployment.mode` (`local` | `public_demo`) and `deployment.customer_records`
+  (`dataset` | `synthetic`) in the configuration (`config.Deployment`). `public_demo` with `dataset`
+  does not load. `configs/deploy.yaml` states `public_demo` / `synthetic`; `configs/config.yaml`
+  states `local` / `dataset`, so a developer's machine behaves as before.
+- **Generated customers.** `src/churnsense/demo/customers.py`: 2,000 customers from a size and a
+  seed, opening no file and taking no frame. IDs are `DEMO-` and six digits; no outcome, no protected
+  attribute. `book.synthetic_book` scores them with the served model: partition `synthetic`, outcome
+  `withheld`, status `active`.
+- **Published evidence.** `make demo-data` (`churnsense.demo.build`), run once by the maintainer
+  beside the dataset, writes `artifacts/public_evidence.json` (the training and validation
+  aggregates every page shows) and `artifacts/demo_explanations.json` (attributions of 300 generated
+  customers against 100 generated ones). `src/churnsense/evidence.py` holds the two sources behind one
+  interface: `LiveEvidence` computes from the dataset, `PublishedEvidence` reads the file through a
+  closed, strict reader bound to the model, the dataset pin, the split and the threshold.
+- **Two build paths, no bridge between them** (`api/state.py`). The synthetic path never calls the
+  dataset's loader, refuses to start beside a dataset file in a public demo, and turns every failure
+  into 503 `demo_data_unavailable`. Nothing falls back to the dataset.
+- **Routes.** Every customer listing, lookup, export, example and explanation is of generated
+  customers; observed figures come from `d.evidence`. `ModelInfoResponse.data_source` carries the
+  sentences the pages print; `ExplainResponse.background` says `synthetic`. The batch label comparison
+  is off in synthetic mode (E7). The sweep is priced from a basis of per-threshold totals
+  (`threshold.sweep_basis` / `sweep_from_basis`), which is what the published file holds.
+- **Deployment files.** The app mounts no volume; neither the dataset nor `shap_global.json` is in
+  the build context or the image. `scripts/verify_deploy_bundle.py` requires the policy above and
+  refuses an app volume, a dataset, a customer column anywhere in the evidence, and demo attributions
+  that are not, row for row, of the generated book.
+- **Front end.** `components/ui/DataSourceNote.tsx` prints the service's own sentences wherever a
+  customer or a figure of theirs appears; the outcome pill reads "Synthetic · no outcome"; the
+  partition filters and the Patterns link into the dataset's customers are not offered; the queue's
+  link to the explorer no longer says "churned included" where nobody has an outcome.
+- **End to end.** `scripts/e2e_server.py --public` deletes its dataset before serving; Playwright has
+  a second project, `public-demo`, against it.
+
+### Decisions
+
+- **The policy is stated, never inferred.** It is not read from `trusted_proxies` or the host names:
+  a network setting that also chose the data would change the data whenever the network changed.
+- **No dataset in the container, rather than a guarded one.** A route cannot return what the process
+  does not have. The price is one offline step (`make demo-data`) whenever the model changes.
+- **No validation row in any form** on the explainability page (E6): not unlinked per feature, not
+  jittered. The public sample is of generated customers, and says so.
+- **One book.** In a public demo the overview's counts are the generated book's, labelled
+  illustrative; the observed rates beside them are the dataset's published aggregates, labelled as
+  such. The two are never added together.
+
+### Where it differs from its plan
+
+- `evidence.py` is `src/churnsense/evidence.py`, not inside `demo/`: development mode uses it too.
+- The component is `DataSourceNote`, not `SyntheticNotice`: it also says where observed figures come
+  from.
+- `threshold.sweep_thresholds` and `threshold_sensitivity` were left as they are instead of becoming
+  wrappers over the basis: `evaluation/report.py` and `models/train.py`, both fingerprinted by the
+  published release, call them. A test holds the two paths to the same figures.
+- `tests/test_governance.py` needed no change.
+
+### The two files, as built on 2026-11-11
+
+- `public_evidence.json`: 1,099,149 bytes; 196 breakdowns (14 one-way, 182 two-way); 101
+  thresholds; validation n 1,409; observed 5,634 customers, 1,495 churned (training and validation).
+- `demo_explanations.json`: 297,684 bytes; 300 explained, 100 in the background; base value 0.2128.
+- Read back through the service, the published sweep gives the figures the model card states: 0.36
+  retains $26,547, the peak at 0.30 retains $26,579.
+- Both are ignored by git, like the model they are bound to. The 13 sources the published release
+  fingerprints, the ledger, its report and the existing artifacts were not touched.
+
+### Review (code-reviewer, 2026-11-12)
+
+One read-only pass over the whole change. It found no route, error text, log line or cached file
+through which a dataset row, an ID or a partition-membership fact reaches a client in synthetic mode,
+and no regression with the dataset's own customers listed. What it did find, and what was done:
+
+- **The sweep can be differenced** (rated high). Known before the review and left open on purpose:
+  see "Still open" below. The review added that the counts, not only the money, difference; the
+  deployment guide now says so, with the measured number of single-customer steps.
+- **Fixed, test first:**
+  - Preparing the dashboard ran after the last fail-closed check, so a failure there answered 500 and
+    was tried again by every request. It is built inside the same block: 503
+    `demo_data_unavailable`, remembered like any other failed build.
+  - The bundle check let a file reach the app by ways it did not read: `extends`, an environment
+    file, a top-level `include`, and an override file beside `compose.yaml` (which
+    `docker compose up`, as the guide runs it, merges unasked). All four are refused.
+  - The image check knew the dataset by its file name only. It now refuses any file that hashes to
+    the pinned dataset.
+  - The demo attributions could carry anything under a key nobody reads. The bundle check holds the
+    file to the builder's keys, and (found before the review) to rows that are, whole, customers of
+    the book it generates itself.
+  - An upload's `Churn` column was described as "kept only to compare" where nothing is compared.
+    The note now says what the service does.
+  - A test of the evidence's closed format passed on any problem at all; it names the problem now.
+- **Not changed, and why:**
+  - *The bundle check does not read the evidence's figures.* The service's strict reader does, at
+    start, and refuses; reusing it in the check would import the model stack the check is built never
+    to load. The guide no longer calls what the check does a check of the whole format.
+  - *The strict reader does not prove complementary suppression again.* It checks every cell's size,
+    rate and stated reason, not that the hidden cells of a table cannot be solved for. That proof is
+    made when the file is built (`suppression.py`); a file edited by hand afterwards is outside what
+    the reader defends against.
+  - *The page-level note needs the service's sentence.* Until `/model-info` answers, or if it fails,
+    a page prints no note. Every listed customer is still marked "Synthetic · no outcome", because
+    that comes from the row itself. The front end words no label of its own, by design.
+  - *An empty `deployment:` section is the local default*, like a partial one. The deploy
+    configuration is pinned to its exact section by the bundle check, and the image holds no dataset
+    for a wrong mode to list.
+  - *The Dockerfile's `ADD`/`COPY --from` are not parsed in the checkout.* The image check runs on
+    what was actually copied, which is where a stray file would be caught.
+
+### Mutants (2026-11-12)
+
+Hand-written mutants, each applied once to a copy of the repository (never to the checkout), the
+copy's own tests run against it, the file restored and its hash checked; a no-op control first.
+The script is outside the repository.
+
+- **First round: 133 mutants**, over the configuration, the generator, the builder, the strict
+  reader, the two build paths in `api/state.py`, the routes, the bundle check and the e2e server.
+  118 were caught. Of the 15 left: the control (expected), two equivalent ones, and 12 real gaps.
+- **Equivalent, no test added:**
+  - the bundle check's integer cell (`36` and `36.0` hash alike, and a boolean is refused before
+    that line);
+  - the order of the bundle check's feature comparison (a repeated feature changes the row's
+    length, so the row is refused anyway).
+- **The 12 gaps, closed test first.** Most were tests that did break the rule they named, but broke
+  a second one too, so the reader refused them whether or not the first rule's check existed (a rate
+  moved outside its own interval; a sweep count pushed below zero; a ranked cell whose size no longer
+  matched its rate). Each damage now breaks one rule and keeps every other:
+  - the strict reader: a rate inside its interval that is not its counts, and an overall rate that is
+    not; `too_few` on a group of 20 or more and `complementary` on one under 20; a ranked group that
+    is a total, and one that is hidden; row totals that do not add up to the partition; a histogram
+    mean without an observed rate; a sweep that flags one more churner, one more stayer, or more
+    charges as the cut rises; NaN, infinity and an integer past a float's range; a good file padded
+    past the 8 MiB cap;
+  - the builder: a demo book that repeats two dataset customers' inputs, everything else in order,
+    is refused and writes nothing (the guide's §6 claimed this; nothing tested it);
+  - readiness: a book built from another generator, or for another deployment, is not ready, and is
+    again when the configuration returns to it, with nothing rebuilt;
+  - the e2e server's `publish`: it builds, then removes the dataset and the cache, and writes a
+    configuration that differs from the prepared one only by the public deployment.
+- **One defect found while writing those tests.** The e2e server's `publish` ran the builder (which
+  writes beside the model) before it checked that the files it removes are inside its folder. It now
+  checks the whole configuration (`confine`) and both files, links resolved, before anything is
+  written or removed. Two tests hold that order.
+- **Second round: the 12, plus 8 new mutants** (one per alternative of the sweep's monotone rule, of
+  the ranking rule and of the reason rule, and the new `confine` call): all 20 caught, each by the
+  test written for it. The 28 earlier mutants of the same files were run again against the changed
+  tests: see "Checks".
+- **Final count: 141 mutants, 138 caught, the control and the two equivalent ones not.**
+
+### Checks (2026-11-12)
+
+Run one at a time on the final tree:
+
+- the 28 earlier mutants of the reader, the builder and the e2e server, again against the changed
+  tests: all caught;
+- `npm run build`; `make lint`; full `pytest`: 4,157 passed, none failed;
+- front end: lint, typecheck, format check; vitest twice, 1,108 passed each time;
+- Playwright, both projects (`chromium` and `public-demo`): 98 passed, 2 skipped;
+- `scripts/verify_deploy_bundle.py --allow-example-domain`: "deployment bundle ready" (without the
+  flag it refuses, as it should while the domain is the example one);
+- `git diff --check` clean; the 13 fingerprinted sources, the ledger, the lock files, `artifacts/`
+  and `reports/` show no change.
+
+### Still open
+
+- **E8, differencing the validation sweep** (rated high by the review). The sweep and the
+  precision-recall curve give cumulative counts and money at every 0.01 of threshold; of the
+  100 steps of the built file, 16 hold exactly one churner and 4 exactly one customer, 74 fewer than
+  20. Between two such neighbours the difference gives one unnamed validation customer's monthly
+  charge and outcome within a known score interval. Recommended: close it before going public, as a
+  change of its own (a coarser grid, or merging steps until each holds at least 20 customers),
+  because it moves figures the model card states. It is the maintainer's decision; nothing was
+  changed.
+- **Not measured:** the current image's memory and the VPS's (the local Docker figures are of the
+  earlier layout, which held the dataset). The image of this change has not been built or run in
+  Docker.
+- **Not set:** the real domain. The bundle check passes only with `--allow-example-domain`.
