@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 
 import matplotlib
@@ -33,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 from churnsense import analysis as an
-from churnsense import insights, reports, viz
+from churnsense import insights, joint_disclosure, reports, viz
 from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.data.loader import CleaningReport, features_and_target, load_clean
@@ -63,19 +64,15 @@ _DIMENSION_OF = {
 STRENGTH_DECIMALS = reports.STRENGTH_DECIMALS
 
 
-def guarded(frame: pd.DataFrame, key: str) -> pd.DataFrame:
+def guarded(
+    frame: pd.DataFrame, key: str, reasons: Mapping[str, Mapping[str, str | None]]
+) -> pd.DataFrame:
     """``churn_rate_by``'s table with each group's churn withheld as the public demo withholds
-    it (``insights.guard_levels``): fewer than ``MIN_CELL`` churners or stayers, a
-    ``CROSS_PARTITION`` level, and what would give either back."""
+    it: ``reasons`` is ``insights.training_reasons`` of the same training rows, every table
+    guarded together - fewer than ``MIN_CELL`` churners or stayers, a ``CROSS_PARTITION``
+    level, and whatever in any table would give either back."""
     column = next(c for c, k in _DIMENSION_OF.items() if k == key)
-    levels = insights.DIMENSIONS[key].levels
-    by_level = frame.set_index(frame[column].astype(str))
-    customers = [int(by_level["customers"].get(level, 0)) for level in levels]
-    churned = [int(by_level["churned"].get(level, 0)) for level in levels]
-    reasons = dict(
-        zip(levels, insights.guard_levels(key, customers, churned, sum(churned)), strict=True)
-    )
-    hidden = frame[column].astype(str).map(lambda level: reasons.get(level) is not None)
+    hidden = frame[column].astype(str).map(lambda level: reasons[key].get(level) is not None)
     out = frame.astype({"churned": "float"}).copy()
     out.loc[hidden.to_numpy(), ["churned", "churn_rate"]] = np.nan
     return out
@@ -405,11 +402,21 @@ def _markdown(
     n_file: int,
 ) -> str:
     o = _overview(df)
-    contract = guarded(an.churn_rate_by(df, "Contract", sort_by_rate=True), "Contract")
-    payment = guarded(an.churn_rate_by(df, "PaymentMethod", sort_by_rate=True), "PaymentMethod")
+    try:
+        reasons = insights.training_reasons(df)
+    except joint_disclosure.Unprotectable:
+        # No publication of these tables keeps the rule: the report states none of them.
+        reasons = {
+            key: dict.fromkeys(dim.levels, "withheld") for key, dim in insights.DIMENSIONS.items()
+        }
+    contract = guarded(an.churn_rate_by(df, "Contract", sort_by_rate=True), "Contract", reasons)
+    payment = guarded(
+        an.churn_rate_by(df, "PaymentMethod", sort_by_rate=True), "PaymentMethod", reasons
+    )
     tenure = guarded(
         an.churn_rate_by(df.assign(tenure_bucket=an.tenure_bucket(df["tenure"])), "tenure_bucket"),
         "tenure",
+        reasons,
     )
     long_contracts = df[df["Contract"] != "Month-to-month"]
     addons = an.service_addon_rates(df)
@@ -418,6 +425,7 @@ def _markdown(
             df.assign(charge_band=an.charge_band(df["MonthlyCharges"])), "charge_band"
         ),
         "monthly",
+        reasons,
     )
     price_shape = _price_shape(price)
     gender_strength = (
@@ -425,7 +433,9 @@ def _markdown(
         if "gender" in set(ranking["feature"])
         else float("nan")
     )
-    fiber = guarded(an.churn_rate_by(df, "InternetService", sort_by_rate=True), "InternetService")
+    fiber = guarded(
+        an.churn_rate_by(df, "InternetService", sort_by_rate=True), "InternetService", reasons
+    )
     rel = {key: f"figures/{path.name}" for key, path in figures.items()}
 
     def table(frame: pd.DataFrame, cols: dict[str, str], fmt: dict[str, str]) -> str:

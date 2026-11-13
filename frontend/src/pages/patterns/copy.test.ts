@@ -83,7 +83,7 @@ describe('the words of the patterns page', () => {
     expect(focusText(VIEW, hidden('One year', '0-3', 12, 'too_few'), data)).toBe(
       'Contract One year, tenure 0–3 months: 12 customers, fewer than 20, so no churn rate is shown.',
     );
-    expect(focusText(VIEW, hidden('Month-to-month', '0-3', 960, 'complementary'), data)).toBe(
+    expect(focusText(VIEW, hidden('Month-to-month', '0-3', 960, 'withheld'), data)).toBe(
       'Contract Month-to-month, tenure 0–3 months: 960 customers. Its churn is held back on this page: ' +
         "with it, a smaller group's could be worked out from this table's totals.",
     );

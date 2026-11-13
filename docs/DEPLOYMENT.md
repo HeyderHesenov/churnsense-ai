@@ -711,7 +711,7 @@ one solution. What changed:
 | The reports' sweep thresholds | Cuts kept only where every piece, read with those thresholds at the worst counts the reports' rounding allows, keeps 20/20 (`score_disclosure.legacy_holds`): five cuts remain |
 | The test report's churners per segment, the dataset's totals | One- and two-year contracts' training churn hidden in every breakdown that holds them (`insights.CROSS_PARTITION`); only Month-to-month and the two longer contracts together follow, both well above 20 |
 | Association strengths | Served and tracked to two decimals (`reports.STRENGTH_DECIMALS`); Contract's then fits dozens of counts |
-| Training breakdowns | The validation rule applies: a shown group has at least 20 churners and 20 stayers, and the groups that would give a hidden one back are hidden too |
+| Training breakdowns | The validation rule applies: a shown group has at least 20 churners and 20 stayers, and the groups that would give a hidden one back - from any of the tables together, a one-way margin included - are hidden too (`churnsense.joint_disclosure`, format 4 below) |
 
 On the real file (format 3, migrated from the previous one without the dataset:
 `python -m churnsense.demo.migrate`), with the reports' figures read at their exact
@@ -728,6 +728,25 @@ the IBM sample is itself public: with it, the split seed in this repository and
 `/api/predict`, anyone can recompute every validation score and outcome. The rule keeps the
 demo from *publishing* finer groups; it protects nothing the dataset already gives away
 (see also `SECURITY.md`).
+
+**Every training table at once, 2026-11-13 (evidence format 4).** Until then each table
+was guarded on its own, and they add to each other: on a synthetic book a column margin
+(403 customers, 92 churners) less a row margin whose row holds a single group (313, 75)
+gave a hidden cell (90, 17). `churnsense.joint_disclosure` now reads the one-way tables,
+every two-way table, the partition's totals and the lifecycle's median tenures as one
+system of whole-number counts: the same customers named twice are one count (the
+add-ons' "No internet service" is InternetService "No"), a group inside another makes
+their difference a protected group of its own, and a sum of hidden counts that every
+completion gives the same value must hold 20 churners and 20 stayers (one- and two-year
+contracts' groups: never determined at all). What would give one away is hidden in every
+table that shows it - a cell first, a margin only where no cell will do - until nothing
+does; where no hiding can, nothing is published (`DemoDataError`). A hidden group's reason
+now says only what its size or the rule already states: `too_few`, `cross_partition` or
+`withheld` (which of "few churners or stayers" and "would give one back" it was bounded
+the count). The real file was migrated without the dataset: 23 more two-way groups are
+hidden, no one-way level is, and the guard run again on it changes nothing. The reader
+refuses a file whose tables disagree (a two-way table's margins not its dimensions' own,
+cells not adding up, two orientations or the same customers shown differently).
 
 **The repository's own reports, 2026-11-12.** `reports/threshold_sweep.csv` (the full
 validation sweep at every 0.01, with counts and money) and `reports/model_comparison.md`

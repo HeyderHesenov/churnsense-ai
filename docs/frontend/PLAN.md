@@ -2974,3 +2974,100 @@ every earlier commit keeps the full sweep, the artboards' arrays, the README's a
 report's contract counts and the full-precision ranking - from which the Two year validation
 count can still be worked out. Bounds remain. None of this is differential privacy or
 anonymity.
+
+## Every training table at once (2026-11-13)
+
+The tables were guarded one by one (`churnsense.suppression`); the user chose to read them
+as one system instead. `churnsense.joint_disclosure`:
+
+- Each set of customers is one count. The same people named twice are one count, found
+  from the published sizes alone (the add-ons' "No internet service" is InternetService
+  "No"). A group inside another (InternetService "No" inside "<$35") makes their
+  difference a protected group in every third dimension.
+- The constraints are equalities (cells add up to margins, margins to the partition) and
+  bounds. The lifecycle's median tenures bound the tenure buckets.
+- A sum of hidden counts that every whole-number completion gives the same value must
+  hold 20 churners and 20 stayers; a sum of Two year groups only may never be determined.
+- How each part is checked:
+  - linear programs pin bounds;
+  - mixed integer programs find the whole numbers' own equations;
+  - a search finds the smallest forbidden group, confirmed modulo two primes.
+- What is hidden: a published count in every table that shows it, cells before margins,
+  each chosen by what the sum's certificate says it frees.
+- No safe configuration means nothing is published (`Unprotectable` → `DemoDataError`).
+  Dataset mode then withholds the tables.
+
+Reasons collapse to `too_few`, `cross_partition` and `withheld` (evidence format 4).
+`complementary` and `few_of_an_outcome` told apart bounded the count.
+
+Other changes:
+
+- **Reader.** It now refuses tables that disagree.
+- **External audit.** It reads every set of Contract and InternetService levels that
+  the tables determine together (`disclosure_audit.training_determined`).
+- **EDA report.** It hides the levels the demo hides (`insights.training_reasons`).
+
+The real file was migrated without the dataset: 23 more two-way groups hidden, no one-way
+level, and it is a fixpoint. `tests/test_joint_disclosure.py` checks this against an
+independent outsider (`tests/joint_oracle.py`). Cases:
+
+- the review's 403/92 − 313/75 = 90/17 example and its reverse;
+- a margin rebuilt from a shown row;
+- stayers;
+- tables overlapping through a nested dimension;
+- a hidden margin reaching every table;
+- identities and differences;
+- alone groups;
+- refusal;
+- builder = file mode;
+- twenty random populations.
+
+The same tests fail with the joint pass switched off.
+
+On the synthetic test books, whose generator nests levels the real data does not (tenure
+4-6 inside Month-to-month, "<$35" inside "No internet"), far more is hidden.
+
+**Test stability.**
+
+- **E2E 429s.** They were the in-flight cap, `too_many_in_flight`: both Playwright workers
+  reach the e2e server from 127.0.0.1, one client key, so two pages loading at once shared
+  one browser's 12 slots. `tests/test_e2e_server.py` reproduces it: 4 of 16 refused. The
+  e2e server alone now allows that address 12 per browser (`E2E_CLIENTS`, kept equal to
+  Playwright's `workers`). Production's cap is unchanged. The guard fixture names the
+  refusal's code.
+- **Vitest.** `useSettledDraft`'s "lets one box settle" test asserted after a real 150 ms
+  pause against a 250 ms debounce. It now asserts right after the keystroke.
+
+**Review, mutants, decisions.**
+
+- **Review.** The code review found one P1, now fixed: an outsider reads the lifecycle's
+  median tenure off whole months, so a bucket is "above" a median when `edges[k] + 1 >
+  median`. A median of 3.5 then pins the churners of "0-3" exactly; a test shows the
+  guard refuses when that is small.
+- **Group search.** A search the solver could not finish now reads as determined, not
+  safe.
+- **Older files.** A shown count the rule hides is read as hidden.
+- **The builder's fixpoint check.** It reads the medians too.
+- **Single-flight.** `LiveEvidence` computes each value once, single-flight.
+- **Mutants.** Every caught mutant has a test that catches it. The joint search for each
+  kind of group (few churners, few stayers, Two year only) has one; so do whole numbers
+  over reals, nested Two year levels, the reader's consistency, old reasons and the
+  external audit's wiring. Six are equivalent:
+  - the control;
+  - a never-published count's flag;
+  - the single-count screen, which the search repeats;
+  - the alone check on single counts, which the alone search repeats;
+  - a refusal one round later;
+  - the e2e cap's assignment, which the source check and the browser runs cover.
+- **Not done, by decision.** The service's reader checks the tables agree but does not
+  run the guard again on every start (2-15 s); the builder and the migration do, and
+  refuse otherwise.
+- **The e2e server's earlier rule.** "no middleware patch" now allows exactly one
+  assignment, the in-flight cap to production x browsers. Without it, 3 tests failed
+  under load with 6 `too_many_in_flight`. With it, 5 runs under the same load passed
+  99/99.
+- **Vitest budgets.** `findBy`/`waitFor` 3 s (`src/test/setup.ts`), test 15 s
+  (`vite.config.ts`). Under heavy load (load averages 20-120, another suite running) 5
+  of 30 runs failed with the defaults, a different test each time; with these, 0 of 20.
+- **Test time.** The Python suite takes about 58 minutes, up from about 15: the synthetic
+  books, whose generator nests levels, make the joint guard hide most of every table.

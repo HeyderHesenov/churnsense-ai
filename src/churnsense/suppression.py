@@ -38,14 +38,14 @@ Totals - a breakdown's margins and the partition - are never hidden here: a
 margin is decided by its own one-way breakdown, so a two-way table hides only
 cells, and two responses that share a margin agree on it.
 
-**Scope: one response at a time.** Each table is protected on its own, and this
-is a rule for what a report states, not privacy protection. Responses can add
-to each other: two two-way tables that share a margin the one-way breakdown hid
-can each narrow that margin's churn and together pin it, and two dimensions can
-name the same people (no internet service under ``InternetService`` and under an
-add-on), so a count hidden in one table may be published in the other. Protecting
-every table of every dimension at once is not attempted. Nor does this reach
-beyond breakdowns: the API lists training customers with their own outcomes.
+**Scope: one table at a time.** Each table is protected on its own here, and this
+is a rule for what a report states, not privacy protection. Tables add to each
+other - two two-way tables sharing a margin the one-way table hid, two dimensions
+naming the same people (no internet service under ``InternetService`` and under an
+add-on), one group inside another - so this is only the first step:
+``churnsense.joint_disclosure`` then reads every table at once and hides what they
+give away together, a one-way margin included. Nor does this reach beyond
+breakdowns: in dataset mode the API lists training customers with their outcomes.
 """
 
 from __future__ import annotations

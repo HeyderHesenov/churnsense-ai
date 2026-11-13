@@ -172,7 +172,7 @@ PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
 #: (``churnsense.evidence``; tests/test_deploy.py holds both equal). The first format held
 #: the validation sweep at every 0.01, which differences into single customers; the second
 #: cut it finer than the release reports' thresholds allow, and showed small training groups.
-EVIDENCE_FORMAT = 3
+EVIDENCE_FORMAT = 4
 EVIDENCE_KEYS = frozenset(
     {
         "format",

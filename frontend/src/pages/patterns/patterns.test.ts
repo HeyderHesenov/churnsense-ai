@@ -116,7 +116,7 @@ describe('the shade of a cell', () => {
 
   it('sizes the customers scale by every group, hidden ones included', () => {
     const big = contractAlone({
-      row_totals: [hidden('A', null, 5000, 'complementary'), reported('B', null, 1000, 250)],
+      row_totals: [hidden('A', null, 5000, 'withheld'), reported('B', null, 1000, 250)],
     });
     expect(scaleOf(big, 'customers').top).toBe(5000);
   });

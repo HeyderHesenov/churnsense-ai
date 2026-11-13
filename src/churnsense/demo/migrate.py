@@ -9,9 +9,12 @@ merged into one. This command makes those changes and nothing else:
   release reports' thresholds (``score_disclosure.legacy_holds``), and the calibration
   bins are merged onto those cuts (customers, churners and the customer-weighted mean
   score add up exactly);
-* the training tables are guarded again (``insights.guard_published``): a group with
-  fewer than ``MIN_CELL`` churners or stayers, and Two year's churn, hidden with what
-  would give them back;
+* the training tables are guarded again, all of them as one system
+  (``insights.guard_published``, ``churnsense.joint_disclosure``): a group with fewer
+  than ``MIN_CELL`` churners or stayers, and Two year's churn, hidden with whatever in
+  any table - a one-way margin included - would give them back; a hidden group's reason
+  becomes one its size or the rule already states (format 4: ``too_few``,
+  ``cross_partition`` or ``withheld``);
 * the result is parsed and audited exactly as the builder's output is, then written
   in one step.
 
@@ -41,7 +44,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 #: The formats this command reads: the current one is migrated to itself, which changes nothing.
-READS = (2, evidence.FORMAT)
+READS = (2, 3, evidence.FORMAT)
 
 
 def _basis(record: dict[str, Any]) -> SweepBasis:

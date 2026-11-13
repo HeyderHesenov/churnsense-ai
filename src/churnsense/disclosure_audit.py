@@ -298,6 +298,7 @@ def external_segment_churners(
     one_way: Mapping[str, Sequence[tuple[str, int | None]]],
     partition_churned: int,
     segments: Mapping[str, Sequence[str]],
+    determined: Mapping[str, Sequence[tuple[Sequence[str], int]]] | None = None,
 ) -> dict[str, list[tuple[frozenset[int], int]]]:
     """The validation churners of sets of segments that published training counts give away.
 
@@ -309,6 +310,9 @@ def external_segment_churners(
 
     ``one_way`` gives each dimension's training levels as (level, churned or ``None``);
     ``segments`` the validation segments' order, as ``segment_violations`` numbers them.
+    ``determined``, when given, replaces what the one-way table alone gives: every set of
+    levels whose training churn all the published tables together determine
+    (``training_determined``) - a two-way table can give a level the one-way table hides.
     """
     from churnsense import legacy_disclosures as docs
 
@@ -324,6 +328,8 @@ def external_segment_churners(
         hidden = [level for level, c in levels if c is None]
         if hidden:
             known.append((hidden, partition_churned - sum(c for _, c in shown)))
+        if determined is not None:
+            known = [(list(names), int(value)) for names, value in determined.get(dimension, ())]
         for names, training in known:
             if not all((dimension, n) in docs.POPULATION_MARGINALS and n in order for n in names):
                 continue
@@ -431,13 +437,37 @@ def published_violations(
         extra = None
         if external:
             extra = external_segment_churners(
-                _one_way_churn(body), _partition_churned(body), _segment_order(segments)
+                _one_way_churn(body),
+                _partition_churned(body),
+                _segment_order(segments),
+                training_determined(body),
             )
         more, _ = segment_violations(
             segment_view(segments), (m["tp"], m["fp"], m["fn"], m["tn"]), truth, extra
         )
         found += more
     return found
+
+
+def training_determined(body: Mapping[str, Any]) -> dict[str, list[tuple[list[str], int]]]:
+    """For each dimension a release report states test churners for, every set of its
+    levels whose training churn the published tables, read together, determine - and that
+    churn (``churnsense.joint_disclosure``)."""
+    from churnsense import insights
+    from churnsense import legacy_disclosures as docs
+
+    tables = {(b["rows"], b["columns"]): b for b in body["breakdowns"]}
+    system = insights.joint_system(tables, body.get("lifecycle"))
+    out: dict[str, list[tuple[list[str], int]]] = {}
+    for dimension in docs.TEST_DIMENSIONS:
+        if (dimension, None) not in tables:
+            continue
+        levels = insights.DIMENSIONS[dimension].levels
+        out[dimension] = [
+            ([levels[i] for i in sorted(subset)], round(value))
+            for subset, value in system.determined_sums(dimension)
+        ]
+    return out
 
 
 def _one_way_churn(body: Mapping[str, Any]) -> dict[str, list[tuple[str, int | None]]]:

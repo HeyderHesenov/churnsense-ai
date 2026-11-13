@@ -35,7 +35,7 @@ export function hidden(
   row: string,
   column: string | null,
   n: number,
-  reason: Schemas['SuppressedCell']['reason'] = n < 20 ? 'too_few' : 'complementary',
+  reason: Schemas['SuppressedCell']['reason'] = n < 20 ? 'too_few' : 'withheld',
 ): Cell {
   return { row, column, n, reason, suppressed: true };
 }
@@ -65,7 +65,7 @@ export function contractByTenure(overrides: Partial<Segments> = {}): Segments {
     ],
     column_totals: [reported('0-3', null, 1000, 420), reported('4-72', null, 3000, 580)],
     cells: [
-      hidden('Month-to-month', '0-3', 960, 'complementary'),
+      hidden('Month-to-month', '0-3', 960, 'withheld'),
       reported('Month-to-month', '4-72', 1040, 280),
       hidden('One year', '0-3', 12, 'too_few'),
       reported('One year', '4-72', 988, 148),
@@ -109,8 +109,8 @@ export function chargesByStreaming(): Segments {
     column_totals: [reported('No', null, 2400, 500), reported('Yes', null, 1600, 500)],
     cells: [
       reported('<$35', 'No', 1400, 140),
-      hidden('<$35', 'Yes', 100, 'complementary'),
-      hidden('$35+', 'No', 1000, 'complementary'),
+      hidden('<$35', 'Yes', 100, 'withheld'),
+      hidden('$35+', 'No', 1000, 'withheld'),
       reported('$35+', 'Yes', 1500, 490),
     ],
     ranked: [reported('$35+', 'Yes', 1500, 490), reported('<$35', 'No', 1400, 140)],

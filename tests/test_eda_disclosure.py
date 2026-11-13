@@ -64,32 +64,26 @@ def test_two_year_contracts_churn_is_withheld_with_its_complement(report, train)
 @pytest.mark.parametrize(
     "key", ["Contract", "PaymentMethod", "tenure", "monthly", "InternetService"]
 )
-def test_a_report_table_withholds_what_the_public_demo_withholds(train, key):
+def test_a_report_table_withholds_what_the_public_demo_withholds(train, public_book, key):
+    """The report's tables, from the training frame, hide exactly what the demo's tables,
+    from the book of the same customers, hide - every table guarded together in both."""
     column = next(c for c, k in eda._DIMENSION_OF.items() if k == key)
     frame = train
     if column == "tenure_bucket":
         frame = train.assign(tenure_bucket=an.tenure_bucket(train["tenure"]))
     if column == "charge_band":
         frame = train.assign(charge_band=an.charge_band(train["MonthlyCharges"]))
-    table = eda.guarded(an.churn_rate_by(frame, column), key)
-    levels = insights.DIMENSIONS[key].levels
+    table = eda.guarded(an.churn_rate_by(frame, column), key, insights.training_reasons(train))
     by_level = table.set_index(table[column].astype(str))
-    reasons = insights.guard_levels(
-        key,
-        [int(by_level["customers"].get(level, 0)) for level in levels],
-        [
-            int(frame.loc[frame[column].astype(str) == level, schema.TARGET].sum())
-            for level in levels
-        ],
-        int(frame[schema.TARGET].sum()),
-    )
-    for level, reason in zip(levels, reasons, strict=True):
+    demo = {c.row: c for c in insights.breakdown(public_book, key).row_totals}
+    for level in insights.DIMENSIONS[key].levels:
         if level not in by_level.index:
             continue
         shown = not np.isnan(by_level.loc[level, "churned"])
-        assert shown == (reason is None), (key, level, reason)
+        assert shown == (demo[level].rate is not None), (key, level, demo[level].reason)
         if shown:
             churned = by_level.loc[level, "churned"]
+            assert churned == demo[level].churned
             assert churned >= insights.MIN_CELL
             assert by_level.loc[level, "customers"] - churned >= insights.MIN_CELL
 

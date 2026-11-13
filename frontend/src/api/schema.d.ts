@@ -1728,13 +1728,14 @@ export interface components {
      * SuppressedCell
      * @description A group whose churn is hidden: its size only, never a rate or a churn count.
      *
-     *     ``too_few``: fewer than 20 customers. ``few_of_an_outcome``: enough customers,
-     *     but fewer than 20 churners or 20 stayers. ``cross_partition``: a level whose
+     *     ``too_few``: fewer than 20 customers. ``cross_partition``: a level whose
      *     training count, with what an earlier release report states and the dataset's
-     *     public totals, would give a small validation group by subtraction.
-     *     ``complementary``: showing its churn would let one of those be worked out from
-     *     this table. A rule for this report, not privacy protection: the dataset is a
-     *     public sample, and minimum-cohort suppression is not anonymisation.
+     *     public totals, would give a small validation group by subtraction - hidden
+     *     whatever its count. ``withheld``: fewer than 20 churners or 20 stayers, or
+     *     showing its churn would let a hidden count be worked out from the tables
+     *     together; one word for both, so the reason bounds no count. A rule for this
+     *     report, not privacy protection: the dataset is a public sample, and
+     *     minimum-cohort suppression is not anonymisation.
      */
     SuppressedCell: {
       /** Column */
@@ -1745,7 +1746,7 @@ export interface components {
        * Reason
        * @enum {string}
        */
-      reason: 'too_few' | 'few_of_an_outcome' | 'cross_partition' | 'complementary';
+      reason: 'too_few' | 'cross_partition' | 'withheld';
       /** Row */
       row: string;
       /**

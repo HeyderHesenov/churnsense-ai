@@ -155,6 +155,82 @@ def test_one_client_at_the_real_query_budget_is_refused_and_at_the_e2e_one_is_no
     assert _drive(dict(e2e_cfg.api.rate_limits), path, 400) == [(204, None)] * 400
 
 
+def _concurrent(cap: int, clients: int, each: int) -> list[str | None]:
+    """``clients`` browsers sending ``each`` requests at once, all from 127.0.0.1, held in
+    flight until every one has been answered or refused: each one's error code."""
+    import asyncio
+    import json
+
+    from churnsense.api import middleware
+
+    async def run() -> list[str | None]:
+        release = asyncio.Event()
+
+        async def app(scope, receive, send):
+            await release.wait()
+            await send({"type": "http.response.start", "status": 204, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        limiter = middleware.RateLimit(app, clock=lambda: 0.0)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/customers",
+            "headers": [],
+            "client": ("127.0.0.1", 50000),
+        }
+
+        async def one() -> str | None:
+            sent: list[dict] = []
+
+            async def send(message):
+                sent.append(message)
+
+            await limiter(dict(scope), receive, send)
+            status = sent[0]["status"]
+            return None if status == 204 else json.loads(sent[1]["body"])["error"]
+
+        tasks = [asyncio.create_task(one()) for _ in range(clients * each)]
+        await asyncio.sleep(0)
+        release.set()
+        return await asyncio.gather(*tasks)
+
+    before = (middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS)
+    middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS = {}, cap
+    try:
+        return asyncio.run(run())
+    finally:
+        middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS = before
+
+
+def test_two_browsers_behind_one_address_share_one_in_flight_cap():
+    """What the browser suite met under load: two pages loading at once from 127.0.0.1,
+    eight requests each, against one browser's twelve slots - four refused, by the in-flight
+    cap, not a budget. With a browser's slots for each browser, none is."""
+    from churnsense.api import middleware
+
+    production = middleware.MAX_CLIENT_REQUESTS
+    refused = _concurrent(production, clients=2, each=8)
+    assert refused.count("too_many_in_flight") == 16 - production
+    assert set(refused) == {None, "too_many_in_flight"}
+    assert _concurrent(production, clients=1, each=8) == [None] * 8
+    assert _concurrent(e2e_server.in_flight_cap(), clients=2, each=8) == [None] * 16
+
+
+def test_the_e2e_server_counts_as_many_browsers_as_playwright_runs():
+    config = (Path(__file__).resolve().parents[1] / "frontend" / "playwright.config.ts").read_text()
+    workers = re.search(r"^\s*workers:\s*(\d+),", config, re.MULTILINE)
+    assert workers is not None
+    assert int(workers.group(1)) == e2e_server.E2E_CLIENTS
+    from churnsense.api import middleware
+
+    assert middleware.MAX_CLIENT_REQUESTS == 12, "importing the e2e server changes nothing"
+    assert e2e_server.in_flight_cap() == 12 * e2e_server.E2E_CLIENTS
+
+
 def test_the_e2e_budgets_do_not_alter_the_production_defaults(cfg):
     """Importing and using the test server leaves every real limit exactly as it was."""
     from churnsense.api import middleware
@@ -234,18 +310,33 @@ def test_the_in_flight_cap_still_applies_under_the_e2e_budgets(e2e_cfg):
 
 
 def test_the_test_server_overrides_budgets_through_its_own_configuration_only():
-    """No patch of the middleware, no change to the cap, and no place in a deployment."""
+    """Budgets through its own configuration file; of the middleware, only the in-flight cap,
+    once, and only to give each browser the production cap (the browsers share one address:
+    ``test_two_browsers_behind_one_address_share_one_in_flight_cap``); no place in a
+    deployment."""
     import ast
 
     source = (PROJECT_ROOT / "scripts" / "e2e_server.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
-    names = {
-        *(node.id for node in ast.walk(tree) if isinstance(node, ast.Name)),
-        *(node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)),
-        *(alias.name for node in ast.walk(tree) if isinstance(node, ast.alias) for alias in [node]),
-    }
-    assert "MAX_CLIENT_REQUESTS" not in names
-    assert "middleware" not in names and "churnsense.api.middleware" not in names
+    touched = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "middleware"
+    ]
+    assert sorted(node.attr for node in touched) == ["MAX_CLIENT_REQUESTS", "MAX_CLIENT_REQUESTS"]
+    assigned = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Attribute) and t.attr == "MAX_CLIENT_REQUESTS" for t in node.targets
+        )
+    ]
+    assert len(assigned) == 1
+    assert ast.unparse(assigned[0].value) == "in_flight_cap()"
+    assert "middleware.MAX_CLIENT_REQUESTS * E2E_CLIENTS" in source
     keys = [
         node.value
         for node in ast.walk(tree)

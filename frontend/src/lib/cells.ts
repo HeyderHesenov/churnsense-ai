@@ -8,10 +8,8 @@ export const MIN_CUSTOMERS = 20;
 export function hiddenText(cell: Schemas['SuppressedCell'], minimum: number): string {
   if (cell.n === 0) return 'no customers';
   switch (cell.reason) {
-    case 'complementary':
-      return 'not shown here, so this table gives no smaller group away';
-    case 'few_of_an_outcome':
-      return `fewer than ${minimum} churners or ${minimum} stayers`;
+    case 'withheld':
+      return `not shown: too few churners or stayers, or the tables together would give a group of fewer than ${minimum} away`;
     case 'cross_partition':
       return 'not shown: with an earlier release report it would give a small group away';
     case 'too_few':

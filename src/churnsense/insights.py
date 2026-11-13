@@ -19,6 +19,9 @@ which every customer has.
 
 from __future__ import annotations
 
+import itertools
+import threading
+import weakref
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
@@ -28,7 +31,7 @@ import pandas as pd
 
 from churnsense import analysis as an
 from churnsense import book as books
-from churnsense import suppression
+from churnsense import joint_disclosure, suppression
 from churnsense.data import schema
 from churnsense.evaluation.disclosure import MIN_CELL
 from churnsense.evaluation.metrics import (
@@ -51,6 +54,7 @@ from churnsense.evaluation.threshold import (
     sweep_thresholds,
     threshold_sensitivity,
 )
+from churnsense.exceptions import DemoDataError
 
 if TYPE_CHECKING:
     from churnsense.config import Business, Config
@@ -219,16 +223,17 @@ class HistogramBin:
     observed_mean: float | None
 
 
-#: Why a cell's churn is hidden:
+#: Why a cell's churn is hidden - only what its published size, or the rule itself, already
+#: says, so the reason narrows no count:
 #:
-#: * ``too_few``: fewer than ``MIN_CELL`` customers;
-#: * ``few_of_an_outcome``: enough customers, but fewer than ``MIN_CELL`` churners or
-#:   ``MIN_CELL`` stayers - a group's outcome is shown only where both are at least that
-#:   many, the rule the validation figures keep too (``score_disclosure.two_sided``);
+#: * ``too_few``: fewer than ``MIN_CELL`` customers (the size says so);
 #: * ``cross_partition``: a level whose training count, with what immutable documents
-#:   already state, gives a small validation group by subtraction (``CROSS_PARTITION``);
-#: * ``complementary``: shown, it would let one of the above be worked out.
-HiddenReason = Literal["too_few", "few_of_an_outcome", "cross_partition", "complementary"]
+#:   already state, gives a small validation group by subtraction (``CROSS_PARTITION``):
+#:   always hidden, whatever its count;
+#: * ``withheld``: everything else - too few churners or stayers, or shown it would let
+#:   another hidden count be worked out from the tables together. One word for both: told
+#:   apart, the reason would bound the count (``churnsense.joint_disclosure``).
+HiddenReason = Literal["too_few", "cross_partition", "withheld"]
 
 #: Levels whose training churn is never shown, in any table. The test partition's churners
 #: per Contract level are in an immutable release report (``legacy_disclosures``) and the
@@ -495,45 +500,213 @@ def observed_overall(book: books.Book) -> Observed | None:
 RANKED = 7
 
 
+def breakdowns(
+    book: books.Book, *, top: int = RANKED
+) -> dict[tuple[str, str | None], Breakdown] | None:
+    """Every one- and two-way breakdown of the training partition, small groups' churn hidden.
+
+    ``None`` when no outcome may be shown. Every combination of levels is returned, an
+    empty one with zero customers. A group of fewer than ``MIN_CELL`` customers keeps only
+    its size, and so does every further group that would let one's churn - alone or summed
+    with others, from any of the tables together - be worked out: each table is first
+    protected on its own (``churnsense.suppression``), then all of them as one system
+    (``churnsense.joint_disclosure``), which may hide a one-way margin too. Raises
+    ``joint_disclosure.Unprotectable`` when no hiding keeps the rule: nothing is published.
+    """
+    key = (id(book.frame), id(book.outcomes), top)
+    with _TABLES_LOCK:
+        kept = _TABLES.get(key)
+        if kept is not None and kept[0]() is book.frame and kept[1]() is book.outcomes:
+            return kept[2]
+    train = books.labelled(book.frame, "train", shown=book.outcomes)
+    tables = None if train.empty else _tables(_training_counts(train), top=top)
+    with _TABLES_LOCK:
+        _TABLES[key] = (weakref.ref(book.frame), weakref.ref(book.outcomes), tables)
+        weakref.finalize(book.frame, _TABLES.pop, key, None)
+    return tables
+
+
+#: ``breakdowns`` per book, while its frame lives: guarding every table together is the
+#: costly part, and the same book is asked for one table after another.
+_TABLES: dict[tuple[int, int, int], tuple] = {}
+_TABLES_LOCK = threading.Lock()
+
+
 def breakdown(
     book: books.Book, rows: str, columns: str | None = None, *, top: int = RANKED
 ) -> Breakdown | None:
-    """A one- or two-way breakdown of the training partition, small groups' churn hidden.
+    """One breakdown of ``breakdowns``: ``rows`` and ``columns`` are keys of
+    ``DIMENSIONS``; anything else raises ``KeyError``."""
+    DIMENSIONS[rows]
+    if columns is not None:
+        DIMENSIONS[columns]
+    found = breakdowns(book, top=top)
+    return None if found is None else found[(rows, columns)]
 
-    ``None`` when no outcome may be shown. ``rows`` and ``columns`` are keys of
-    ``DIMENSIONS``; anything else raises ``KeyError``. Every combination of
-    levels is returned, an empty one with zero customers. A group of fewer than
-    ``MIN_CELL`` customers keeps only its size, and so does every further group
-    that would let one's churn - alone or summed with others - be worked out
-    (``churnsense.suppression``).
 
-    The margins are each dimension's own one-way breakdown, and a grid is
-    protected in ``DIMENSIONS`` order whichever way round it is asked for, so
-    responses agree on what they hide. The guarantee is per response; see
-    ``churnsense.suppression`` for where combining them could narrow a count.
-    """
-    row_dim = DIMENSIONS[rows]
-    col_dim = DIMENSIONS[columns] if columns is not None else None
-    train = books.labelled(book.frame, "train", shown=book.outcomes)
-    if train.empty:
-        return None
-    base = _rate(train[schema.TARGET].sum(), len(train))
-    row_totals = _one_way(train, row_dim, base)
-    if col_dim is None:
-        column_totals, grid = [], row_totals
-    else:
-        column_totals = _one_way(train, col_dim, base)
-        grid = _two_way(train, (row_dim, row_totals), (col_dim, column_totals), base)
-    ranked = sorted((c for c in grid if c.rate is not None), key=lambda c: -c.rate)[:top]
+@dataclass(frozen=True)
+class _Training:
+    """The training partition's counts: customers and churners per level and per pair of
+    levels (pairs in ``DIMENSIONS`` order), and the median tenure of each outcome."""
+
+    one_way: dict[str, tuple[np.ndarray, np.ndarray]]
+    two_way: dict[tuple[str, str], tuple[np.ndarray, np.ndarray]]
+    customers: int
+    churned: int
+    medians: dict[int, float]
+
+
+def _training_counts(train: pd.DataFrame) -> _Training:
+    work = train
+    if "tenure_bucket" not in work.columns or "charge_band" not in work.columns:
+        work = train.assign(
+            tenure_bucket=an.tenure_bucket(train["tenure"]),
+            charge_band=an.charge_band(train["MonthlyCharges"]),
+        )
+    return _Training(
+        one_way={key: _counts(work, dim) for key, dim in DIMENSIONS.items()},
+        two_way={
+            (a, b): _counts(work, DIMENSIONS[a], DIMENSIONS[b])
+            for a, b in itertools.combinations(DIMENSIONS, 2)
+        },
+        customers=len(work),
+        churned=int(work[schema.TARGET].sum()),
+        medians=an.median_tenure_by_outcome(work),
+    )
+
+
+def training_reasons(train: pd.DataFrame) -> dict[str, dict[str, HiddenReason | None]]:
+    """Why each level of each one-way table is hidden, as the public demo hides it - every
+    table guarded together (``breakdowns``) - for a training frame without a book (the EDA
+    report). ``joint_disclosure.Unprotectable`` when no hiding keeps the rule."""
+    counts = _training_counts(train)
+    hidden = _joint(counts)
+    out: dict[str, dict[str, HiddenReason | None]] = {}
+    for key, (customers, churned) in counts.one_way.items():
+        out[key] = {
+            level: _reason(
+                int(customers[i]),
+                int(churned[i]),
+                ("m", key, i) in hidden,
+                _crossed(key, level),
+            )
+            for i, level in enumerate(DIMENSIONS[key].levels)
+        }
+    return out
+
+
+def _crossed(key: str, level: str) -> bool:
+    return level in CROSS_PARTITION.get(key, ())
+
+
+def _medians(churned: float | None, stayed: float | None) -> joint_disclosure.Medians:
+    return joint_disclosure.Medians(churned, stayed, "tenure", an.TENURE_BINS)
+
+
+def _joint(counts: _Training) -> set[joint_disclosure.Key]:
+    """The counts to hide: each table's own guard first, then all of them as one system."""
+    one_hidden: dict[str, list[bool]] = {}
+    for key, (customers, churned) in counts.one_way.items():
+        reasons = guard_levels(key, customers.tolist(), churned.tolist(), counts.churned)
+        one_hidden[key] = [r is not None for r in reasons]
+    margins = {
+        key: [None if one_hidden[key][i] else int(c) for i, c in enumerate(churned)]
+        for key, (_customers, churned) in counts.one_way.items()
+    }
+    two_way = {}
+    for (a, b), (customers, churned) in counts.two_way.items():
+        reasons = guard_cells(
+            (a, b), customers, churned.tolist(), (margins[a], margins[b]), counts.churned
+        )
+        two_way[(a, b)] = [
+            [
+                (int(customers[i, j]), int(churned[i, j]), reasons[i][j] is not None)
+                for j in range(customers.shape[1])
+            ]
+            for i in range(customers.shape[0])
+        ]
+    one_way = {
+        key: [
+            (int(n), int(c), one_hidden[key][i])
+            for i, (n, c) in enumerate(zip(*counts.one_way[key], strict=True))
+        ]
+        for key in counts.one_way
+    }
+    system = joint_disclosure.Joint(
+        {key: dim.levels for key, dim in DIMENSIONS.items()},
+        one_way,
+        two_way,
+        (counts.customers, counts.churned),
+        alone=CROSS_PARTITION,
+        medians=_medians(counts.medians.get(1), counts.medians.get(0)),
+        minimum=MIN_CELL,
+    )
+    return system.guard()
+
+
+def _tables(counts: _Training, *, top: int) -> dict[tuple[str, str | None], Breakdown]:
+    hidden = _joint(counts)
+    base = _rate(counts.churned, counts.customers)
+    one: dict[str, list[Cell]] = {}
+    for key, (customers, churned) in counts.one_way.items():
+        levels = DIMENSIONS[key].levels
+        one[key] = [
+            _cell(
+                level,
+                None,
+                int(customers[i]),
+                int(churned[i]),
+                _reason(
+                    int(customers[i]),
+                    int(churned[i]),
+                    ("m", key, i) in hidden,
+                    _crossed(key, level),
+                ),
+                base,
+            )
+            for i, level in enumerate(levels)
+        ]
+    out: dict[tuple[str, str | None], Breakdown] = {}
+    for rows in DIMENSIONS:
+        out[(rows, None)] = _assembled(rows, None, counts, base, one[rows], [], one[rows], top)
+    for rows, columns in itertools.permutations(DIMENSIONS, 2):
+        flip = _ORDER[rows] > _ORDER[columns]
+        first, second = (columns, rows) if flip else (rows, columns)
+        customers, churned = counts.two_way[(first, second)]
+        grid = []
+        for i, a in enumerate(DIMENSIONS[rows].levels):
+            for j, b in enumerate(DIMENSIONS[columns].levels):
+                at = (j, i) if flip else (i, j)
+                key = ("c", first, at[0], second, at[1])
+                crossed = _crossed(rows, a) or _crossed(columns, b)
+                n, c = int(customers[at]), int(churned[at])
+                grid.append(_cell(a, b, n, c, _reason(n, c, key in hidden, crossed), base))
+        out[(rows, columns)] = _assembled(
+            rows, columns, counts, base, one[rows], one[columns], grid, top
+        )
+    return out
+
+
+def _assembled(
+    rows: str,
+    columns: str | None,
+    counts: _Training,
+    base: float | None,
+    row_totals: list[Cell],
+    column_totals: list[Cell],
+    cells: list[Cell],
+    top: int,
+) -> Breakdown:
+    ranked = sorted((c for c in cells if c.rate is not None), key=lambda c: -c.rate)[:top]
     return Breakdown(
         rows=rows,
         columns=columns,
-        partition_customers=len(train),
-        partition_churned=int(train[schema.TARGET].sum()),
+        partition_customers=counts.customers,
+        partition_churned=counts.churned,
         base_rate=base,
         row_totals=row_totals,
         column_totals=column_totals,
-        cells=grid,
+        cells=cells,
         ranked=ranked,
     )
 
@@ -575,9 +748,7 @@ def _reason(
         return "too_few"
     if crossed:
         return "cross_partition"
-    if churned is not None and not _keeps(churned, customers):
-        return "few_of_an_outcome"
-    return "complementary" if hidden or churned is None else None
+    return "withheld" if hidden or churned is None or not _keeps(churned, customers) else None
 
 
 def guard_levels(
@@ -657,47 +828,6 @@ def guard_cells(
     ]
 
 
-def _one_way(train: pd.DataFrame, dim: Dimension, base: float | None) -> list[Cell]:
-    customers, churned = _counts(train, dim)
-    reasons = guard_levels(dim.key, customers.tolist(), churned.tolist(), int(churned.sum()))
-    return [
-        _cell(level, None, int(customers[i]), int(churned[i]), reasons[i], base)
-        for i, level in enumerate(dim.levels)
-    ]
-
-
-def _two_way(
-    train: pd.DataFrame,
-    rows: tuple[Dimension, list[Cell]],
-    columns: tuple[Dimension, list[Cell]],
-    base: float | None,
-) -> list[Cell]:
-    """The grid of two dimensions, protected around their one-way margins in canonical order."""
-    flip = _ORDER[rows[0].key] > _ORDER[columns[0].key]
-    first, second = (columns, rows) if flip else (rows, columns)
-    customers, churned = _counts(train, first[0], second[0])
-    reasons = guard_cells(
-        (first[0].key, second[0].key),
-        customers,
-        churned.tolist(),
-        (_margin_churn(first[1]), _margin_churn(second[1])),
-        int(churned.sum()),
-    )
-    if flip:
-        customers, churned = customers.T, churned.T
-        reasons = [list(line) for line in zip(*reasons, strict=True)]
-    return [
-        _cell(a, b, int(customers[i, j]), int(churned[i, j]), reasons[i][j], base)
-        for i, a in enumerate(rows[0].levels)
-        for j, b in enumerate(columns[0].levels)
-    ]
-
-
-def _margin_churn(margins: list[Cell]) -> list[int | None]:
-    """The one-way churn counts as the margins publish them: ``None`` where hidden."""
-    return [cell.churned if cell.rate is not None else None for cell in margins]
-
-
 def _cell(
     row: str,
     column: str | None,
@@ -722,11 +852,16 @@ def _cell(
     )
 
 
-def lifecycle(book: books.Book) -> Lifecycle | None:
-    """Churn by tenure bucket, and the median tenure of each outcome, on training."""
-    split = breakdown(book, "tenure")
-    if split is None:
+def lifecycle(
+    book: books.Book, tables: Mapping[tuple[str, str | None], Breakdown] | None = None
+) -> Lifecycle | None:
+    """Churn by tenure bucket, and the median tenure of each outcome, on training: the
+    tenure breakdown of ``tables`` (``breakdowns`` when not given)."""
+    if tables is None:
+        tables = breakdowns(book)
+    if tables is None:
         return None
+    split = tables[("tenure", None)]
     train = books.labelled(book.frame, "train", shown=book.outcomes)
     medians = an.median_tenure_by_outcome(train)
     return Lifecycle(
@@ -1082,71 +1217,128 @@ def _plain_cell(cell: dict, reason: HiddenReason) -> dict:
     )
 
 
+def joint_system(
+    tables: Mapping[tuple[str, str | None], Breakdown | dict], lifecycle: Lifecycle | dict | None
+) -> joint_disclosure.Joint:
+    """Published tables (parsed, or as JSON-ready dicts) as the one system an outsider reads
+    (``churnsense.joint_disclosure``): a hidden count is unknown. ``ValueError`` when the
+    tables count the same customers differently."""
+
+    def get(item: object, name: str) -> object:
+        return item[name] if isinstance(item, dict) else getattr(item, name)
+
+    present = [key for key in DIMENSIONS if (key, None) in tables]
+
+    def count(cell: object, crossed: bool) -> joint_disclosure.Count:
+        """A published count as the outsider reads it - and hidden, whatever an older file
+        shows, where the rule hides it: a small group, a cross-partition level, a group
+        without twenty of each outcome."""
+        customers, churned = int(get(cell, "customers")), get(cell, "churned")
+        hidden = (
+            get(cell, "rate") is None
+            or customers < MIN_CELL
+            or crossed
+            or churned is None
+            or not _keeps(int(churned), customers)
+        )
+        return (customers, None if get(cell, "rate") is None else int(churned), hidden)
+
+    one_way = {
+        key: [
+            count(c, _crossed(key, get(c, "row"))) for c in get(tables[(key, None)], "row_totals")
+        ]
+        for key in present
+    }
+    two_way = {}
+    for a, b in itertools.combinations(present, 2):
+        table = tables.get((a, b))
+        if table is None:
+            continue
+        at = {(get(c, "row"), get(c, "column")): c for c in get(table, "cells")}
+        two_way[(a, b)] = [
+            [count(at[(x, y)], _crossed(a, x) or _crossed(b, y)) for y in DIMENSIONS[b].levels]
+            for x in DIMENSIONS[a].levels
+        ]
+    medians = None
+    if lifecycle is not None:
+        medians = _medians(
+            get(lifecycle, "median_tenure_churned"), get(lifecycle, "median_tenure_stayed")
+        )
+    first = tables[(present[0], None)]
+    return joint_disclosure.Joint(
+        {key: DIMENSIONS[key].levels for key in present},
+        one_way,
+        two_way,
+        (int(get(first, "partition_customers")), int(get(first, "partition_churned"))),
+        alone=CROSS_PARTITION,
+        medians=medians,
+        minimum=MIN_CELL,
+    )
+
+
 def guard_published(breakdowns: list[dict], lifecycle: dict | None = None) -> bool:
     """Apply the guard again to published breakdowns (as JSON-ready dicts), in place.
 
-    What is hidden is read as unknown, as an outsider reads it; anything the guard would hide
-    on top - a margin that now follows from its line, a level a newly hidden one leaves
-    exposed - is hidden too, and the one-way margins, the two-way tables built on them, the
-    rankings and the lifecycle's buckets are made to agree again. Repeated until nothing
-    changes. Returns whether anything did.
+    What is hidden is read as unknown, as an outsider reads it, and every table at once
+    (``churnsense.joint_disclosure``): anything the system would hide on top is hidden in
+    every table that shows it, each hidden count's reason is the one its size or the rule
+    gives (``HiddenReason``), and the one-way margins, the two-way tables built on them, the
+    rankings and the lifecycle's buckets agree again. Returns whether anything changed.
+    ``DemoDataError`` when no hiding keeps the rule.
     """
-    one_way = {b["rows"]: b for b in breakdowns if b["columns"] is None}
-    changed_any = False
-    while True:
-        changed = False
-        for key, table in one_way.items():
-            cells = table["row_totals"]
-            reasons = guard_levels(
-                key,
-                [c["customers"] for c in cells],
-                [c["churned"] for c in cells],
-                table["partition_churned"],
-            )
-            for i, reason in enumerate(reasons):
-                if reason is not None and cells[i]["rate"] is not None:
-                    cells[i] = _plain_cell(cells[i], reason)
-                    changed = True
-            table["cells"] = cells
-        for table in breakdowns:
-            if table["columns"] is None:
-                continue
-            rows, columns = table["rows"], table["columns"]
-            table["row_totals"] = [dict(c) for c in one_way[rows]["row_totals"]]
-            table["column_totals"] = [dict(c) for c in one_way[columns]["row_totals"]]
-            flip = _ORDER[rows] > _ORDER[columns]
-            first, second = (columns, rows) if flip else (rows, columns)
-            levels = (DIMENSIONS[first].levels, DIMENSIONS[second].levels)
-            at = {(c["row"], c["column"]): c for c in table["cells"]}
+    tables = {(b["rows"], b["columns"]): b for b in breakdowns}
+    present = [key for key in DIMENSIONS if (key, None) in tables]
+    if not present:
+        return False
+    try:
+        system = joint_system(tables, lifecycle)
+        hidden = system.guard()
+    except joint_disclosure.Unprotectable as exc:
+        raise DemoDataError(f"no publication of the training tables keeps the rule: {exc}") from exc
+    except ValueError as exc:
+        raise DemoDataError(f"the published training tables disagree: {exc}") from exc
 
-            def get(a: str, b: str, flip: bool = flip, at: dict = at) -> dict:
-                return at[(b, a)] if flip else at[(a, b)]
+    changed = False
 
-            customers = np.array([[get(a, b)["customers"] for b in levels[1]] for a in levels[0]])
-            churned = [[get(a, b)["churned"] for b in levels[1]] for a in levels[0]]
-            margins = tuple(
-                [
-                    c["churned"] if c["rate"] is not None else None
-                    for c in one_way[key]["row_totals"]
-                ]
-                for key in (first, second)
+    def settle(cell: dict, key: joint_disclosure.Key, crossed: bool) -> dict:
+        nonlocal changed
+        hide = key in hidden or cell["rate"] is None
+        reason = _reason(int(cell["customers"]), cell["churned"], hide, crossed)
+        if reason is None:
+            return cell
+        out = _plain_cell(cell, reason)
+        changed |= out != cell
+        return out
+
+    for key in present:
+        table = tables[(key, None)]
+        levels = DIMENSIONS[key].levels
+        table["row_totals"] = [
+            settle(c, ("m", key, levels.index(c["row"])), _crossed(key, c["row"]))
+            for c in table["row_totals"]
+        ]
+        table["cells"] = [dict(c) for c in table["row_totals"]]
+    for table in breakdowns:
+        rows, columns = table["rows"], table["columns"]
+        if columns is None:
+            continue
+        table["row_totals"] = [dict(c) for c in tables[(rows, None)]["row_totals"]]
+        table["column_totals"] = [dict(c) for c in tables[(columns, None)]["row_totals"]]
+        flip = _ORDER[rows] > _ORDER[columns]
+        cells = []
+        for c in table["cells"]:
+            i, j = (
+                DIMENSIONS[rows].levels.index(c["row"]),
+                DIMENSIONS[columns].levels.index(c["column"]),
             )
-            reasons = guard_cells(
-                (first, second), customers, churned, margins, table["partition_churned"]
-            )
-            for i, a in enumerate(levels[0]):
-                for j, b in enumerate(levels[1]):
-                    cell = get(a, b)
-                    if reasons[i][j] is not None and cell["rate"] is not None:
-                        at[(b, a) if flip else (a, b)] = _plain_cell(cell, reasons[i][j])
-                        changed = True
-            table["cells"] = [at[(c["row"], c["column"])] for c in table["cells"]]
-        for table in breakdowns:
-            shown = [c for c in table["cells"] if c["rate"] is not None]
-            table["ranked"] = sorted(shown, key=lambda c: -c["rate"])[:RANKED]
-        changed_any |= changed
-        if not changed:
-            break
-    if lifecycle is not None and "tenure" in one_way:
-        lifecycle["buckets"] = [dict(c) for c in one_way["tenure"]["row_totals"]]
-    return changed_any
+            key = ("c", columns, j, rows, i) if flip else ("c", rows, i, columns, j)
+            cells.append(settle(c, key, _crossed(rows, c["row"]) or _crossed(columns, c["column"])))
+        table["cells"] = cells
+    for table in breakdowns:
+        shown = [c for c in table["cells"] if c["rate"] is not None]
+        table["ranked"] = sorted(shown, key=lambda c: -c["rate"])[:RANKED]
+    if lifecycle is not None and "tenure" in present:
+        buckets = [dict(c) for c in tables[("tenure", None)]["row_totals"]]
+        changed |= lifecycle.get("buckets") != buckets
+        lifecycle["buckets"] = buckets
+    return changed

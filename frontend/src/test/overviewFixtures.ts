@@ -151,7 +151,7 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
             column: null,
             n: 920,
             suppressed: true,
-            reason: 'complementary',
+            reason: 'withheld',
           },
           {
             row: 'Credit card (automatic)',

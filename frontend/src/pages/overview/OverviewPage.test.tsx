@@ -866,7 +866,9 @@ describe('Overview: what the risk is associated with', () => {
     const payment = within(card).getByRole('tabpanel', { name: 'Payment' });
     expect(payment).toHaveTextContent('Credit card (auto)');
     expect(payment).toHaveTextContent('fewer than 20 customers');
-    expect(payment).toHaveTextContent('not shown here, so this table gives no smaller group away');
+    expect(payment).toHaveTextContent(
+      'not shown: too few churners or stayers, or the tables together would give a group of fewer than 20 away',
+    );
 
     await userEvent.click(within(card).getByRole('tab', { name: 'Price' }));
     expect(within(card).getByRole('tabpanel', { name: 'Price' })).toHaveTextContent('Under $35');

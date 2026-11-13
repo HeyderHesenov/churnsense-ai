@@ -82,7 +82,7 @@ def test_hiding_two_year_alone_would_give_it_back_as_the_total_less_the_others()
     """Not just the hidden cell: the guard hides One year with it, or the total betrays it."""
     reasons = insights.guard_levels("Contract", [2326, 865, 1034], [1002, 93, 40], 1135)
     assert reasons[2] == "cross_partition"
-    assert reasons[1] == "complementary" and reasons[0] is None
+    assert reasons[1] == "withheld" and reasons[0] is None
     external = _external(_one_way(None, 93), 1135)
     assert frozenset({2}) in {members for members, _ in external["Contract"]}
 
@@ -532,3 +532,148 @@ def test_the_release_cuts_are_the_ones_the_rule_keeps_from_the_earlier_eleven():
     exactly the release cuts survive (checked with the reports' worst-case counts)."""
     assert legacy_disclosures.RELEASE_CUTS == (0.0, 0.30, 0.36, 0.50, 0.53)
     assert all(np.isclose(c, round(c, 2)) for c in legacy_disclosures.RELEASE_CUTS)
+
+
+# --- the reader: the tables tell one story ----------------------------------------------------
+
+
+def _parse(body, public_predictor):
+    return evidence.parse(json.loads(evidence.dumps(body)), public_predictor)
+
+
+def _table(body, rows, columns):
+    return next(b for b in body["breakdowns"] if b["rows"] == rows and b["columns"] == columns)
+
+
+def _withheld(cell):
+    return (
+        cell
+        | {"churned": None, "rate": None, "lift": None, "low": None, "high": None}
+        | {"reason": "too_few" if cell["customers"] < 20 else "withheld"}
+    )
+
+
+def _first_shown(cells):
+    return next(i for i, c in enumerate(cells) if c["rate"] is not None and c["customers"] >= 20)
+
+
+def _with_shown(body, part):
+    """The first two-way table with a shown group of at least twenty in ``part``."""
+    return next(
+        b
+        for b in body["breakdowns"]
+        if b["columns"] is not None
+        and any(c["rate"] is not None and c["customers"] >= 20 for c in b[part])
+    )
+
+
+def test_a_two_way_table_whose_margins_are_not_its_dimensions_own_is_refused(
+    body, public_predictor
+):
+    damaged = copy.deepcopy(body)
+    table = _with_shown(damaged, "row_totals")
+    i = _first_shown(table["row_totals"])
+    table["row_totals"][i] = _withheld(table["row_totals"][i])
+    with pytest.raises(DemoDataError, match="margins are not its dimensions' own"):
+        _parse(damaged, public_predictor)
+
+
+def test_two_orientations_of_a_pair_that_disagree_are_refused(body, public_predictor):
+    damaged = copy.deepcopy(body)
+    table = _with_shown(damaged, "cells")
+    i = _first_shown(table["cells"])
+    table["cells"][i] = _withheld(table["cells"][i])
+    table["ranked"] = [c for c in table["ranked"] if c["rate"] is not None and c in table["cells"]]
+    with pytest.raises(DemoDataError, match="orientations of the pair disagree"):
+        _parse(damaged, public_predictor)
+
+
+def test_the_same_customers_shown_in_one_table_and_hidden_in_another_are_refused(
+    body, public_predictor
+):
+    """InternetService "No" is OnlineSecurity's "No internet service": hiding a group of it in
+    one pair of tables while another shows the same customers is refused."""
+    damaged = copy.deepcopy(body)
+    system = insights.joint_system(
+        {(b["rows"], b["columns"]): b for b in damaged["breakdowns"]}, damaged["lifecycle"]
+    )
+    shared = next(
+        var
+        for var in system.vars
+        if var.published
+        and not var.hidden
+        and var.customers >= 20
+        and len({(m[1], m[3]) for m in var.members if m[0] == "c"}) >= 2
+    )
+    key = next(m for m in shared.members if m[0] == "c")
+    _, a, i, b, j = key
+    for rows, columns, row, column in ((a, b, i, j), (b, a, j, i)):
+        table = _table(damaged, rows, columns)
+        at = next(
+            n
+            for n, c in enumerate(table["cells"])
+            if c["row"] == insights.DIMENSIONS[rows].levels[row]
+            and c["column"] == insights.DIMENSIONS[columns].levels[column]
+        )
+        table["cells"][at] = _withheld(table["cells"][at])
+        table["ranked"] = [c for c in table["ranked"] if c in table["cells"]]
+    with pytest.raises(DemoDataError, match="shown in one table and hidden in another"):
+        _parse(damaged, public_predictor)
+
+
+def test_a_lifecycle_that_is_not_the_tenure_table_is_refused(body, public_predictor):
+    damaged = copy.deepcopy(body)
+    buckets = damaged["lifecycle"]["buckets"]
+    i = _first_shown(buckets)
+    buckets[i] = _withheld(buckets[i])
+    with pytest.raises(DemoDataError, match="not the tenure table"):
+        _parse(damaged, public_predictor)
+
+
+@pytest.mark.parametrize("reason", ["complementary", "few_of_an_outcome"])
+def test_a_reason_that_bounds_the_count_is_refused(body, public_predictor, reason):
+    """Format 4 states only what a group's size or the rule already says: the two reasons
+    that told an outsider which side of twenty a hidden count lies are gone."""
+    damaged = copy.deepcopy(body)
+    _, cell = _first(damaged, "Contract", None, lambda c: c["reason"] == "withheld")
+    level = cell["row"]
+    # Every copy of the level's margin alike, so that only the reason itself is wrong.
+    for table in damaged["breakdowns"]:
+        for part in ("row_totals", "column_totals", "cells"):
+            for c in table[part]:
+                if (
+                    c["column"] is None
+                    and c["row"] == level
+                    and "Contract"
+                    in (
+                        table["rows"],
+                        table["columns"],
+                    )
+                ):
+                    c["reason"] = reason
+    with pytest.raises(DemoDataError, match=r"a hidden group|breakdown"):
+        _parse(damaged, public_predictor)
+
+
+@LOCAL
+def test_the_external_audit_reads_what_every_table_together_determines(real, monkeypatch):
+    """The test report's churners turn a training count into a validation one; the audit
+    takes those training counts from all the tables at once (``training_determined``) - a
+    two-way table can give a level the one-way table hides - not from the one-way table."""
+    calls = []
+    real_determined = audit.training_determined
+
+    def spy(body):
+        found = real_determined(body)
+        calls.append(found)
+        return found
+
+    monkeypatch.setattr(audit, "training_determined", spy)
+    assert (
+        audit.published_violations(real, _bands(real), legacy=_exact_legacy(), external=True) == []
+    )
+    assert len(calls) == 1
+    contract = {frozenset(names): value for names, value in calls[0]["Contract"]}
+    assert frozenset({"Month-to-month"}) in contract
+    assert frozenset({"One year", "Two year"}) in contract
+    assert frozenset({"Two year"}) not in contract and frozenset({"One year"}) not in contract

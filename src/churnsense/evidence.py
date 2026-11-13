@@ -36,7 +36,13 @@ from itertools import permutations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from churnsense import disclosure_audit, insights, legacy_disclosures, score_disclosure
+from churnsense import (
+    disclosure_audit,
+    insights,
+    joint_disclosure,
+    legacy_disclosures,
+    score_disclosure,
+)
 from churnsense.book import is_sha256, labelled
 from churnsense.data import schema
 from churnsense.evaluation.disclosure import MIN_CELL
@@ -59,7 +65,7 @@ DEMO_EXPLANATIONS_FILE = "demo_explanations.json"
 #: Bump when the published file's layout or rules change: an older one is then refused.
 #: 3: cuts kept against the release reports' thresholds too; training groups shown only
 #: with ``MIN_CELL`` churners and ``MIN_CELL`` stayers; Two year's training churn hidden.
-FORMAT = 3
+FORMAT = 4
 _MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -89,14 +95,23 @@ class LiveEvidence:
         self._book, self._model, self._shap_cache = book, model, shap_cache
         self._lock = threading.Lock()
         self._kept: dict[Any, Any] = {}
+        self._gates: dict[Any, threading.Lock] = {}
 
     def _once(self, key: Any, compute: Callable[[], Any]) -> Any:
+        """``compute()``'s value, computed once per key: a request that comes while another
+        computes it waits for that one rather than computing it again (the training tables
+        cost seconds of solving)."""
         with self._lock:
             if key in self._kept:
                 return self._kept[key]
-        value = compute()
-        with self._lock:
-            return self._kept.setdefault(key, value)
+            gate = self._gates.setdefault(key, threading.Lock())
+        with gate:
+            with self._lock:
+                if key in self._kept:
+                    return self._kept[key]
+            value = compute()
+            with self._lock:
+                return self._kept.setdefault(key, value)
 
     @property
     def withheld(self) -> str | None:
@@ -123,14 +138,39 @@ class LiveEvidence:
     def histogram_observed(self) -> list[tuple[insights.Observed | None, float | None]]:
         return self._once("histogram", lambda: insights.histogram_observed(self._book))
 
+    def _tables(self) -> dict[tuple[str, str | None], insights.Breakdown] | None:
+        """Every breakdown, once: the tables are protected together, and that is the costly
+        part. ``None`` (withheld) when no hiding keeps the rule - never a table guarded on
+        its own instead."""
+
+        def build() -> dict[tuple[str, str | None], insights.Breakdown] | None:
+            try:
+                return insights.breakdowns(self._book)
+            except joint_disclosure.Unprotectable as exc:
+                logger.warning("training tables withheld: %s", exc)
+                self._kept.setdefault("unprotectable", str(exc))
+                return None
+
+        return self._once("breakdowns", build)
+
+    @property
+    def unprotectable(self) -> str | None:
+        """Why the training tables are withheld, when no hiding keeps the rule."""
+        self._tables()
+        return self._kept.get("unprotectable")
+
     def breakdown(self, rows: str, columns: str | None = None) -> insights.Breakdown | None:
-        """Once per pair: protecting a table is the costly part."""
-        return self._once(
-            ("breakdown", rows, columns), lambda: insights.breakdown(self._book, rows, columns)
-        )
+        insights.DIMENSIONS[rows]
+        if columns is not None:
+            insights.DIMENSIONS[columns]
+        tables = self._tables()
+        return None if tables is None else tables[(rows, columns)]
 
     def lifecycle(self) -> insights.Lifecycle | None:
-        return self._once("lifecycle", lambda: insights.lifecycle(self._book))
+        tables = self._tables()
+        if tables is None:
+            return None
+        return self._once("lifecycle", lambda: insights.lifecycle(self._book, tables))
 
     def sweep_basis(self) -> SweepBasis | None:
         return self._once("basis", lambda: insights.validation_sweep_basis(self._book))
@@ -248,6 +288,10 @@ def published_body(live: LiveEvidence, model: Predictor) -> dict[str, Any]:
     """
     if live.withheld is not None:
         raise DemoDataError(f"nothing can be published: {live.withheld}")
+    if live.unprotectable is not None:
+        raise DemoDataError(
+            f"no publication of the training tables keeps the rule: {live.unprotectable}"
+        )
     basis, validation, cells = _validation_on_safe_cuts(live, model)
     ranking = live.importance()
     body = {
@@ -320,7 +364,8 @@ def audited(
     # Parsed back before it is handed over: what is written is what will load.
     written = json.loads(dumps(body))
     parse(written, model)
-    if insights.guard_published(json.loads(dumps(body))["breakdowns"]):
+    again = json.loads(dumps(body))
+    if insights.guard_published(again["breakdowns"], again["lifecycle"]):
         raise DemoDataError("a training table would hide more than it does; nothing was written")
     # And read as an outsider would read it, every published figure against every other.
     bands = [(band.name, band.min, band.max) for band in model.config.risk_bands]
@@ -478,7 +523,7 @@ def _observed(value: Any, what: str) -> insights.Observed:
 
 
 _CELL = tuple(field.name for field in fields(insights.Cell))
-_REASONS = ("too_few", "few_of_an_outcome", "cross_partition", "complementary")
+_REASONS = ("too_few", "cross_partition", "withheld")
 _HIDDEN = ("churned", "rate", "lift", "low", "high")
 
 
@@ -581,6 +626,60 @@ def _breakdowns(value: Any) -> dict[tuple[str, str | None], insights.Breakdown]:
     if list(found) != all_breakdowns():
         _fail("not exactly the breakdowns a page can ask for, once each")
     return found
+
+
+def _consistent(
+    tables: dict[tuple[str, str | None], insights.Breakdown], lifecycle: insights.Lifecycle
+) -> insights.Lifecycle:
+    """``lifecycle``, once every table tells the same story: one partition, a two-way
+    table's margins its dimensions' own one-way tables, its cells adding up to them, both
+    orientations of a pair alike, the same customers shown or hidden alike wherever they
+    appear, and the lifecycle the tenure table. The tables are guarded as one system
+    (``churnsense.joint_disclosure``), which holds only if they are one."""
+    first = next(iter(tables.values()))
+    partition = (first.partition_customers, first.partition_churned, first.base_rate)
+    for (rows, columns), table in tables.items():
+        what = f"breakdown {rows!r} x {columns!r}"
+        if (table.partition_customers, table.partition_churned, table.base_rate) != partition:
+            _fail(f"{what}: another partition than the other tables'")
+        if columns is None:
+            continue
+        if table.row_totals != tables[(rows, None)].row_totals or (
+            table.column_totals != tables[(columns, None)].row_totals
+        ):
+            _fail(f"{what}: its margins are not its dimensions' own tables")
+        at = {(c.row, c.column): c for c in table.cells}
+        other = {(c.column, c.row): c for c in tables[(columns, rows)].cells}
+        for key, cell in at.items():
+            twin = other[key]
+            if (cell.customers, cell.churned, cell.rate, cell.reason) != (
+                twin.customers,
+                twin.churned,
+                twin.rate,
+                twin.reason,
+            ):
+                _fail(f"{what}: the two orientations of the pair disagree")
+        for margins, line in ((table.row_totals, 0), (table.column_totals, 1)):
+            for margin in margins:
+                members = [c for key, c in at.items() if key[line] == margin.row]
+                if sum(c.customers for c in members) != margin.customers:
+                    _fail(f"{what}: its cells do not add up to its margins")
+                every = margin.rate is not None and all(c.rate is not None for c in members)
+                if every and sum(c.churned or 0 for c in members) != margin.churned:
+                    _fail(f"{what}: its cells' churn does not add up to its margins'")
+    if lifecycle.buckets != tables[("tenure", None)].row_totals or (
+        lifecycle.partition_customers != partition[0]
+    ):
+        _fail("lifecycle: not the tenure table")
+    try:
+        system = insights.joint_system(tables, lifecycle)
+    except ValueError as exc:
+        _fail(f"the tables count the same customers differently: {exc}")
+    if system.mixed:
+        _fail(
+            f"the same customers' churn is shown in one table and hidden in another: {system.mixed[0]}"
+        )
+    return lifecycle
 
 
 def _lifecycle(value: Any) -> insights.Lifecycle:
@@ -906,8 +1005,8 @@ def parse(body: Any, model: Predictor) -> PublishedEvidence:
         dataset_customers=_count(record["dataset_customers"], "dataset size"),
         _observed=observed,
         _bands=_bands(record["band_observed"], names, observed),
-        _breakdowns=_breakdowns(record["breakdowns"]),
-        _lifecycle=_lifecycle(record["lifecycle"]),
+        _breakdowns=(tables := _breakdowns(record["breakdowns"])),
+        _lifecycle=_consistent(tables, _lifecycle(record["lifecycle"])),
         _basis=basis,
         _validation=_maybe(
             record["validation"],

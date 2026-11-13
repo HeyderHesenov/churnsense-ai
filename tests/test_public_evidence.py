@@ -375,14 +375,14 @@ def _a_large_group_is_hidden_as_too_few(body):
     total.update(reason="too_few", churned=None, rate=None, lift=None, low=None, high=None)
 
 
-def _a_small_group_is_hidden_as_complementary(body):
+def _a_small_group_is_hidden_as_withheld(body):
     cell = next(
         cell
         for breakdown in body["breakdowns"]
         for cell in breakdown["cells"]
         if cell["reason"] == "too_few"
     )
-    cell["reason"] = "complementary"
+    cell["reason"] = "withheld"
 
 
 def _two_way_with_a_ranking(body):
@@ -651,7 +651,7 @@ def _an_overall_rate_for_a_small_group(body):
         _a_rate_inside_its_interval_is_not_the_counts,
         _the_overall_rate_is_not_the_counts,
         _a_large_group_is_hidden_as_too_few,
-        _a_small_group_is_hidden_as_complementary,
+        _a_small_group_is_hidden_as_withheld,
         _a_breakdown_is_missing,
         _a_breakdown_is_repeated,
         _levels_are_reordered,

@@ -103,10 +103,26 @@ E2E_BUDGET = {"burst": 1000, "per_seconds": 0.001}
 #: and never makes the browser tests depend on their order again. This reaches
 #: nothing but the temporary configuration file ``prepare`` writes: the
 #: defaults, ``configs/config.yaml`` and ``configs/deploy.yaml`` are only read,
-#: and this script is not in the deployment image. The cap on requests in
-#: flight (``middleware.MAX_CLIENT_REQUESTS``) is not a budget and is left as it
-#: is: the tests run under it.
+#: and this script is not in the deployment image.
 RATE_LIMITS = {name: dict(E2E_BUDGET) for name, _ in DEFAULT_RATE_LIMITS}
+
+#: The browsers the suite runs at once: Playwright's ``workers`` in
+#: ``frontend/playwright.config.ts`` (``tests/test_e2e_server.py`` keeps the two
+#: equal). Each is a client of its own, but all reach this server from
+#: 127.0.0.1, which the in-flight cap (``middleware.MAX_CLIENT_REQUESTS``) counts
+#: as one: two pages loading at once - an explorer page sends about eight requests
+#: - then share one browser's slots, and under load, when each request is held
+#: longer, the second gets 429 ``too_many_in_flight``. So this server alone allows
+#: that one address the slots of as many browsers as share it: each still has
+#: exactly the production cap, which ``tests/test_limits.py`` tests as it is.
+E2E_CLIENTS = 2
+
+
+def in_flight_cap() -> int:
+    """The in-flight cap for the one address every browser of the suite shares."""
+    from churnsense.api import middleware
+
+    return middleware.MAX_CLIENT_REQUESTS * E2E_CLIENTS
 
 
 def synthetic_customers(rows: int, seed: int) -> pd.DataFrame:
@@ -267,6 +283,10 @@ def serve(root: Path, port: int, *, public: bool = False) -> None:
         raise RuntimeError("the served book is not the one this server was asked for")
     if public and listed_dataset_customers(dashboard.frame):
         raise RuntimeError("a public server is listing the dataset's customers")
+    from churnsense.api import middleware
+
+    # This process only: the browsers share one address (``E2E_CLIENTS``).
+    middleware.MAX_CLIENT_REQUESTS = in_flight_cap()
     uvicorn.run(
         main.app,
         host="127.0.0.1",

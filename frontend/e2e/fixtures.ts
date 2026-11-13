@@ -50,6 +50,7 @@ interface Body {
   url: string;
   type: string;
   text: string;
+  status?: number;
 }
 
 /** Splits one CSV line into its cells, honouring quotes ("" is a quote inside one). */
@@ -132,6 +133,19 @@ export function leaks({ url, type, text }: Body): string[] {
     }
   }
   return found;
+}
+
+/** The ``error`` code of an ``ErrorResponse`` body, or what the body was instead. */
+function refusal(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === 'object' && 'error' in parsed) {
+      return String(parsed.error);
+    }
+  } catch {
+    // not JSON: reported as it is below
+  }
+  return text.slice(0, 80);
 }
 
 /** What ``page.route`` matches: a glob, a pattern or a test of the URL. */
@@ -308,6 +322,7 @@ export const test = base.extend<{ guard: Guard }>({
               url: response.url(),
               type: response.headers()['content-type'] ?? '',
               text,
+              status: response.status(),
             }),
             // A body is gone once the page has navigated past it.
             () => null,
@@ -322,9 +337,11 @@ export const test = base.extend<{ guard: Guard }>({
       });
 
       const publicDemo = testInfo.project.name === PUBLIC_PROJECT;
+      const refused = new Map<string, string>();
       for (const body of await Promise.all(bodies)) {
         if (!body) continue;
         problems.push(...leaks(body));
+        if (body.status === 429) refused.set(body.url, refusal(body.text));
         if (publicDemo && body.text.includes(DATASET_PREFIX)) {
           problems.push(`${new URL(body.url).pathname}: a customer of the dataset`);
         }
@@ -337,7 +354,15 @@ export const test = base.extend<{ guard: Guard }>({
           problems.push('the page shows a customer of the dataset');
         }
       }
-      expect(problems, 'what no page may do').toEqual([]);
+      // A refusal the test did not expect names whose limit it was: a budget's
+      // (rate_limited) or the in-flight cap's (too_many_in_flight).
+      const named = problems.map((problem) => {
+        for (const [url, code] of refused) {
+          if (problem.includes(url)) return `${problem} [429 ${code}]`;
+        }
+        return problem;
+      });
+      expect(named, 'what no page may do').toEqual([]);
     },
     { auto: true },
   ],

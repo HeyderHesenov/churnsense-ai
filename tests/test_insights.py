@@ -44,12 +44,7 @@ def test_a_breakdown_never_reports_a_small_group(public_book, rows, columns):
         if cell.customers < insights.MIN_CELL:
             assert cell.reason == "too_few"
         if cell.rate is None:
-            assert cell.reason in {
-                "too_few",
-                "few_of_an_outcome",
-                "cross_partition",
-                "complementary",
-            }
+            assert cell.reason in {"too_few", "cross_partition", "withheld"}
             assert cell.churned is None and cell.lift is None
             assert cell.low is None and cell.high is None
             continue
@@ -74,13 +69,13 @@ def test_the_rule_still_leaves_groups_to_show_on_a_large_enough_book(public_book
 
 
 def test_a_group_of_few_churners_or_few_stayers_is_hidden_whatever_its_size():
-    assert insights._reason(400, 19, hidden=False, crossed=False) == "few_of_an_outcome"
-    assert insights._reason(400, 381, hidden=False, crossed=False) == "few_of_an_outcome"
-    assert insights._reason(30, 0, hidden=False, crossed=False) == "few_of_an_outcome"
+    assert insights._reason(400, 19, hidden=False, crossed=False) == "withheld"
+    assert insights._reason(400, 381, hidden=False, crossed=False) == "withheld"
+    assert insights._reason(30, 0, hidden=False, crossed=False) == "withheld"
     assert insights._reason(40, 20, hidden=False, crossed=False) is None
     assert insights._reason(19, 0, hidden=False, crossed=False) == "too_few"
-    assert insights._reason(400, 200, hidden=True, crossed=False) == "complementary"
-    assert insights._reason(400, None, hidden=False, crossed=False) == "complementary"
+    assert insights._reason(400, 200, hidden=True, crossed=False) == "withheld"
+    assert insights._reason(400, None, hidden=False, crossed=False) == "withheld"
     assert insights._reason(400, 200, hidden=True, crossed=True) == "cross_partition"
 
 
@@ -154,11 +149,23 @@ def test_the_ranked_cells_are_the_highest_reported_rates(book, rows, columns):
 
 
 def test_a_breakdown_hides_more_than_its_small_cells_when_subtraction_would_give_them_away(book):
-    hides_more = [
-        pair
-        for pair in _PAIRS
-        if any(c.reason == "complementary" for c in insights.breakdown(book, *pair).cells)
-    ]
+    """Some hidden group keeps the rule itself: it is hidden for what it would give away."""
+    train = labelled(book.frame, "train", shown=book.outcomes)
+    counts = insights._training_counts(train)
+    hides_more = []
+    for rows, columns in _PAIRS:
+        split = insights.breakdown(book, rows, columns)
+        a, b = (
+            (rows, columns) if insights._ORDER[rows] < insights._ORDER[columns] else (columns, rows)
+        )
+        customers, churned = counts.two_way[(a, b)]
+        levels = (insights.DIMENSIONS[a].levels, insights.DIMENSIONS[b].levels)
+        for cell in split.cells:
+            i, j = (cell.row, cell.column) if a == rows else (cell.column, cell.row)
+            at = (levels[0].index(i), levels[1].index(j))
+            n, c = int(customers[at]), int(churned[at])
+            if cell.reason == "withheld" and insights._keeps(c, n):
+                hides_more.append((rows, columns, cell.row, cell.column))
     assert hides_more, "the synthetic book never needed a complementary cell"
 
 
@@ -209,12 +216,12 @@ def test_a_group_of_fewer_than_twenty_shows_no_observed_rate(book):
 def test_a_group_of_exactly_min_cell_of_each_outcome_is_reported_and_one_fewer_is_not():
     m = insights.MIN_CELL
     assert insights._reason(2 * m, m, hidden=False, crossed=False) is None
-    assert insights._reason(2 * m - 1, m, hidden=False, crossed=False) == "few_of_an_outcome"
-    assert insights._reason(2 * m - 1, m - 1, hidden=False, crossed=False) == "few_of_an_outcome"
+    assert insights._reason(2 * m - 1, m, hidden=False, crossed=False) == "withheld"
+    assert insights._reason(2 * m - 1, m - 1, hidden=False, crossed=False) == "withheld"
     cell = insights._cell("a", None, 2 * m, m, None, 0.25)
     assert cell.reason is None and cell.rate == 0.5 and cell.lift == 2.0
-    hidden = insights._cell("a", None, 2 * m, m, "complementary", 0.25)
-    assert hidden.reason == "complementary" and hidden.rate is None and hidden.churned is None
+    hidden = insights._cell("a", None, 2 * m, m, "withheld", 0.25)
+    assert hidden.reason == "withheld" and hidden.rate is None and hidden.churned is None
 
 
 def test_no_lift_is_given_against_a_partition_where_nobody_churned():
@@ -237,10 +244,17 @@ def _spy_two_way(monkeypatch) -> list[dict]:
 
 
 def test_a_grid_is_protected_in_dimension_order_whichever_way_it_is_asked_for(book, monkeypatch):
+    """Every pair is protected once, in ``DIMENSIONS`` order, and both orientations read it."""
+    monkeypatch.setattr(insights, "_TABLES", {})
     calls = _spy_two_way(monkeypatch)
-    insights.breakdown(book, "tenure", "Contract")
-    insights.breakdown(book, "Contract", "tenure")
-    assert [c["shape"] for c in calls] == [(3, 6), (3, 6)]
+    turned = insights.breakdown(book, "tenure", "Contract")
+    straight = insights.breakdown(book, "Contract", "tenure")
+    shapes = [c["shape"] for c in calls]
+    assert shapes.count((3, 6)) == 1
+    assert len(calls) == len(list(itertools.combinations(insights.DIMENSIONS, 2)))
+    assert {(c.column, c.row, c.reason) for c in turned.cells} == {
+        (c.row, c.column, c.reason) for c in straight.cells
+    }
 
 
 def test_a_grid_is_protected_around_the_margins_its_one_way_breakdowns_hide(book, monkeypatch):
@@ -252,7 +266,9 @@ def test_a_grid_is_protected_around_the_margins_its_one_way_breakdowns_hide(book
         )
 
     monkeypatch.setattr(insights.suppression, "guard_one_way", hide_the_first_level)
+    monkeypatch.setattr(insights, "_TABLES", {})
     calls = _spy_two_way(monkeypatch)
     split = insights.breakdown(book, "Contract", "tenure")
-    assert calls[0]["rows"][0] is None
+    contract_tenure = next(c for c in calls if c["shape"] == (3, 6))
+    assert contract_tenure["rows"][0] is None
     assert split.row_totals[0].rate is None

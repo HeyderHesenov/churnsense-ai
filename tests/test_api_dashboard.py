@@ -591,12 +591,7 @@ def test_a_cross_tab_reports_every_combination_and_suppresses_small_cells(
                 "reason": cell["reason"],
             }
             assert (cell["reason"] == "too_few") == (cell["n"] < 20)
-            assert cell["reason"] in {
-                "too_few",
-                "few_of_an_outcome",
-                "cross_partition",
-                "complementary",
-            }
+            assert cell["reason"] in {"too_few", "cross_partition", "withheld"}
             if cell["row"] == "Two year" and cell["n"]:
                 assert cell["reason"] in {"too_few", "cross_partition"}
         else:
