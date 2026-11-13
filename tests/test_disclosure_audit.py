@@ -6,6 +6,9 @@ about to write. These cases are small enough to solve by hand.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import numpy as np
 import pytest
 
 from churnsense import disclosure_audit as audit
@@ -54,3 +57,24 @@ def test_figures_that_disagree_are_refused_rather_than_solved():
     ]
     with pytest.raises(ValueError, match="disagree"):
         audit.score_violations(facts)
+
+
+#: The score facts of the dataset-backed control (tests/test_public_demo.py) as they were
+#: when Linux CI failed: 1,122 facts over 404 atoms, rank 210, consistent - the book's own
+#: counts solve it exactly - yet ``np.linalg.pinv``, whose cutoff keeps rounding noise as
+#: singular values, missed by 0.034 with OpenBLAS (9.6e-12 by least squares).
+RANK_DEFICIENT = Path(__file__).parent / "fixtures" / "rank_deficient_score_facts.npz"
+
+
+def test_a_consistent_rank_deficient_system_is_solved_to_its_published_values():
+    data = np.load(RANK_DEFICIENT)
+    a, b = data["a"].astype(float), data["b"].astype(float)
+    assert a.shape == (1122, 404) and np.linalg.matrix_rank(a) == 210
+    x = audit._solution(a, b)
+    assert np.abs(a @ x - b).max() < 1e-6
+
+
+def test_figures_with_no_solution_are_still_refused():
+    a = np.array([[1.0, 0.0], [1.0, 0.0]])
+    x = audit._solution(a, np.array([1.0, 2.0]))
+    assert not np.allclose(a @ x, [1.0, 2.0])

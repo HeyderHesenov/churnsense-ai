@@ -135,6 +135,18 @@ def score_violations(
     return found, solved
 
 
+def _solution(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """A solution of ``a @ x = b`` when one exists (the caller checks it reproduces ``b``).
+
+    By least squares, which treats singular values below machine precision as zero.
+    ``np.linalg.pinv``'s cutoff (1e-15) keeps the rounding noise of a large rank-deficient
+    system as singular values; with OpenBLAS it then missed a solution that exists by 0.034
+    (``tests/fixtures/rank_deficient_score_facts.npz``), and consistent figures were
+    refused as disagreeing.
+    """
+    return np.linalg.lstsq(a, b, rcond=None)[0]
+
+
 def _score_violations(
     facts: Sequence[Fact], scores: Mapping[str, tuple[np.ndarray, np.ndarray]] | None = None
 ) -> tuple[list[str], int, list[tuple]]:
@@ -156,7 +168,7 @@ def _score_violations(
             raise ValueError(f"the model of what is published disagrees with the book: {wrong[:3]}")
         x = truth
     else:
-        x = np.linalg.pinv(a) @ published
+        x = _solution(a, published)
         if not np.allclose(a @ x, published):
             raise ValueError("the published figures disagree with one another")
     basis = _row_space(a)
@@ -262,7 +274,7 @@ def segment_violations(
         if truth is not None:
             x = np.array([v for cells in truth[dimension] for v in cells], dtype=float)
         else:
-            x = np.linalg.pinv(a) @ np.array(values, dtype=float)
+            x = _solution(a, np.array(values, dtype=float))
         if not np.allclose(a @ x, values):
             raise ValueError(f"{dimension}: the published segments disagree with their counts")
         basis = _row_space(a)
