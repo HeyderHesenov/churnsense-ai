@@ -41,6 +41,10 @@ INTEGRATION_REPORTS = frozenset(
 #: Reports `make train` writes that are kept out of git (E8): the validation sweep at every
 #: 0.01 and segment cells of a few customers. A check that needs one runs where it exists.
 LOCAL_REPORTS = frozenset({"model_comparison.md", "threshold_sweep.csv"})
+#: The immutable release reports ``churnsense.legacy_disclosures`` transcribes: part of the
+#: published record, never written by anything. Their paths live here, not in the package,
+#: whose code holds no path to the historical report (``tests/test_governance.py``).
+LEGACY_REPORTS: tuple[str, ...] = ("reports/final_evaluation.md", "reports/held_out_release.md")
 
 
 def tracked_report(name: str) -> Path:
@@ -224,6 +228,9 @@ def _synthetic_ledger(tmp_path_factory, monkeypatch_session) -> Path:
 
     path = tmp_path_factory.mktemp("governance") / release.LEDGER_FILE.name
     monkeypatch_session.setattr(release, "LEDGER_FILE", path)
+    # Open from the start: a module- or session-scoped fixture is built before any test's
+    # ``_open_ledger``, and a missing ledger is a refusal, never "open".
+    path.write_text(release.open_ledger_text())
     return path
 
 
@@ -235,6 +242,18 @@ def _open_ledger(_synthetic_ledger: Path) -> None:
     for leftover in _synthetic_ledger.parent.glob(".*"):
         leftover.unlink()
     _synthetic_ledger.write_text(release.open_ledger_text())
+
+
+@pytest.fixture
+def released_ledger(_synthetic_ledger: Path) -> Path:
+    """The repository's own ledger, copied over the synthetic one for this test only.
+
+    For a test about which published evidence the immutable release reports describe: the
+    real file is read, never written, and every other test still starts open.
+    """
+    real = Path(__file__).resolve().parents[1] / "governance" / _synthetic_ledger.name
+    _synthetic_ledger.write_bytes(real.read_bytes())
+    return _synthetic_ledger
 
 
 # --- the dashboard, served synthetic data ------------------------------------

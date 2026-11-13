@@ -1728,10 +1728,13 @@ export interface components {
      * SuppressedCell
      * @description A group whose churn is hidden: its size only, never a rate or a churn count.
      *
-     *     ``too_few``: fewer than 20 customers. ``complementary``: enough customers,
-     *     but showing its churn would let a smaller group's be worked out from this
-     *     table. A rule for this report, not privacy protection: training customers'
-     *     own outcomes are listed by ``GET /api/customers``.
+     *     ``too_few``: fewer than 20 customers. ``few_of_an_outcome``: enough customers,
+     *     but fewer than 20 churners or 20 stayers. ``cross_partition``: a level whose
+     *     training count, with what an earlier release report states and the dataset's
+     *     public totals, would give a small validation group by subtraction.
+     *     ``complementary``: showing its churn would let one of those be worked out from
+     *     this table. A rule for this report, not privacy protection: the dataset is a
+     *     public sample, and minimum-cohort suppression is not anonymisation.
      */
     SuppressedCell: {
       /** Column */
@@ -1742,7 +1745,7 @@ export interface components {
        * Reason
        * @enum {string}
        */
-      reason: 'too_few' | 'complementary';
+      reason: 'too_few' | 'few_of_an_outcome' | 'cross_partition' | 'complementary';
       /** Row */
       row: string;
       /**

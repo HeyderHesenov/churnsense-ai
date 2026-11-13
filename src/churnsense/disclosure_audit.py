@@ -23,6 +23,7 @@ so the builder refuses to write one an outsider could solve a small group from.
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -129,7 +130,16 @@ def score_violations(
     facts: Sequence[Fact], scores: Mapping[str, tuple[np.ndarray, np.ndarray]] | None = None
 ) -> tuple[list[str], int]:
     """Every solvable count over a set of score atoms that breaks the rule, and how many
-    counts were solvable.
+    counts were solvable (``_score_violations``)."""
+    found, solved, _keys = _score_violations(facts, scores)
+    return found, solved
+
+
+def _score_violations(
+    facts: Sequence[Fact], scores: Mapping[str, tuple[np.ndarray, np.ndarray]] | None = None
+) -> tuple[list[str], int, list[tuple]]:
+    """Every solvable count over a set of score atoms that breaks the rule, how many counts
+    were solvable, and each violation as a key comparable across sets of edges.
 
     With ``scores`` (each partition's outcomes and scores) the counts are the book's own,
     and every fact is first checked against them. Without, each solvable count is solved
@@ -152,6 +162,7 @@ def score_violations(
     basis = _row_space(a)
     sets = _sets(len(edges))
     found, solved = [], 0
+    keys: list[tuple] = []
     for parts in ({VALIDATION}, {TRAINING}, {VALIDATION, TRAINING}):
         vectors = {}
         for outcome in (CHURNED, STAYED):
@@ -172,17 +183,56 @@ def score_violations(
                     found.append(
                         f"{sorted(parts)} atoms from {span} outcome={outcome}: {values[row]:g}"
                     )
-    return found, solved
+                    keys.append((frozenset(parts), _ranges(edges, sets[row]), outcome))
+    return found, solved, keys
+
+
+def _ranges(edges: list[float], chosen: Sequence[int]) -> tuple[tuple[float, float], ...]:
+    """The score ranges a set of atoms covers, neighbours merged: comparable across edge sets."""
+    out: list[list[float]] = []
+    for k in sorted(chosen):
+        low, high = edges[k], edges[k + 1] if k + 1 < len(edges) else TOP
+        if out and math.isclose(out[-1][1], low, abs_tol=1e-9):
+            out[-1][1] = high
+        else:
+            out.append([low, high])
+    return tuple((round(a, 9), round(b, 9)) for a, b in out)
+
+
+def new_score_violations(
+    published: Sequence[Fact], already: Sequence[Fact]
+) -> tuple[list[str], int]:
+    """What ``published`` lets an outsider solve that ``already`` alone does not.
+
+    ``already`` are figures that are out there whatever is published now (immutable
+    reports); ``published`` must include them too. A group they give away is not this
+    publication's to withhold - but nothing published may give away another.
+    """
+    before = set(_score_violations(already)[2])
+    found, solved, keys = _score_violations(published)
+    return [line for line, key in zip(found, keys, strict=True) if key not in before], solved
+
+
+#: Per dimension, sets of its segments (by position) and the churners they hold together,
+#: known from outside the publication (``external_segment_churners``).
+External = Mapping[str, Sequence[tuple[frozenset[int], int]]]
 
 
 def segment_violations(
     shown: Mapping[str, list[tuple[Cells | None, int, int]]],
     totals: Cells,
-    truth: Mapping[str, list[Cells]],
+    truth: Mapping[str, list[Cells]] | None = None,
+    external: External | None = None,
 ) -> tuple[list[str], int]:
     """Per dimension: ``shown`` lists each segment as (its four cells or ``None`` if hidden,
-    customers, flagged); ``truth`` the four cells. Every union of segments, each side and
-    outcome, that can be solved for and breaks the rule."""
+    customers, flagged); ``truth`` the four cells; ``external`` the churners of sets of
+    segments that other sources give (a training count, a test report and the dataset's
+    public totals). Every union of segments whose flagged side, left side or churners and
+    stayers in all can be solved for and breaks the rule.
+
+    Without ``truth`` each solvable count is solved for from the published figures and
+    ``external`` alone, as an outsider would.
+    """
     found, solved = [], 0
     for dimension, segments in shown.items():
         k = len(segments)
@@ -205,23 +255,85 @@ def segment_violations(
         for c in range(4):
             rows.append(sum(cell(s, c) for s in range(k)))
             values.append(totals[c])
+        for members, churners in (external or {}).get(dimension, ()):
+            rows.append(sum(cell(s, 0) + cell(s, 2) for s in members))
+            values.append(churners)
         a = np.array(rows)
-        x = np.array([v for cells in truth[dimension] for v in cells], dtype=float)
+        if truth is not None:
+            x = np.array([v for cells in truth[dimension] for v in cells], dtype=float)
+        else:
+            x = np.linalg.pinv(a) @ np.array(values, dtype=float)
         if not np.allclose(a @ x, values):
             raise ValueError(f"{dimension}: the published segments disagree with their counts")
         basis = _row_space(a)
         for size in range(1, k + 1):
             for subset in itertools.combinations(range(k), size):
-                # (flagged churners, flagged stayers) and (missed churners, left stayers)
-                for first, second in ((0, 1), (2, 3)):
-                    a_vec = sum(cell(s, first) for s in subset)
-                    b_vec = sum(cell(s, second) for s in subset)
+                # (flagged churners, flagged stayers), (missed churners, left stayers), and
+                # (churners, stayers) of the segments whole.
+                for first, second in ((0, 1), (2, 3), (None, None)):
+                    if first is None:
+                        a_vec = sum(cell(s, 0) + cell(s, 2) for s in subset)
+                        b_vec = sum(cell(s, 1) + cell(s, 3) for s in subset)
+                    else:
+                        a_vec = sum(cell(s, first) for s in subset)
+                        b_vec = sum(cell(s, second) for s in subset)
                     for vec, other in ((a_vec, b_vec), (b_vec, a_vec)):
                         if _solvable(np.atleast_2d(vec), basis)[0]:
                             solved += 1
-                            if not _fine(float(vec @ x), float(other @ x)):
-                                found.append(f"{dimension} {subset} cells {first},{second}")
+                            partner = (
+                                other @ x
+                                if _solvable(np.atleast_2d(other), basis)[0] or truth is not None
+                                else None
+                            )
+                            value = float(np.round(vec @ x, 6))
+                            if not _fine(
+                                value, None if partner is None else float(np.round(partner, 6))
+                            ):
+                                what = "whole" if first is None else f"cells {first},{second}"
+                                found.append(f"{dimension} {subset} {what}: {value:g}")
     return found, solved
+
+
+def external_segment_churners(
+    one_way: Mapping[str, Sequence[tuple[str, int | None]]],
+    partition_churned: int,
+    segments: Mapping[str, Sequence[str]],
+) -> dict[str, list[tuple[frozenset[int], int]]]:
+    """The validation churners of sets of segments that published training counts give away.
+
+    For a dimension an immutable report states the test partition's churners for
+    (``legacy_disclosures.TEST_SEGMENTS``), and whose dataset totals are public
+    (``POPULATION_MARGINALS``): a set of levels whose training churn can be read off the
+    published one-way table - a shown level, or the hidden ones together as the partition's
+    churn less the shown - has validation churners = total - test - training.
+
+    ``one_way`` gives each dimension's training levels as (level, churned or ``None``);
+    ``segments`` the validation segments' order, as ``segment_violations`` numbers them.
+    """
+    from churnsense import legacy_disclosures as docs
+
+    test = {(row.dimension, row.segment): row.churners for row in docs.TEST_SEGMENTS}
+    out: dict[str, list[tuple[frozenset[int], int]]] = {}
+    for dimension in docs.TEST_DIMENSIONS:
+        if dimension not in one_way or dimension not in segments:
+            continue
+        order = list(segments[dimension])
+        levels = one_way[dimension]
+        shown = [(level, c) for level, c in levels if c is not None]
+        known: list[tuple[list[str], int]] = [([level], c) for level, c in shown]
+        hidden = [level for level, c in levels if c is None]
+        if hidden:
+            known.append((hidden, partition_churned - sum(c for _, c in shown)))
+        for names, training in known:
+            if not all((dimension, n) in docs.POPULATION_MARGINALS and n in order for n in names):
+                continue
+            total = sum(
+                docs.POPULATION_MARGINALS[dimension, n][1] - test[dimension, n] for n in names
+            )
+            out.setdefault(dimension, []).append(
+                (frozenset(order.index(n) for n in names), total - training)
+            )
+    return out
 
 
 # --- a published file ----------------------------------------------------------------------
@@ -271,26 +383,77 @@ def segment_view(segments: Sequence[Mapping[str, Any]]) -> dict[str, list]:
     return view
 
 
+def legacy_facts(known: Mapping[float, tuple[int, int]]) -> list[Fact]:
+    """Figures stated elsewhere, as facts: (customers, churners) at or above each threshold,
+    read exactly - the outsider's best case."""
+    facts: list[Fact] = []
+    for threshold, (flagged, churners) in sorted(known.items()):
+        facts += [
+            at_or_above(threshold, CHURNED, churners),
+            at_or_above(threshold, STAYED, flagged - churners),
+        ]
+    return facts
+
+
 def published_violations(
     body: Mapping[str, Any],
     bands: Sequence[tuple[str, float, float]],
     cells: Mapping[tuple[str, str], Cells] | None = None,
+    legacy: Mapping[float, tuple[int, int]] | None = None,
+    external: bool = False,
 ) -> list[str]:
     """What an outsider could solve a small group from in ``body``; empty when nothing.
 
-    ``cells`` are the segments' true counts, which the builder knows; the score
-    arithmetic needs nothing but the body.
+    ``cells`` are the segments' true counts, which the builder knows; without them each
+    segment count is solved for from the published figures. ``legacy`` are the validation
+    figures immutable reports already state at their own thresholds: only what ``body``
+    adds to them counts. ``external`` reads the segments with what the training tables,
+    the test report and the dataset's public totals give (``external_segment_churners``) -
+    for evidence of the released model, which those reports describe.
     """
-    found, _ = score_violations(facts_of(body, bands))
+    facts = facts_of(body, bands)
+    if legacy:
+        stated = legacy_facts(legacy)
+        found, _ = new_score_violations([*facts, *stated], stated)
+    else:
+        found, _ = score_violations(facts)
     validation = body.get("validation")
-    if validation and cells is not None:
+    if validation:
         m = validation["metrics"]
         segments = validation["segments"]
-        truth: dict[str, list[Cells]] = {}
-        for row in segments:
-            truth.setdefault(row["dimension"], []).append(cells[row["dimension"], row["segment"]])
+        truth: dict[str, list[Cells]] | None = None
+        if cells is not None:
+            truth = {}
+            for row in segments:
+                truth.setdefault(row["dimension"], []).append(
+                    cells[row["dimension"], row["segment"]]
+                )
+        extra = None
+        if external:
+            extra = external_segment_churners(
+                _one_way_churn(body), _partition_churned(body), _segment_order(segments)
+            )
         more, _ = segment_violations(
-            segment_view(segments), (m["tp"], m["fp"], m["fn"], m["tn"]), truth
+            segment_view(segments), (m["tp"], m["fp"], m["fn"], m["tn"]), truth, extra
         )
         found += more
     return found
+
+
+def _one_way_churn(body: Mapping[str, Any]) -> dict[str, list[tuple[str, int | None]]]:
+    return {
+        b["rows"]: [(c["row"], c["churned"]) for c in b["row_totals"]]
+        for b in body["breakdowns"]
+        if b["columns"] is None
+    }
+
+
+def _partition_churned(body: Mapping[str, Any]) -> int:
+    return next(b["partition_churned"] for b in body["breakdowns"] if b["columns"] is None)
+
+
+def _segment_order(segments: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    order: dict[str, list[str]] = {}
+    for row in segments:
+        order.setdefault(row["dimension"], []).append(row["segment"])
+    return order

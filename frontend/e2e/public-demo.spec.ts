@@ -12,7 +12,7 @@ import type { APIRequestContext, Download } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import type { components } from '../src/api/schema';
 import { AXE_EXCEPTIONS } from './axe-exceptions';
-import { cells, expect, settled, test } from './fixtures';
+import { cells, expect, openReported, settled, test } from './fixtures';
 import { DATASET_PREFIX, DEMO_PREFIX } from './global-setup';
 import { PAGES } from './pages';
 
@@ -223,8 +223,7 @@ test('explainability names its sample and its background as synthetic', async ({
 test('a pinned pattern links to no customers: the dataset is not there to open', async ({
   page,
 }) => {
-  await page.goto('/patterns');
-  await settled(page);
+  await openReported(page);
   // The first group whose churn is reported (a hidden one shows no rate).
   const reported = page.getByRole('table').getByRole('button').filter({ hasText: '%' }).first();
   await reported.click();

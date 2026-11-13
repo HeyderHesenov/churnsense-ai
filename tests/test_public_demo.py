@@ -105,19 +105,37 @@ def artifacts(
     return directory, reports
 
 
+#: The built front end's shell, as the image holds it (``frontend/dist``).
+SHELL = "<!doctype html><html><head><title>ChurnSense AI</title></head><body></body></html>"
+
+
 @pytest.fixture(scope="module")
-def service(artifacts, public_frame) -> Iterator[tuple[TestClient, dict[str, dict]]]:
+def frontend_dist(tmp_path_factory) -> Path:
+    """A built front end of this test's own, so readiness never depends on whether
+    ``make frontend`` ran on this machine: CI's Python job builds none, and a
+    developer's checkout usually has one. ``/ready`` itself is not changed."""
+    dist = tmp_path_factory.mktemp("frontend") / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text(SHELL)
+    (dist / "favicon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    (dist / "assets" / "index-test.js").write_text("export {};\n")
+    return dist
+
+
+@pytest.fixture(scope="module")
+def service(artifacts, public_frame, frontend_dist) -> Iterator[tuple[TestClient, dict[str, dict]]]:
     """The running service in public mode, and what the dataset-backed one answered.
 
     The dataset-backed answers are taken first, from the same model and the
     same "dataset", so the two can be compared figure by figure.
     """
     from churnsense.api import main as api_main
-    from churnsense.api import state
+    from churnsense.api import spa, state
     from churnsense.data import loader
 
     directory, reports = artifacts
     with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(spa, "FRONTEND_DIST", frontend_dist)
         patch.setattr(state, "ARTIFACTS_DIR", directory)
         patch.setattr(state, "REPORTS_DIR", reports)
         patch.setattr(state, "DEPLOYMENT", DATASET)
@@ -720,9 +738,13 @@ def test_model_info_states_validation_counts_only_at_a_published_cut(public, pub
     )
     assert metrics["precision"] == pytest.approx(point["precision"])
     assert metrics["recall"] == pytest.approx(point["recall"])
-    recorded = public_predictor.meta["validation_metrics"]
+    # The whole-partition scalars are the published evidence's, the ones /api/performance
+    # serves: one ROC-AUC per partition, whichever page shows it.
+    measured = _ok(public.get("/api/performance"))["validation_evaluation"]["metrics"]
     for scalar in ("roc_auc", "average_precision", "brier"):
-        assert metrics[scalar] == recorded[scalar]
+        assert metrics[scalar] == measured[scalar]
+    recorded = public_predictor.meta["validation_metrics"]
+    assert metrics["roc_auc"] == pytest.approx(recorded["roc_auc"], abs=0.02)
 
 
 def test_model_info_states_no_validation_count_where_0_5_is_not_a_cut(rebuilt):
@@ -912,6 +934,26 @@ def test_a_file_without_a_sweep_serves_no_figure_at_any_cut_and_says_why(rebuilt
     assert _ok(client.get("/api/overview"))["campaign"] is None
     assert _ok(client.get("/api/customers"))["total"] == 2000
     assert client.get("/api/ready").status_code == 200
+
+
+def test_the_public_demo_is_ready_only_with_its_front_end_and_serves_that_shell(
+    public, frontend_dist, tmp_path, monkeypatch
+):
+    """Readiness still requires the built front end: the fixture supplies one, it does not
+    waive the check. Without it the same service answers 503, naming what is missing."""
+    from churnsense.api import spa
+
+    _ok(public.get("/api/customers"))  # readiness reads memory: the book must be built
+    answer = public.get("/api/ready")
+    assert answer.status_code == 200 and answer.json()["frontend"] is True, answer.text
+    assert public.get("/", headers={"Accept": "text/html"}).text == SHELL
+
+    monkeypatch.setattr(spa, "FRONTEND_DIST", tmp_path / "never-built")
+    missing = public.get("/api/ready")
+    assert missing.status_code == 503
+    assert missing.json()["frontend"] is False
+    rest = {k: v for k, v in missing.json().items() if k not in ("status", "frontend")}
+    assert rest == {k: v for k, v in answer.json().items() if k not in ("status", "frontend")}
 
 
 def test_readiness_is_of_the_book_the_configuration_now_asks_for(rebuilt, monkeypatch):

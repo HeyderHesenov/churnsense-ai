@@ -348,12 +348,23 @@ re-checked estimate, not an independent one, and it is presented that way.
   them. The demo shows the dataset as aggregates of its training and validation
   partitions (`make demo-data`), and its explanations are measured against a
   background of generated customers, so a base value read there differs from the
-  one stated here. Since 2026-11-12 it shows the validation sweep, the calibration
-  bins and the operating point only at 11 cuts with at least 20 churners and 20
-  stayers between any two; those cuts include 0.30, 0.36 and 0.50, so the figures it
-  states there are the ones stated here (peak 0.30, $26,579; 0.36, $26,547).
-  Segments and risk bands that would break the same rule are hidden, here as there.
-  The model, its threshold and the release are unchanged.
+  one stated here. Since 2026-11-13 it shows the validation sweep, the calibration
+  bins and the operating point only at five cuts - 0, 0.30, 0.36, 0.50 and 0.53 -
+  with at least 20 churners and 20 stayers between any two, read together with the
+  thresholds the release reports state the sweep at (0.10 to 0.80), so neither
+  source splits the other's intervals into a smaller group. The figures it states at
+  0.30, 0.36 and 0.50 are the ones stated here (peak 0.30, $26,579; 0.36, $26,547).
+  Segments and risk bands that would break the same rule are hidden, here as there;
+  training breakdowns show a group only with 20 churners and 20 stayers, and never
+  one- or two-year contracts' churn (with the test report's churners per contract and
+  the dataset's public totals, a two-year count would give validation's by
+  subtraction). The model, its threshold and the release are unchanged.
+- **One ROC-AUC per partition.** `model_meta.json` records the validation ROC-AUC
+  that `make train` measured (0.837536); the published evidence measures the same
+  model on the same 1,409 customers through the service's scoring path (0.837538).
+  The probabilities agree to 5e-15, but isotonic calibration ties hundreds of them,
+  and noise of that size breaks one tie differently. The public demo serves the
+  evidence's value on every page; the recorded one stays in the artifact.
 - Reproducibility checks compare the model file's hash and the validation
   outputs instead of re-scoring test: the same bytes cannot score differently.
 - The model-selection rule was corrected (see `docs/PROJECT_WALKTHROUGH.md`

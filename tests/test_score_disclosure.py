@@ -394,3 +394,115 @@ def test_a_hidden_segment_shown_under_another_name_is_refused():
         row("OnlineSecurity", "No internet service", False),
     ]
     assert sd.betrayed(both_hidden, same) == []
+
+
+# --- together with thresholds other documents state --------------------------------------------
+
+
+def _basis(rows: list[tuple[float, int, int]], customers: int | None = None):
+    """A sweep from (threshold, churners at or above, stayers at or above) rows."""
+    from churnsense.evaluation.threshold import SweepBasis
+
+    churners = rows[0][1]
+    return SweepBasis(
+        customers=customers or rows[0][1] + rows[0][2],
+        thresholds=tuple(t for t, _, _ in rows),
+        true_positives=tuple(tp for _, tp, _ in rows),
+        false_positives=tuple(fp for _, _, fp in rows),
+        false_negatives=tuple(churners - tp for _, tp, _ in rows),
+        flagged_churner_charges=tuple(50.0 * tp for _, tp, _ in rows),
+    )
+
+
+#: A made-up sweep on a 0.1 grid with a finer step at 0.35: 400 churners, 1,000 stayers.
+GRID = [
+    (0.0, 400, 1000),
+    (0.1, 370, 600),
+    (0.2, 330, 420),
+    (0.3, 280, 260),
+    (0.35, 262, 220),
+    (0.4, 240, 180),
+    (0.5, 180, 100),
+    (0.6, 120, 50),
+    (0.7, 70, 30),
+    (0.8, 40, 20),
+    (0.9, 15, 5),
+]
+
+
+def _exact(*thresholds: float) -> sd.Legacy:
+    """Legacy thresholds whose counts are the grid's own (as a builder with the grid reads them)."""
+    return sd.Legacy(dict.fromkeys(thresholds))
+
+
+def _stated(*thresholds: float) -> sd.Legacy:
+    """The same thresholds as a document states them, exactly: what a reader holds, which
+    has only the published cuts and so cannot read the grid."""
+    rows = {t: (tp, fp) for t, tp, fp in GRID}
+    return sd.Legacy({t: sd.Known(sum(rows[t]), rows[t][0], rows[t][0]) for t in thresholds})
+
+
+def test_a_cut_that_splits_a_legacy_interval_into_a_small_piece_is_refused():
+    """0.35 keeps the rule against the demo's own neighbours, but 0.40 is stated elsewhere:
+    [0.35, 0.40) then holds 22 churners and 40 stayers - fine - while [0.30, 0.35) holds 18."""
+    basis = _basis(GRID)
+    alone = sd.safe_cuts(basis, required=(0.35,))
+    assert alone is not None and 0.35 in alone
+    assert sd.safe_cuts(basis, required=(0.35,), legacy=_exact(0.3, 0.4)) is None
+    # Without 0.30 stated, [0.20, 0.35) is one piece of 68 churners: 0.35 may stay.
+    assert 0.35 in sd.safe_cuts(basis, required=(0.35,), legacy=_exact(0.4))
+
+
+def test_no_cut_may_be_the_edge_of_a_legacy_interval_that_already_breaks_the_rule():
+    """[0.8, 0.9) holds 25 churners and 15 stayers: a document states it, the demo must not
+    sharpen it. A cut at 0.8 would - though the demo's own tail above 0.8 keeps the rule."""
+    basis = _basis(GRID)
+    legacy = _exact(0.8, 0.9)
+    tail = sd.restrict(basis, (0.0, 0.8))
+    assert sd.holds(tail)  # 40 churners and 20 stayers above 0.8: the demo's own rule is kept
+    assert not sd.legacy_holds(tail, _stated(0.8, 0.9))
+    assert sd.legacy_holds(sd.restrict(basis, (0.0, 0.6)), _stated(0.8, 0.9))
+    # 0.7 is no legacy edge, but [0.7, 0.8) would be a new piece of 10 stayers.
+    assert not sd.legacy_holds(sd.restrict(basis, (0.0, 0.7)), _stated(0.8, 0.9))
+    cuts = sd.safe_cuts(basis, legacy=legacy)
+    assert cuts is not None and 0.8 not in cuts and 0.9 not in cuts
+    assert sd.legacy_holds(sd.restrict(basis, cuts), _stated(0.8, 0.9))
+
+
+def test_a_cut_on_a_legacy_threshold_whose_intervals_keep_the_rule_is_allowed():
+    basis = _basis(GRID)
+    legacy = _exact(0.3, 0.5)
+    cuts = sd.safe_cuts(basis, required=(0.3, 0.5), legacy=legacy)
+    assert cuts is not None and {0.3, 0.5} <= set(cuts)
+    assert sd.legacy_holds(sd.restrict(basis, cuts), _stated(0.3, 0.5))
+
+
+def test_a_rounded_legacy_count_is_read_at_its_worst():
+    """A document that gives 0.40 only as 238 to 242 churners: [0.35, 0.40) may hold as few as
+    20 churners - enough - or, with a range one wider, 19, which is refused."""
+    basis = _basis(GRID)
+    cuts = sd.restrict(basis, (0.0, 0.35))
+    enough = sd.Legacy({0.4: sd.Known(420, 238, 242)})
+    short = sd.Legacy({0.4: sd.Known(420, 237, 243)})
+    assert sd.legacy_holds(cuts, enough)
+    assert not sd.legacy_holds(cuts, short)
+    # Stayers at their worst too: 445 - 238 = 207 above 0.40 leaves 220 - 207 = 13 below.
+    few_stayers = sd.Legacy({0.4: sd.Known(445, 238, 242)})
+    assert not sd.legacy_holds(cuts, few_stayers)
+    # The stayer count is read at its worst as well, not just the churner count: of 440
+    # flagged at 0.40, 236 to 242 churned, so as many as 440 - 236 = 204 of the 220 stayers
+    # above 0.35 sit above 0.40, which leaves 16 - although with 242 churners it would be 22.
+    stayers_at_worst = sd.Legacy({0.4: sd.Known(440, 236, 242)})
+    assert not sd.legacy_holds(cuts, stayers_at_worst)
+    assert sd.legacy_holds(cuts, sd.Legacy({0.4: sd.Known(440, 242, 242)}))
+
+
+def test_a_legacy_threshold_with_no_counts_anywhere_fails_closed():
+    basis = sd.restrict(_basis(GRID), (0.0, 0.3))
+    assert not sd.legacy_holds(basis, _exact(0.45))  # neither a cut nor stated: unknown
+
+
+def test_the_published_legacy_reads_the_release_reports():
+    legacy = sd.published_legacy(positives=374)
+    assert legacy.thresholds == (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+    assert legacy.known[0.8] == sd.Known(49, 37, 37)

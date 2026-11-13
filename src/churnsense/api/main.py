@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -187,6 +187,15 @@ async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
 
 # --- the scoring service: on its original paths and under /api ------------------------
 
+
+def _measured(dashboard: Dashboard | None) -> dict[str, Any] | None:
+    """The served model's validation metrics as the evidence states them, if it does."""
+    if dashboard is None:
+        return None
+    evaluation = dashboard.evidence.validation_evaluation()
+    return None if evaluation is None else evaluation.metrics.as_dict()
+
+
 service = APIRouter()
 
 
@@ -258,6 +267,7 @@ def model_info(
             None if dashboard is None else dashboard.evidence.sweep_basis(),
             # Fail closed: a public demo whose book failed to build states no count.
             dashboard.synthetic if dashboard is not None else deployment_of(predictor).synthetic,
+            _measured(dashboard),
         ),
         test_metrics=None if record is None else record.metrics.model_dump(),
         sklearn_version=meta["sklearn_version"],

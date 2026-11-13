@@ -147,6 +147,36 @@ export async function settled(page: Page): Promise<void> {
   await expect(page.locator('[role="status"] > [aria-hidden="true"]')).toHaveCount(0);
 }
 
+type Segments = components['schemas']['SegmentsResponse'];
+
+/** The suggested cross-tabs, in the order the patterns page offers them (src/pages/patterns/patterns.ts). */
+const SUGGESTED = ['Internet × payment', 'Price × tenure', 'Tech support × contract'] as const;
+
+/**
+ * Opens the patterns page on the first suggested view that reports a group's churn.
+ *
+ * The suppression rule may hide every cell of a view on a small synthetic book
+ * (the default Contract × tenure loses Two year to the cross-partition rule and
+ * the rest to small or complementary groups), so a test of a reported group must
+ * find one rather than assume the default shows it.
+ */
+export async function openReported(page: Page): Promise<Segments> {
+  const isSegments = (r: { url(): string }) => new URL(r.url()).pathname === '/api/segments';
+  const first = page.waitForResponse(isSegments);
+  await page.goto('/patterns');
+  let body = (await (await first).json()) as Segments;
+  await settled(page);
+  for (const label of SUGGESTED) {
+    if (body.cells.some((cell) => !cell.suppressed)) return body;
+    const next = page.waitForResponse(isSegments);
+    await page.getByRole('button', { name: label, exact: true }).click();
+    body = (await (await next).json()) as Segments;
+    await settled(page);
+  }
+  if (body.cells.some((cell) => !cell.suppressed)) return body;
+  throw new Error('no suggested view reports a group on this book');
+}
+
 /**
  * Answers every request ``url`` matches with ``status`` and ``body`` (the app
  * retries some failures by itself) until the returned function is called.

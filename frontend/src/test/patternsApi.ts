@@ -41,10 +41,10 @@ export function hidden(
 }
 
 const ASSOCIATION: Schemas['Association'][] = [
-  { feature: 'Contract', measure: "Cramer's V", strength: 0.419 },
-  { feature: 'tenure', measure: 'point-biserial |r|', strength: 0.353 },
-  { feature: 'OnlineBackup', measure: "Cramer's V", strength: 0.296 },
-  { feature: 'MonthlyCharges', measure: 'point-biserial |r|', strength: 0.196 },
+  { feature: 'Contract', measure: "Cramer's V", strength: 0.42 },
+  { feature: 'tenure', measure: 'point-biserial |r|', strength: 0.35 },
+  { feature: 'OnlineBackup', measure: "Cramer's V", strength: 0.3 },
+  { feature: 'MonthlyCharges', measure: 'point-biserial |r|', strength: 0.2 },
   { feature: 'gender', measure: "Cramer's V", strength: 0.0 },
 ];
 

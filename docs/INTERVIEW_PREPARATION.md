@@ -133,7 +133,9 @@ pre-calibration metrics while `model.joblib` held the *calibrated* pipeline —
 one set of numbers describing two different models. Found by reading the
 artifact, not from a failing test.
 
-Not cosmetic, on validation: precision 0.5095 → **0.6723**, recall 0.7888 → **0.5321**.
+Not cosmetic, on validation at 0.5: the uncalibrated candidate's precision 0.5095 and
+recall 0.7888 against the shipped calibrated model's **0.6723** and **0.5321** - two
+different models, so the candidate's figures say nothing about what serves.
 `class_weight="balanced"` inflates raw scores, so an uncalibrated 0.5 flags far
 more customers than a calibrated 0.5. Publishing the candidate's numbers would
 have overstated recall by 48 % relative. Fixed by scoring the shipped pipeline

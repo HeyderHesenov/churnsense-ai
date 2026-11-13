@@ -239,12 +239,17 @@ validation or test labels any more than the models do.
 | Contract | Customers | Churn rate |
 |---|---|---|
 | Month-to-month | 2,326 | **43.1 %** |
-| One year | 865 | 10.8 % |
-| Two year | 1,034 | 2.5 % |
+| One year | 865 | *withheld* |
+| Two year | 1,034 | *withheld* |
+| One or two year, together | 1,899 | 6.3 % |
 
-A 17× spread. A snapshot records neither why a customer chose a contract nor what
-the contract itself did, so it cannot say why the gap exists. What it does support
-is *targeting*.
+The one- and two-year rows are withheld on purpose: an earlier release report states
+the test partition's churners per contract, and the IBM sample's own totals are
+public, so a two-year training count would give the validation partition's by
+subtraction - fewer than 20 churners. The two together give a group well above that.
+A snapshot records neither why a customer chose a contract nor what the contract
+itself did, so it cannot say why the gap exists. What it does support is
+*targeting*.
 
 **Churn is concentrated early in tenure.** Churn runs at 55.7 % in the first three months and
 falls to 9.6 % past four years. Median tenure is 10 months for churned
@@ -343,15 +348,19 @@ that validation figure optimistic.
 It also changed the operating point sharply. `class_weight="balanced"` inflates
 raw scores, so the calibrated model behaves very differently at the same cut:
 
-| At threshold 0.50 | Candidate (uncalibrated) | Shipped (calibrated) |
+| At threshold 0.50, validation | Candidate (uncalibrated) | Shipped (calibrated) |
 |---|---|---|
 | Precision | 0.5095 | **0.6723** |
 | Recall | 0.7888 | **0.5321** |
 | Brier | 0.1678 | **0.1379** |
 
-`model_meta.json` reports the **shipped** model's own metrics. Publishing the
-candidate's numbers for a calibrated artifact would describe a model that never
-ships; a test enforces the distinction.
+The two columns are **two different models**. The candidate is the plain logistic
+regression chosen by cross-validation (`reports/model_comparison.csv`); the shipped
+model is a five-fold isotonic calibration of it, refitted fold by fold, so its scores
+are not a re-labelling of the candidate's and its customers above 0.5 are not the
+candidate's. Nothing in the candidate column describes the model that serves.
+`model_meta.json` reports the **shipped** model's own metrics; a test enforces the
+distinction. The public demo shows the shipped column only.
 
 > **Probabilities are clamped to `[ε, 1−ε]` with `ε = 1/(2·n_train) = 1.2e-4`.**
 > Isotonic calibration is a step function, so its terminal bins assigned exactly
@@ -464,8 +473,10 @@ The threshold is chosen by `make train`, on validation, with the model that
 ships, and stored with it; the final evaluation receives it and cannot move it.
 How the choice moves with the one assumption nobody can measure — the offer
 success rate — is tabulated in `reports/model_comparison.md`, which `make train`
-writes: from 0.88 at an
-assumed 10 % to 0.22 at 50 %. A high churn risk does not mean an offer would
+writes locally: on the full validation grid (every 0.01) it moves from 0.88 at an
+assumed 10 % to 0.22 at 50 %. Those are the *locations* of the recommendation on
+that grid, not figures at them. The public demo reads the same rule only among the
+cuts it publishes, so its simulator moves in coarser steps between them. A high churn risk does not mean an offer would
 keep that customer; the model estimates risk, not the effect of an offer.
 
 ## Explainability
@@ -504,7 +515,7 @@ the per-customer waterfall:
 
 **This ranking disagrees with the EDA's univariate ranking, and both are
 published.** Contract type is the strongest single signal on its own
-(Cramér's V 0.419 on the training partition, rank 1) but only fourth here, because it overlaps heavily
+(Cramér's V 0.42 on the training partition, rank 1) but only fourth here, because it overlaps heavily
 with tenure and its *unique* multivariate contribution is smaller. Reconciling
 the two into one convenient story would have meant hiding one of them.
 
@@ -885,13 +896,17 @@ Found a vulnerability? Please report it privately, as described in
 > labelled as synthetic and with no outcome, and the dataset is shown only as
 > aggregates published once by `make demo-data`
 > ([`src/churnsense/evidence.py`](src/churnsense/evidence.py)), with no rate for a
-> group of fewer than 20. Figures that split validation customers by score - the
-> threshold sweep, the calibration bins, the operating point - are given only at
-> cuts with at least 20 churners and 20 stayers between any two
-> ([`src/churnsense/score_disclosure.py`](src/churnsense/score_disclosure.py)), so
-> the demo's sweep has 11 cuts, among them the 0.30 peak and the 0.36 operating
-> point stated here. This is minimum-cohort suppression, not differential privacy
-> or anonymity: the IBM sample is itself public. The
+> group of fewer than 20 churners or 20 stayers. Figures that split validation
+> customers by score - the threshold sweep, the calibration bins, the operating
+> point - are given only at cuts with at least 20 churners and 20 stayers between
+> any two, read together with the thresholds the earlier release reports state the
+> sweep at ([`src/churnsense/score_disclosure.py`](src/churnsense/score_disclosure.py)),
+> so the demo's sweep has five cuts: 0, 0.30 (the peak), 0.36 (the operating point
+> stated here), 0.50 and 0.53. One- and two-year contracts' training churn is
+> withheld (see above). This is minimum-cohort suppression, not differential privacy
+> or anonymity: the IBM sample is itself public, and older commits and the immutable
+> release reports still hold figures the demo no longer publishes
+> ([DEPLOYMENT.md, section 20](docs/DEPLOYMENT.md)). The
 > dataset is not in the image or the container. A
 > configuration that would list the dataset's rows publicly does not load, and the
 > deployment check refuses it. On a developer's machine, on loopback, the default

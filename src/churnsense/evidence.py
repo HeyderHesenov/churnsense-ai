@@ -36,7 +36,7 @@ from itertools import permutations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from churnsense import disclosure_audit, insights, score_disclosure
+from churnsense import disclosure_audit, insights, legacy_disclosures, score_disclosure
 from churnsense.book import is_sha256, labelled
 from churnsense.data import schema
 from churnsense.evaluation.disclosure import MIN_CELL
@@ -56,8 +56,10 @@ logger = logging.getLogger(__name__)
 EVIDENCE_FILE = "public_evidence.json"
 #: Attributions of generated demo customers (``churnsense.demo.build``).
 DEMO_EXPLANATIONS_FILE = "demo_explanations.json"
-#: Bump when the published file's layout changes: an older one is then refused.
-FORMAT = 2
+#: Bump when the published file's layout or rules change: an older one is then refused.
+#: 3: cuts kept against the release reports' thresholds too; training groups shown only
+#: with ``MIN_CELL`` churners and ``MIN_CELL`` stayers; Two year's training churn hidden.
+FORMAT = 3
 _MAX_BYTES = 8 * 1024 * 1024
 
 
@@ -266,17 +268,88 @@ def published_body(live: LiveEvidence, model: Predictor) -> dict[str, Any]:
         "collinearity": live.collinearity(),
         "importance": None if ranking is None else asdict(ranking),
     }
+    # The training tables guarded again from what they publish, as an outsider reads them.
+    insights.guard_published(body["breakdowns"], body["lifecycle"])
+    released = legacy_disclosures.describes(body["identity"])
+    stated = _stated_by_reports(live.sweep_basis()) if released and basis is not None else None
+    return audited(body, model, cells, stated, released)
+
+
+def _stated_by_reports(fine: SweepBasis | None) -> dict[float, tuple[int, int]] | None:
+    """The release reports' thresholds read exactly off the full sweep: the outsider's best.
+
+    The reports' sweep is transcribed by hand (``legacy_disclosures.LEGACY_SWEEP``), and the
+    cut rule judges pieces by it: it must be this sweep as the reports print it - the same
+    customers flagged, a churner count the printed precision and recall allow - or the rule
+    and this audit would judge different pieces. Refused otherwise.
+    """
+    if fine is None:
+        return None
+    out = {}
+    for point in legacy_disclosures.LEGACY_SWEEP:
+        i = score_disclosure._index(fine.thresholds, point.threshold)
+        if i is None:
+            raise DemoDataError(
+                f"the full sweep has no cut at {point.threshold}, where the release reports state it"
+            )
+        flagged, churners = fine.true_positives[i] + fine.false_positives[i], fine.true_positives[i]
+        try:
+            low, high = legacy_disclosures.churner_range(point, fine.churners)
+        except ValueError:
+            low, high = 1, 0
+        if flagged != point.flagged or not low <= churners <= high:
+            raise DemoDataError(
+                f"the release reports' sweep at {point.threshold} is not the released model's: "
+                f"they state {point.flagged} flagged at precision {point.precision} and recall "
+                f"{point.recall}, the sweep has {flagged} flagged and {churners} churners"
+            )
+        out[point.threshold] = (flagged, churners)
+    return out
+
+
+def audited(
+    body: dict[str, Any],
+    model: Predictor,
+    cells: dict[Any, Any] | None,
+    stated: dict[float, tuple[int, int]] | None,
+    released: bool,
+) -> dict[str, Any]:
+    """``body``, once it loads and an outsider can solve no small group from it - read with
+    the release reports' figures (``stated``) and, for the released model, with the training
+    tables, the test report and the dataset's public totals; else ``DemoDataError``."""
     # Parsed back before it is handed over: what is written is what will load.
     written = json.loads(dumps(body))
     parse(written, model)
+    if insights.guard_published(json.loads(dumps(body))["breakdowns"]):
+        raise DemoDataError("a training table would hide more than it does; nothing was written")
     # And read as an outsider would read it, every published figure against every other.
     bands = [(band.name, band.min, band.max) for band in model.config.risk_bands]
-    if found := disclosure_audit.published_violations(written, bands, cells):
+    found = disclosure_audit.published_violations(
+        written, bands, cells, legacy=stated, external=released
+    )
+    if released and stated is None and written["sweep_basis"] is not None:
+        raise DemoDataError(
+            "the release reports' thresholds could not be read; nothing was written"
+        )
+    if found:
         raise DemoDataError(
             f"{len(found)} group(s) of fewer than {MIN_CELL} could be solved for from the "
             f"published figures; nothing was written. First: {found[0]}"
         )
     return body
+
+
+def legacy_for(identity: dict[str, Any], churners: int) -> score_disclosure.Legacy | None:
+    """The thresholds a cut must be read together with, or ``None``.
+
+    The release reports state the sweep of the *released* model's scores: for evidence of
+    that model, on its dataset and split, they are read as an outsider reads them. Of any
+    other model the reports say nothing that relates to its scores - a threshold of one
+    model's scores is no threshold of another's - so nothing is added.
+    """
+    if legacy_disclosures.describes(identity):
+        return score_disclosure.published_legacy(churners)
+    return None
 
 
 def _validation_on_safe_cuts(
@@ -294,7 +367,10 @@ def _validation_on_safe_cuts(
     # cut they use must be a cut here too, or the two together cut finer than the rule.
     peak = insights.economics_from(fine, model.config.business).peak.threshold
     cuts = score_disclosure.safe_cuts(
-        fine, required=(model.threshold,), preferred=(peak, score_disclosure.AT_HALF)
+        fine,
+        required=(model.threshold,),
+        preferred=(peak, score_disclosure.AT_HALF),
+        legacy=legacy_for(identity_of(model), fine.churners),
     )
     if cuts is None:
         return None, None, None
@@ -402,6 +478,7 @@ def _observed(value: Any, what: str) -> insights.Observed:
 
 
 _CELL = tuple(field.name for field in fields(insights.Cell))
+_REASONS = ("too_few", "few_of_an_outcome", "cross_partition", "complementary")
 _HIDDEN = ("churned", "rate", "lift", "low", "high")
 
 
@@ -411,14 +488,14 @@ def _cell(value: Any, what: str) -> insights.Cell:
     column = _maybe(record["column"], _text, what)
     customers, reason = _count(record["customers"], what), record["reason"]
     if reason is not None:
-        if reason not in ("too_few", "complementary") or (reason == "too_few") != (
-            customers < MIN_CELL
-        ):
+        if reason not in _REASONS or (reason == "too_few") != (customers < MIN_CELL):
             _fail(what)
         if any(record[key] is not None for key in _HIDDEN):
             _fail(f"{what}: a hidden group states its churn")
         return insights.Cell(row, column, customers, None, None, None, reason)
     churned, rate = _rate_of(record["churned"], record["rate"], customers, what)
+    if not score_disclosure.two_sided(churned, customers - churned):
+        _fail(f"{what}: a shown group has fewer than {MIN_CELL} churners or stayers")
     lift = _maybe(record["lift"], _number, what)
     low, high = _share(record["low"], what), _share(record["high"], what)
     if (lift is not None and lift < 0) or not low <= rate <= high:
@@ -460,6 +537,7 @@ def _breakdown(value: Any) -> insights.Breakdown:
         else [(a, b) for a in row_levels for b in column_levels]
     )
     cells = _cells(record["cells"], grid, what)
+    _crossed_hidden(rows, columns, [*row_totals, *column_totals, *cells], what)
     ranked = [_cell(item, what) for item in _list(record["ranked"], what)]
     if len(ranked) > _TOP or any(cell.rate is None or cell not in cells for cell in ranked):
         _fail(f"{what}: its ranking is not of its own reported groups")
@@ -478,6 +556,24 @@ def _breakdown(value: Any) -> insights.Breakdown:
         cells=cells,
         ranked=ranked,
     )
+
+
+def _crossed_hidden(rows: str, columns: str | None, cells: list[insights.Cell], what: str) -> None:
+    """Every group of a ``CROSS_PARTITION`` level keeps its churn hidden, in every table."""
+    for cell in cells:
+        for key, level in ((rows, cell.row), (columns, cell.column)):
+            if (
+                key is not None
+                and level in insights.CROSS_PARTITION.get(key, ())
+                and cell.customers
+                and cell.rate is not None
+            ):
+                _fail(f"{what}: {level}'s churn is shown")
+        # A margin cell names its level in ``row`` whichever dimension it belongs to.
+        if cell.column is None and cell.rate is not None and cell.customers:
+            for key in (rows, columns):
+                if key is not None and cell.row in insights.CROSS_PARTITION.get(key, ()):
+                    _fail(f"{what}: {cell.row}'s churn is shown")
 
 
 def _breakdowns(value: Any) -> dict[tuple[str, str | None], insights.Breakdown]:
@@ -535,7 +631,7 @@ def _bands(
     return bands
 
 
-def _basis(value: Any) -> SweepBasis:
+def _basis(value: Any, identity: Any) -> SweepBasis:
     what = "sweep basis"
     record = _record(value, tuple(f.name for f in fields(SweepBasis)), what)
     customers = _count(record["customers"], what)
@@ -574,6 +670,12 @@ def _basis(value: Any) -> SweepBasis:
         _fail(
             f"{what}: it does not start with everyone, or a step holds fewer than {MIN_CELL} churners or stayers"
         )
+    # Of the released model on its dataset and split, the release reports state the sweep at
+    # thresholds of their own: read together with them, no piece may break the rule either.
+    if legacy_disclosures.describes(identity) and not score_disclosure.legacy_holds(
+        basis, score_disclosure.published_legacy(churners)
+    ):
+        _fail(f"{what}: read with the release reports' thresholds, a piece breaks the rule")
     return basis
 
 
@@ -797,7 +899,7 @@ def parse(body: Any, model: Predictor) -> PublishedEvidence:
         )
     names = [band.name for band in model.config.risk_bands]
     observed = _observed(record["observed"], "observed")
-    basis = _maybe(record["sweep_basis"], lambda value, _what: _basis(value), "")
+    basis = _maybe(record["sweep_basis"], lambda value, _what: _basis(value, expected), "")
     if basis is not None:
         _cut_index(basis, model.threshold)  # the overview's campaign is read at it
     return PublishedEvidence(

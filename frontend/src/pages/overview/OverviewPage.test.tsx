@@ -930,7 +930,7 @@ describe('Overview: what the risk is associated with', () => {
     expect(card).not.toHaveTextContent('Payment method');
     expect(card).toHaveTextContent('Contract ranks first on its own but fourth in the model');
     await userEvent.click(within(card).getByRole('button', { name: 'On its own' }));
-    expect(card).toHaveTextContent('Contract typeV 0.419');
-    expect(card).toHaveTextContent('Tenure|r| 0.353');
+    expect(card).toHaveTextContent('Contract typeV 0.42');
+    expect(card).toHaveTextContent('Tenure|r| 0.35');
   });
 });

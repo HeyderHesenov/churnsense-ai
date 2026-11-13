@@ -46,8 +46,12 @@ attributions that carried their values), against the project's own policy that t
 dataset is not redistributed. The public demo now lists generated customers only, and
 the dataset is not in its reach: see §6 and "What the demo serves instead of the
 dataset" in §20. Since 2026-11-12 the validation sweep is published only at cuts that
-cannot be differenced into fewer than 20 customers (E8, §20), and the two reports that held
-the full sweep are no longer tracked; earlier commits still hold them (§20).
+cannot be differenced into fewer than 20 churners or stayers (E8, §20), and the two reports
+that held the full sweep are no longer tracked; earlier commits still hold them (§20). Since
+2026-11-13 those cuts are also read together with the thresholds the immutable release
+reports state the sweep at, training breakdowns keep the same 20/20 rule, and one- and
+two-year contracts' training churn is withheld (§20). The release reports and earlier
+commits still state figures the demo no longer publishes; that is not resolved (§20).
 
 ## 1. Architecture
 
@@ -671,8 +675,8 @@ deployment step.
 | A customer listing, one customer, a CSV export, the examples | Generated demo customers only (`DEMO-` IDs), each `synthetic` / `withheld` / `active` |
 | An explanation of a customer, or of a typed record | Attributions against a background of 100 generated customers; the response says `background: synthetic` |
 | The explainability page's sample | 300 generated customers' attributions; no validation row |
-| Observed rates, breakdowns, performance | The dataset's published aggregates; no group under 20 has a rate |
-| The validation sweep, its curve, the calibration bins, the operating point, the model's validation record at 0.5 | The sweep at 11 cuts (0.00, 0.08, 0.18, 0.23, 0.30, 0.36, 0.39, 0.50, 0.53, 0.58, 0.64), each interval between two with at least 20 churners and 20 stayers. The cuts include every threshold the documents state validation figures at (the peak 0.30, the operating point 0.36, and 0.50), so the demo's peak and recommendation are the model card's (0.30, $26,579; 0.36, $26,547), and a document read beside the demo cuts nothing finer. Under other assumptions the peak is read among the same cuts. If no such cuts existed, no sweep and no figure at a threshold would be shown, and the pages would say why |
+| Observed rates, breakdowns, performance | The dataset's published aggregates. A training group shows its churn only with at least 20 churners and 20 stayers (a group of fewer than 20 customers never), and never for one- or two-year contracts; the groups that would give a hidden one back are hidden with it |
+| The validation sweep, its curve, the calibration bins, the operating point, the model's validation record at 0.5 | The sweep at five cuts (0.00, 0.30, 0.36, 0.50, 0.53). Each interval between two holds at least 20 churners and 20 stayers, and so does every piece those intervals are cut into by the thresholds the release reports state the sweep at (0.10 to 0.80, read at the worst counts their rounded precision and recall allow); no cut sits on the edge of a report interval that is already smaller. The current documents state validation figures at 0.30, 0.36 and 0.50 only, so the demo's peak and recommendation are the model card's (0.30, $26,579; 0.36, $26,547). Under other assumptions the peak is read among the same cuts. If no such cuts existed, no sweep and no figure at a threshold would be shown, and the pages would say why |
 | Validation segments at 0.36, observed churn per risk band | Shown only where each side of the cut (each band) holds none or at least 20 churners and 20 stayers, and where the hidden ones together do too: Contract and SeniorCitizen are hidden whole |
 | A dataset customer by ID | 404, as for any ID the book does not hold |
 | A label check on an uploaded file | Nothing: no label is compared or returned, because the demo cannot tell a held-out customer apart, and so no answer depends on who was uploaded |
@@ -684,36 +688,73 @@ Now every count an outsider can solve for *exactly* from the public answers - an
 difference of cuts, a total less the shown groups, a band less a validation interval,
 any union of those - holds none or at least 20 churners and 20 stayers.
 `make demo-data` checks this itself before it writes the file
-(`churnsense.disclosure_audit`) and writes nothing otherwise. On the real file, read
-through the service in-process, 4,130 counts can be solved for and none breaks the rule,
-also with the README's figures at 0.30, 0.36 and 0.50 added to what the outsider knows;
-the same arithmetic on the old file finds 1,248 that do. The tests hold the same checks,
-with controls that find the old leak.
+(`churnsense.disclosure_audit`) and writes nothing otherwise.
+
+**Read together with what other sources state, 2026-11-13.** E8 judged the API's answers
+alone. An outsider also holds:
+
+- the two immutable release reports (`reports/final_evaluation.md`,
+  `reports/held_out_release.md`), which state the validation sweep at 0.10, 0.20, ..., 0.80
+  (flagged customers exactly, precision and recall to two decimals, money to the cent), and
+  the *test* partition's churners per Contract and InternetService segment;
+- the IBM sample's own totals per level, which are public.
+
+Against those, the eleven cuts of 2026-11-12 cut 10 groups of fewer than 20 churners or
+stayers (for example, 0.39 against the reports' 0.40 leaves 14 customers), and two more
+paths gave a hidden validation figure back: the Two year segment's churners as *dataset
+total - test (report) - training (published breakdown)*, and the same training count from
+Contract's Cramér's V, published to seventeen digits, which with the shown rows has exactly
+one solution. What changed:
+
+| Source an outsider combines | What the demo does now |
+|---|---|
+| The reports' sweep thresholds | Cuts kept only where every piece, read with those thresholds at the worst counts the reports' rounding allows, keeps 20/20 (`score_disclosure.legacy_holds`): five cuts remain |
+| The test report's churners per segment, the dataset's totals | One- and two-year contracts' training churn hidden in every breakdown that holds them (`insights.CROSS_PARTITION`); only Month-to-month and the two longer contracts together follow, both well above 20 |
+| Association strengths | Served and tracked to two decimals (`reports.STRENGTH_DECIMALS`); Contract's then fits dozens of counts |
+| Training breakdowns | The validation rule applies: a shown group has at least 20 churners and 20 stayers, and the groups that would give a hidden one back are hidden too |
+
+On the real file (format 3, migrated from the previous one without the dataset:
+`python -m churnsense.demo.migrate`), with the reports' figures read at their exact
+counts, 4,130 counts can be solved for and none that the reports alone do not already give
+breaks the rule. The reports alone give two: their own intervals 0.70 to 0.80 and 0.80 up
+hold 11 and 12 stayers. Those predate the rule and stay published; no cut of the demo
+touches them. The tests hold the same checks, with controls that find each old path.
 
 What this is not: it is minimum-cohort suppression, a rule about what the application
-publishes. It is not differential privacy and it does not make anyone anonymous. Counts
-still bound one another (a hidden segment's flagged customers bound its flagged churners
-from above), and the IBM sample is itself public: with it, the split seed in this
-repository and `/api/predict`, anyone can recompute every validation score and outcome.
-The rule keeps the demo from *publishing* finer groups; it protects nothing the dataset
-already gives away (see also `SECURITY.md`).
+publishes. It is not differential privacy, not anonymisation, and not complete
+protection. Counts still bound one another (a hidden segment's flagged customers bound its
+flagged churners from above; the reports' rounded rows bound the counts between them), and
+the IBM sample is itself public: with it, the split seed in this repository and
+`/api/predict`, anyone can recompute every validation score and outcome. The rule keeps the
+demo from *publishing* finer groups; it protects nothing the dataset already gives away
+(see also `SECURITY.md`).
 
 **The repository's own reports, 2026-11-12.** `reports/threshold_sweep.csv` (the full
 validation sweep at every 0.01, with counts and money) and `reports/model_comparison.md`
 (validation figures at 0.88, 0.50, 0.36, 0.30, 0.23 and 0.22, and a segment table with
 groups of a few customers) are no longer tracked: `make train` still writes them, locally,
-and `.gitignore` keeps them out. The documents that quoted their segment figures now
-suppress the same groups the demo does. The held-out release report and the final
-evaluation report still name `reports/model_comparison.md` as where the validation
-figures came from; they are part of the published record and were not changed.
+and `.gitignore` keeps them out. On 2026-11-13 the rest of the tree followed: the design
+artboards (`docs/design/`), which embedded the same sweep and the overview's segment counts,
+now show invented figures from `scripts/design_mock_data.py` and say so on their face; the
+EDA report, its notebook and the README withhold one- and two-year contracts' training churn;
+the development log no longer quotes hidden cells.
 
-**What removing them does not do.** The commit that removed them deletes them from the
-tree from that commit on. Every earlier commit still holds them - on GitHub, in every
-clone and fork, and in any copy GitHub or a search engine cached - and anyone can read
-them there (for example `git show afdd8257:reports/threshold_sweep.csv`). Only rewriting
-the history and asking GitHub to purge its caches would remove them; that was decided
-against, so their exposure is permanent for what was already published. Neither file was
-ever in the image.
+**What is still published and cannot be withdrawn.** None of the following is resolved:
+
+- **The immutable release reports.** `reports/final_evaluation.md` and
+  `reports/held_out_release.md` are part of the published release record and are never
+  edited. Their validation sweep at 0.10 to 0.80 holds two intervals below the rule (above),
+  their exact retained values give the monthly charges summed over those intervals, and they
+  name `reports/model_comparison.md` as where the validation figures came from.
+- **Every earlier commit.** Deleting or editing a file removes it from the tree from that
+  commit on. Every earlier commit still holds the full sweep, the old segment table, the
+  design artboards' arrays, the README's and the EDA report's one- and two-year contract
+  counts and the full-precision association ranking - on GitHub, in every clone and fork,
+  and in any cache. With the README of an earlier commit, the Two year validation count
+  this demo withholds can still be worked out (for example from `afdd8257`). Only rewriting
+  the history and purging GitHub's caches would remove them; that was decided against, so
+  their exposure is permanent for what was already published. None of these files was ever
+  in the image.
 
 **What protects it:**
 

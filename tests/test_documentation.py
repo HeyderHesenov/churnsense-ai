@@ -6,8 +6,13 @@ or re-evaluates and the README keeps the old numbers - and nothing else in the
 suite would notice.
 
 So the selection rule and the operating point are parsed back out of the prose
-and compared to ``reports/model_comparison.md``, in git, so this runs in CI too. Those
-are integration checks: they need the tracked file (``tests.conftest.tracked_report``).
+and compared to the reports that produced them. The selection rule's values come from
+``reports/model_comparison.csv``, which is tracked, so that check runs in CI. The
+operating point and the report-text checks read ``reports/model_comparison.md``, which
+``make train`` writes locally and git no longer tracks (E8): those run where it exists
+and skip with a reason elsewhere (``tests.conftest.tracked_report``). The 0.36
+recommendation itself is checked in CI from tracked figures in
+``tests/test_operating_point_ci.py``.
 
 The held-out partition is different: what may be said of it is a policy
 (``evaluation.disclosure``), so those tests read the documents alone, on their own

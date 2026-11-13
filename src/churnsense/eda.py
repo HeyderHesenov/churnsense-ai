@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 
 from churnsense import analysis as an
-from churnsense import viz
+from churnsense import insights, reports, viz
 from churnsense.config import Config, load_config
 from churnsense.data import schema
 from churnsense.data.loader import CleaningReport, features_and_target, load_clean
@@ -43,6 +43,55 @@ from churnsense.logging_setup import configure_logging
 logger = logging.getLogger(__name__)
 
 _FIG_W = 8.0
+
+
+#: What a table prints for a group whose churn is withheld.
+_SUPPRESSED = "*suppressed*"
+
+#: The report's grouping columns, by the breakdown dimension the public demo calls them.
+_DIMENSION_OF = {
+    "Contract": "Contract",
+    "PaymentMethod": "PaymentMethod",
+    "tenure_bucket": "tenure",
+    "charge_band": "monthly",
+    "InternetService": "InternetService",
+}
+
+#: Decimals a published association strength keeps. The exact value, with the published
+#: counts around it, can be inverted: Contract's Cramer's V and the shown contract rows give
+#: back Two year's withheld count. Two decimals leave dozens of counts consistent with it.
+STRENGTH_DECIMALS = reports.STRENGTH_DECIMALS
+
+
+def guarded(frame: pd.DataFrame, key: str) -> pd.DataFrame:
+    """``churn_rate_by``'s table with each group's churn withheld as the public demo withholds
+    it (``insights.guard_levels``): fewer than ``MIN_CELL`` churners or stayers, a
+    ``CROSS_PARTITION`` level, and what would give either back."""
+    column = next(c for c, k in _DIMENSION_OF.items() if k == key)
+    levels = insights.DIMENSIONS[key].levels
+    by_level = frame.set_index(frame[column].astype(str))
+    customers = [int(by_level["customers"].get(level, 0)) for level in levels]
+    churned = [int(by_level["churned"].get(level, 0)) for level in levels]
+    reasons = dict(
+        zip(levels, insights.guard_levels(key, customers, churned, sum(churned)), strict=True)
+    )
+    hidden = frame[column].astype(str).map(lambda level: reasons.get(level) is not None)
+    out = frame.astype({"churned": "float"}).copy()
+    out.loc[hidden.to_numpy(), ["churned", "churn_rate"]] = np.nan
+    return out
+
+
+def published_ranking(ranking: pd.DataFrame) -> pd.DataFrame:
+    """The association ranking as published: ordered on the exact strengths, then rounded."""
+    ordered = ranking.sort_values("strength", ascending=False, kind="mergesort")
+    return ordered.assign(strength=ordered["strength"].round(STRENGTH_DECIMALS)).reset_index(
+        drop=True
+    )
+
+
+def _shown(x: float) -> str:
+    """A rate in prose, or the mark of a withheld one."""
+    return _SUPPRESSED if pd.isna(x) else _pct(x)
 
 
 def _pct(x: float) -> str:
@@ -322,6 +371,30 @@ def _overview(df: pd.DataFrame) -> dict[str, float | int]:
     }
 
 
+def _price_shape(price: pd.DataFrame) -> str:
+    """The paragraph on churn by monthly-charge band, peaking among the bands it may show.
+
+    With every band withheld there is no peak to name: it says so instead.
+    """
+    shown = price.dropna(subset=["churn_rate"])
+    if shown.empty:
+        return (
+            "Every monthly-charge band's churn is withheld here, as the public demo withholds "
+            "it, so the shape of the relationship is not described."
+        )
+    peak = shown.loc[shown["churn_rate"].idxmax()]
+    top = price.iloc[-1]
+    return f"""The relationship is **not monotonic**, which is the more interesting part. Churn
+peaks in the {peak["charge_band"]} band at {_shown(peak["churn_rate"])}
+and then *falls* to {_shown(top["churn_rate"])} among the highest-paying
+{top["charge_band"]} customers. A plain "higher price drives churn" story
+does not fit that shape. The top band is dominated by long-tenure customers
+holding several services at once, and both tenure and product depth go with
+lower churn - so within the top band price and commitment pull the observed
+rate in opposite directions. It is also a concrete argument for a model that
+can represent a non-linear relationship rather than a bare linear term on price."""
+
+
 def _markdown(
     df: pd.DataFrame,
     cleaning: CleaningReport,
@@ -332,25 +405,27 @@ def _markdown(
     n_file: int,
 ) -> str:
     o = _overview(df)
-    contract = an.churn_rate_by(df, "Contract", sort_by_rate=True)
-    payment = an.churn_rate_by(df, "PaymentMethod", sort_by_rate=True)
-    tenure = an.churn_rate_by(
-        df.assign(tenure_bucket=an.tenure_bucket(df["tenure"])), "tenure_bucket"
+    contract = guarded(an.churn_rate_by(df, "Contract", sort_by_rate=True), "Contract")
+    payment = guarded(an.churn_rate_by(df, "PaymentMethod", sort_by_rate=True), "PaymentMethod")
+    tenure = guarded(
+        an.churn_rate_by(df.assign(tenure_bucket=an.tenure_bucket(df["tenure"])), "tenure_bucket"),
+        "tenure",
     )
+    long_contracts = df[df["Contract"] != "Month-to-month"]
     addons = an.service_addon_rates(df)
-    price = an.churn_rate_by(
-        df.assign(charge_band=an.charge_band(df["MonthlyCharges"])), "charge_band"
+    price = guarded(
+        an.churn_rate_by(
+            df.assign(charge_band=an.charge_band(df["MonthlyCharges"])), "charge_band"
+        ),
+        "monthly",
     )
-    price_peak = price.loc[price["churn_rate"].idxmax()]
-    price_top = price.iloc[-1]
+    price_shape = _price_shape(price)
     gender_strength = (
         float(ranking.loc[ranking["feature"] == "gender", "strength"].iloc[0])
         if "gender" in set(ranking["feature"])
         else float("nan")
     )
-    fiber = an.churn_rate_by(df, "InternetService", sort_by_rate=True)
-    new_customers = int(df["tenure"].eq(0).sum())
-    new_churned = int(df.loc[df["tenure"].eq(0), schema.TARGET].sum())
+    fiber = guarded(an.churn_rate_by(df, "InternetService", sort_by_rate=True), "InternetService")
     rel = {key: f"figures/{path.name}" for key, path in figures.items()}
 
     def table(frame: pd.DataFrame, cols: dict[str, str], fmt: dict[str, str]) -> str:
@@ -359,13 +434,15 @@ def _markdown(
         rows = [
             "| "
             + " | ".join(
-                _pct(r[c])
+                _SUPPRESSED
+                if fmt.get(c) in ("pct", "int") and pd.isna(r[c])
+                else _pct(r[c])
                 if fmt.get(c) == "pct"
                 else f"{r[c]:,.0f}"
                 if fmt.get(c) == "int"
                 else f"{r[c]:+.3f}"
                 if fmt.get(c) == "delta"
-                else f"{r[c]:.3f}"
+                else f"{r[c]:.2f}"
                 if fmt.get(c) == "num"
                 else str(r[c])
                 for c in cols
@@ -431,9 +508,9 @@ Three findings deserve naming:
 2. **No missing values and no duplicate rows** once that single quirk is handled.
    `customerID` is unique across all {n_file:,} rows of the file.
 3. **`tenure == 0` customers cannot have churned** within the observation window:
-   of the {new_customers:,} in the training partition, {new_churned:,} are labelled
-   as churned. They are retained as valid negatives, but they are an artefact of
-   where the snapshot was cut, not evidence that new customers never leave.
+   they joined in the snapshot's last month, so none can carry a churn label. They
+   are retained as valid negatives, but they are an artefact of where the snapshot
+   was cut, not evidence that new customers never leave.
 
 ## 3. Contract type is the strongest single signal
 
@@ -441,10 +518,13 @@ Three findings deserve naming:
 
 {table(contract, {"Contract": "Contract", "customers": "Customers", "churned": "Churned", "churn_rate": "Churn rate"}, {"customers": "int", "churned": "int", "churn_rate": "pct"})}
 
-Month-to-month customers churn at {_pct(contract.iloc[0]["churn_rate"])} against
-{_pct(contract.iloc[-1]["churn_rate"])} on a two-year contract - a
-{contract.iloc[0]["churn_rate"] / contract.iloc[-1]["churn_rate"]:.1f}x difference,
-and the single largest gap in the dataset.
+Month-to-month customers churn at {_shown(contract.iloc[0]["churn_rate"])} against
+{_pct(long_contracts[schema.TARGET].mean())} on one- and two-year contracts together -
+the single largest gap in the dataset. The two longer contracts' own figures are
+withheld: with the test partition's churners per contract, which an earlier release
+report states, and the dataset's public totals, Two year's would give the validation
+partition's by subtraction, a group of fewer than {insights.MIN_CELL}
+(`churnsense.insights.CROSS_PARTITION`).
 
 The business reading needs care. A snapshot records neither why a customer chose
 a contract nor what the contract itself did, so it cannot say why this gap exists.
@@ -474,7 +554,7 @@ handful of customers is noise wearing the costume of a finding.
 
 {table(payment, {"PaymentMethod": "Payment method", "customers": "Customers", "churned": "Churned", "churn_rate": "Churn rate"}, {"customers": "int", "churned": "int", "churn_rate": "pct"})}
 
-Electronic-check customers churn at {_pct(payment.iloc[0]["churn_rate"])} - far
+Electronic-check customers churn at {_shown(payment.iloc[0]["churn_rate"])} - far
 above the automatic methods. Payment method is unlikely to be a cause in itself;
 it more plausibly proxies for commitment and for billing friction, and it
 correlates with month-to-month contracts. It is a useful *flag*, not a lever.
@@ -489,19 +569,11 @@ Median monthly charges are ${o["median_charges_churned"]:.2f} for churned
 customers against ${o["median_charges_retained"]:.2f} for those who stayed, so the
 customers at risk are emphatically not the cheap ones.
 
-The relationship is **not monotonic**, which is the more interesting part. Churn
-peaks in the {price_peak["charge_band"]} band at {_pct(price_peak["churn_rate"])}
-and then *falls* to {_pct(price_top["churn_rate"])} among the highest-paying
-{price_top["charge_band"]} customers. A plain "higher price drives churn" story
-does not fit that shape. The top band is dominated by long-tenure customers
-holding several services at once, and both tenure and product depth go with
-lower churn - so within the top band price and commitment pull the observed
-rate in opposite directions. It is also a concrete argument for a model that
-can represent a non-linear relationship rather than a bare linear term on price.
+{price_shape}
 
 {table(fiber, {"InternetService": "Internet service", "customers": "Customers", "churn_rate": "Churn rate"}, {"customers": "int", "churn_rate": "pct"})}
 
-Fibre-optic customers churn at {_pct(fiber.iloc[0]["churn_rate"])}. Fibre is the
+Fibre-optic customers churn at {_shown(fiber.iloc[0]["churn_rate"])}. Fibre is the
 premium, highest-priced tier, so price sensitivity and service expectations are
 both plausible explanations, and this dataset distinguishes neither.
 
@@ -527,7 +599,7 @@ features and |point-biserial r| for numeric ones. Both are bounded in [0, 1] and
 both vanish under independence, so the ranking is meaningful - but they are not
 the same quantity and the chart labels which is which.
 
-**`gender` measures {gender_strength:.4f}.** It carries no detectable
+**`gender` measures {gender_strength:.2f}.** It carries no detectable
 association with churn in this dataset *and* it is a protected attribute, so it
 is excluded from the model (`features.drop_columns` in `configs/config.yaml`).
 The decision costs nothing measurable (the ablation is in the model
@@ -602,7 +674,9 @@ def generate_report(cfg: Config | None = None) -> Path:
         "collinearity": fig_collinearity(df, out),
     }
 
-    ranking.to_csv(cfg.paths.reports_dir / "association_ranking.csv", index=False)
+    published_ranking(ranking).to_csv(
+        cfg.paths.reports_dir / "association_ranking.csv", index=False
+    )
     report_path = cfg.paths.reports_dir / "eda_report.md"
     report_path.write_text(
         _markdown(df, cleaning, ranking, cfg, figures, n_file=len(full)), encoding="utf-8"

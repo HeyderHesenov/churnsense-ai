@@ -119,14 +119,15 @@ def test_the_builder_asks_for_the_documents_peak_first_and_one_half_second(
     asked = []
     real = sd.safe_cuts
 
-    def spy(basis, required=(), preferred=(), minimum=MIN_CELL):
-        asked.append((tuple(required), tuple(preferred)))
-        return real(basis, required, preferred, minimum)
+    def spy(basis, required=(), preferred=(), minimum=MIN_CELL, legacy=None):
+        asked.append((tuple(required), tuple(preferred), legacy))
+        return real(basis, required, preferred, minimum, legacy)
 
     monkeypatch.setattr(sd, "safe_cuts", spy)
     build.evidence_of(public_predictor, public_book, tmp_path / "absent.json")
     peak = _peak(live, public_predictor)
-    assert asked == [((public_predictor.threshold,), (peak, sd.AT_HALF))]
+    # No release report describes this model: no legacy thresholds are added.
+    assert asked == [((public_predictor.threshold,), (peak, sd.AT_HALF), None)]
     assert peak not in (public_predictor.threshold, sd.AT_HALF)
 
 
@@ -165,7 +166,7 @@ def test_a_file_an_outsider_could_solve_a_small_group_from_is_never_written(
 
     seen = []
 
-    def finds_one(body, bands, cells=None):
+    def finds_one(body, bands, cells=None, legacy=None, external=False):
         seen.append((body, bands, cells))
         return ["['validation'] atoms from [0.3] outcome=1: 7"]
 
@@ -725,7 +726,7 @@ def _show_every_band(bands, overall, minimum=MIN_CELL):
     return dict(bands)
 
 
-def _every_grid_cut(basis, required=(), preferred=(), minimum=MIN_CELL):
+def _every_grid_cut(basis, required=(), preferred=(), minimum=MIN_CELL, legacy=None):
     return basis.thresholds
 
 

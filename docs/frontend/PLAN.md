@@ -312,7 +312,7 @@ Supporting changes:
   - the host in the API panel.
 - **The Main queue is the real paginated flagged list** ("Showing 1–8 of 2,306 flagged"). The prototype loaded only the top 8 per band.
 - **"Add to campaign list" is omitted.** It is a dead button, and no such feature exists. "Export selection" works.
-- **Numbers typed into the copy become API values:** "17×", "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V 0.419 … fourth", "0.27", "34 churners", validation ECE 0.144 → 0.027, ε.
+- **Numbers typed into the copy become API values:** the contract spread, "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V … fourth", "0.27", "34 churners", validation ECE 0.144 → 0.027, ε.
 - **The Single-customer picker uses a deterministic rule.** The design's four case types are kept, but no hard-coded IDs; the chosen customers may differ from the prototype's.
 
 ## Phase 4 — hardening, CI, docs
@@ -535,7 +535,7 @@ them: the KPIs, the band cards, the campaign card, and the first queue row's
 attributions (Tenure +31.7, Monthly −20.9).
 
 **Copy that depended on the data now depends on it explicitly** (`overview/copy.ts`, unit-tested):
-- Every number in a sentence comes from the API: the 17× spread, the price
+- Every number in a sentence comes from the API: the contract spread, the price
   peak, the median tenures, "300 validation customers", "first … fourth",
   "$32 higher", the assumptions and the Low band's figures.
 - A claim is made only when the figures support it:
@@ -1653,8 +1653,8 @@ every figure equals `curl /api/performance` and `/api/model-info` (at 0.36:
 260 reached, 188 offers to stayers, 114 missed, 847 left alone, as the sweep;
 PR-AUC 0.644, ROC-AUC 0.838, precision 0.580, recall 0.695, F1 0.633, Brier
 0.138, ECE 0.027; cutoff 0.6646 = 0.6714 − 0.0068); "Test evaluation not
-recorded"; Two year and No internet NOT SCANNED; 0.9–1.0 not drawn (14
-customers); the slider's arrows write `?cut=0.38` and keep the focus; a chart
+recorded"; Two year and No internet NOT SCANNED; 0.9–1.0 not drawn (fewer than
+20 customers); the slider's arrows write `?cut=0.38` and keep the focus; a chart
 click loads 0.46; `?cut=1.00` reads precision "—" in the strip and the
 chart's name; 0 console messages; no element past the right edge at
 375/768/1024/1440. `artifacts/` and `reports/` are byte-identical before and
@@ -1975,8 +1975,8 @@ All additive; `/api/segments` keeps its shape and its 14 dimensions.
     numerical problem never takes `/api/overview` down with it.
   - **Real data cost** (91 pairs, 2.5 s, memoised per dashboard): Contract ×
     tenure also hides Month-to-month × 0–3 and × 4–6, One year × 25–48 and Two
-    year × 25–48 (Two year's low-tenure cells all have 0 churners, so only a
-    cell with churners protects them); tenure × monthly hides 3 more cells and
+    year × 25–48 (cells with too few churners can only be protected by a cell
+    that holds some); tenure × monthly hides 3 more cells and
     monthly × Streaming TV 3 more. The margins still show every level. No
     one-way level is hidden.
   - **Scope: one response at a time.** Two two-way tables sharing a margin
@@ -2298,8 +2298,8 @@ in it, `make evaluate` was not run, and `reports/` was not touched.
 ## Disclosure remediation, second pass (2026-11-06)
 
 An independent review found the per-dimension rule of the first pass recoverable: a
-union of hidden levels by subtraction (flagged 480/1/1 said "1 churner among 2 named
-customers"), two dimensions read together, a reader who replays the rule, and tied
+union of hidden levels by subtraction (the hidden levels' flagged counts, summed, gave
+a group of fewer than twenty away), two dimensions read together, a reader who replays the rule, and tied
 scores through full-precision score metrics. Where this section and an earlier one
 disagree about the test partition, this one holds.
 
@@ -2769,11 +2769,12 @@ under the one rule.
 
 ### What it gives on the real file
 
-11 cuts: 0.00, 0.08, 0.18, 0.23, 0.30, 0.36, 0.39, 0.50, 0.53, 0.58, 0.64 (first built with
-0.26 in place of 0.30; see "Final review" below). The thinnest intervals hold exactly 20
-churners (0.30-0.36) and 20 stayers (0.58-0.64). Contract and SeniorCitizen are hidden whole
-at 0.36 (One year has 2 flagged churners, so its complement would give it away);
-InternetService and gender are shown; every risk band is shown. The demo's peak and
+Eleven cuts at first (superseded on 2026-11-13: read together with the release reports'
+thresholds, five remain - 0, 0.30, 0.36, 0.50, 0.53; see "Disclosure review remediation"
+below). The thinnest published interval holds exactly 20 churners (0.30-0.36). Contract and
+SeniorCitizen are hidden whole at 0.36 (a side of a level in each breaks the rule, so its
+complement would give it away); InternetService and gender are shown; every risk band is
+shown. The demo's peak and
 recommendation are the model card's: 0.30 ($26,579) and 0.36 ($26,547). Precision and recall
 at 0.5 are the model card's (0.672 / 0.532).
 
@@ -2863,7 +2864,8 @@ confirmed on the real file by recomputation. What it found, and what was done (t
 - **Preferred cuts were all or nothing.** They are tried in priority order and a cut that does
   not fit is dropped alone. The full sweep's peak at the configured assumptions is now the first
   preferred cut (0.30 on the real file), because the model card and the README state figures
-  there: with 0.26 published beside the README's 0.30 row, [0.26, 0.30) held 7 churners.
+  there: with 0.26 published beside the README's 0.30 row, [0.26, 0.30) held fewer than 20
+  churners.
 - **The cross-table property was proved only by tests.** The auditor moved into the package;
   `make demo-data` runs it on the file it is about to write, over every set of atoms (unions
   that are not neighbours included) and every union of segments, and writes nothing if a group
@@ -2871,7 +2873,7 @@ confirmed on the real file by recomputation. What it found, and what was done (t
   as the same customers, under another (none of the four dimensions does that today; an
   add-on column would).
 - **Bounds remain.** A hidden segment's flagged customers bound its flagged churners (One year
-  ∪ Two year: at most 8). The documents now say "solved for exactly" and that bounds remain,
+  and Two year together: at most the flagged customers they publish). The documents now say "solved for exactly" and that bounds remain,
   and that none of this is differential privacy or anonymity.
 - **The disabled path said the wrong thing.** With no published sweep the sweep answers 503
   `sweep_withheld` (not `outcomes_withheld`), `/model-info`'s `data_source.sweep_note` carries
@@ -2902,8 +2904,73 @@ confirmed on the real file by recomputation. What it found, and what was done (t
   the tracked-sweep checks and the CSV-to-markdown check run where `make train` wrote the files.
 - Documents: no link to an untracked file; the model card's validation segment table, the
   README and the interview notes suppress the Contract and SeniorCitizen outcomes the demo
-  hides, and no longer state the two-year segment's churners (13) or the 35 of both unflagged
-  segments.
+  hides, and no longer state the two-year segment's churners or the total of both unflagged
+  segments. (This line itself quoted both counts until 2026-11-13; they are gone from the tree,
+  not from history.)
 - **What it does not do:** every earlier commit, on GitHub and in every clone, still holds both
   files (`git show afdd8257:reports/threshold_sweep.csv`). The history was not rewritten; that
   exposure stays.
+
+## Disclosure review remediation (2026-11-13)
+
+An independent pre-push review of `d668799` and `70c3cb0` returned NOT READY. This section
+records what changed in the commit after them; neither earlier commit was altered.
+
+**The four CI failures.** Four public-demo tests asserted `/ready` 200, which needs a built
+front end; CI's Python job builds none. The module's service now gets a test-local
+`frontend/dist` (`frontend_dist` fixture monkeypatching `spa.FRONTEND_DIST`); `/ready` is
+unchanged, and a new test shows the same service answering 503 without it. Checked from a
+`git archive` with no `frontend/dist`, no artifacts and no local reports.
+
+**Read together with what is already published.** E8 judged the API alone. The immutable
+release reports state the validation sweep at 0.10 to 0.80; the final evaluation states the
+test partition's churners per Contract and InternetService segment; the IBM sample's totals
+per level are public.
+
+- *Cuts.* `score_disclosure.legacy_holds`: every piece the reports' thresholds cut a demo
+  interval into keeps 20/20, read at the worst counts the reports' two-decimal rounding allows
+  (`legacy_disclosures.churner_range`); no cut sits on the edge of a report interval that is
+  already small (0.70 to 0.80 and 0.80 up hold 11 and 12 stayers in the reports themselves).
+  Applied only to evidence of the released model (`legacy_disclosures.describes`): another
+  model's scores have no relation to those thresholds. Of the eleven cuts, five remain: 0,
+  0.30, 0.36, 0.50, 0.53 - the peak and the operating point among them.
+- *Two year.* `total - test report - training breakdown` gave validation's Two year churners
+  (fewer than 20). One- and two-year contracts' training churn is now hidden in every table
+  that holds them (`insights.CROSS_PARTITION`, reason `cross_partition`; One year is the
+  complement); only Month-to-month and the two together follow, both far above 20. The same
+  count came back from Contract's Cramér's V at full precision (one solution); strengths are
+  now two decimals in the API, `reports/association_ranking.csv`, the EDA report and the UI.
+- *Training breakdowns.* The validation rule applies (user decision): a shown group has 20
+  churners and 20 stayers. `suppression.guard_one_way`/`guard_two_way` protect every hidden
+  count, judging a fixed sum by its value - which every completion of the published table
+  agrees on - and treat cross-partition cells as never-fixed (`Guard.alone`).
+  `insights.guard_published` re-applies the guard from published figures only; on the
+  builder's own output it changes nothing (tested). On the real file 911 of 1,741 cells
+  remain shown (was 1,589).
+- *The file.* FORMAT 3. `make demo-data` was not run: `python -m churnsense.demo.migrate`
+  rewrote the existing file from itself (restricted cuts, merged calibration bins, guarded
+  tables), reading no dataset and scoring nobody; the reader refuses format 2.
+- *Audit.* `disclosure_audit` gained legacy facts, `new_score_violations` (what the demo adds
+  to the reports), external segment totals and an outsider mode for segments. On the real
+  file with the reports at exact counts: 4,130 solvable counts, none new below the rule; the
+  eleven old cuts with the same reports: 10 new groups below it.
+
+**Repository.** Design artboards: invented figures from `scripts/design_mock_data.py`
+(seeded, imports nothing of the project, reads no file), a visible "Illustrative mock data"
+banner on each, a test per constant. README, EDA report and notebook withhold one- and
+two-year contract churn; this log no longer quotes hidden cells (lines rewritten by meaning).
+`tests/test_documentation_cuts.py` scans every tracked markdown file for threshold tables at
+unpublished cuts, long contracts' churn rates and a long Contract strength.
+
+**Smaller findings.** `/api/model-info`'s scalars are the evidence's in public mode (one
+ROC-AUC per partition; the two paths differ by tie-breaking on isotonic plateaus, 5e-15
+apart). A segment tab with fewer than two shown levels states no spread and no peak (it said
+"1.0x" with only Month-to-month shown). The 0.36 recommendation is checked in CI from tracked
+figures (`tests/test_operating_point_ci.py`). The candidate's figures at 0.5 are labelled as
+another model's. The sensitivity 0.88/0.22 is labelled as the full grid's.
+
+**Not resolved, and not claimed to be.** The release reports keep their sweep and money;
+every earlier commit keeps the full sweep, the artboards' arrays, the README's and the EDA
+report's contract counts and the full-precision ranking - from which the Two year validation
+count can still be worked out. Bounds remain. None of this is differential privacy or
+anonymity.

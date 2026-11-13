@@ -170,8 +170,9 @@ DEPLOY_ONLY_KEYS = frozenset({"allowed_hosts", "trusted_proxies"})
 PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
 #: The published evidence's format and top-level keys: a closed format
 #: (``churnsense.evidence``; tests/test_deploy.py holds both equal). The first format held
-#: the validation sweep at every 0.01, which differences into single customers.
-EVIDENCE_FORMAT = 2
+#: the validation sweep at every 0.01, which differences into single customers; the second
+#: cut it finer than the release reports' thresholds allow, and showed small training groups.
+EVIDENCE_FORMAT = 3
 EVIDENCE_KEYS = frozenset(
     {
         "format",

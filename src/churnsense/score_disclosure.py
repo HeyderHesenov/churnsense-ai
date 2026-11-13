@@ -29,8 +29,10 @@ one; a group of only churners, or only stayers, discloses everyone in it.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from itertools import combinations
 from typing import Any
 
@@ -98,13 +100,115 @@ def _index(thresholds: Sequence[float], cut: float) -> int | None:
     return None
 
 
-def _greedy(basis: SweepBasis, required: Sequence[float], minimum: int) -> tuple[float, ...] | None:
+# --- together with what is already published elsewhere ----------------------------------------
+#
+# Immutable documents state the validation sweep at thresholds of their own
+# (``churnsense.legacy_disclosures``). An outsider reads those and the demo's cuts as one
+# set of edges, so a cut must not split a legacy interval into a piece the rule forbids -
+# and must not sit on the edge of a legacy interval that already breaks it, where its exact
+# counts would sharpen a small group the documents give only roughly.
+
+
+@dataclass(frozen=True, slots=True)
+class Known:
+    """What an outsider knows at a threshold: the customers at or above it, exactly, and how
+    many of them churned, somewhere in ``low`` to ``high``."""
+
+    flagged: int
+    low: int
+    high: int
+
+
+@dataclass(frozen=True, slots=True)
+class Legacy:
+    """Thresholds other documents state the sweep at, and what they say there.
+
+    ``known`` maps each threshold to what its document gives; where it is ``None`` the
+    counts are read, exactly, from the sweep being cut (a builder that has the full grid).
+    """
+
+    known: Mapping[float, Known | None]
+
+    @property
+    def thresholds(self) -> tuple[float, ...]:
+        return tuple(sorted(self.known))
+
+
+def published_legacy(positives: int) -> Legacy:
+    """The release reports' sweep, as an outsider reads it for a partition of ``positives``."""
+    from churnsense import legacy_disclosures as docs
+
+    return Legacy(
+        {
+            point.threshold: Known(point.flagged, *docs.churner_range(point, positives))
+            for point in docs.LEGACY_SWEEP
+        }
+    )
+
+
+def _known_at(basis: SweepBasis, legacy: Legacy, t: float | None, cut: bool) -> Known:
+    """Counts at ``t``: exact at a cut of ``basis`` (or the top, ``None``), else the legacy view."""
+    if t is None:
+        return Known(0, 0, 0)
+    stated = next((k for s, k in legacy.known.items() if math.isclose(s, t, abs_tol=1e-9)), None)
+    i = _index(basis.thresholds, t)
+    if cut or stated is None:
+        if i is None:
+            raise ValueError(f"no counts at {t}: neither a cut of the sweep nor stated elsewhere")
+        tp, fp = basis.true_positives[i], basis.false_positives[i]
+        return Known(tp + fp, tp, tp)
+    return stated
+
+
+def _pieces_keep(
+    basis: SweepBasis, legacy: Legacy, low: float, high: float | None, minimum: int
+) -> bool:
+    """Whether the pieces between two neighbouring cuts ``low`` and ``high`` (``None``: the
+    top), split by the legacy thresholds between them, keep the rule as an outsider sees them.
+
+    A piece bounded by two legacy edges is the documents' own interval: it is not the
+    demo's to fix, but neither of the demo's cuts may be its edge when it breaks the rule.
+    """
+    inner = [t for t in legacy.thresholds if low + 1e-9 < t and (high is None or t < high - 1e-9)]
+    edges: list[float | None] = [low, *inner, high]
+    for a, b in itertools.pairwise(edges):
+        upper, lower = _known_at(basis, legacy, a, a == low), _known_at(basis, legacy, b, b == high)
+        churners = upper.low - lower.high
+        stayers = (upper.flagged - upper.high) - (lower.flagged - lower.low)
+        if churners >= minimum and stayers >= minimum:
+            continue
+        # A piece that breaks the rule may only be the documents' own interval: neither of
+        # its edges a cut of the demo's. (0 is everyone, which every publication states;
+        # the top is no cut.) Every other edge is a legacy threshold strictly inside.
+        if (a == low and a != 0.0) or (b is not None and b == high):
+            return False
+    return True
+
+
+def legacy_holds(basis: SweepBasis, legacy: Legacy, minimum: int = MIN_CELL) -> bool:
+    """Whether ``basis``'s cuts, read together with ``legacy``'s, cut no group the rule forbids."""
+    cuts: list[float | None] = [*basis.thresholds, None]
+    try:
+        return all(
+            _pieces_keep(basis, legacy, a, b, minimum)
+            for a, b in itertools.pairwise(cuts)
+            if a is not None
+        )
+    except ValueError:
+        return False
+
+
+def _greedy(
+    basis: SweepBasis, required: Sequence[float], minimum: int, legacy: Legacy | None = None
+) -> tuple[float, ...] | None:
     """The most cuts of ``basis``'s grid, ``required`` among them, that keep the rule.
 
     Left to right, each cut is the first that leaves enough behind it *and* before
     the next required cut (or the top). Every interval has a lower bound only, so
     the earliest feasible cut is never worse than a later one: no grid cut can be
-    added to the result without breaking the rule.
+    added to the result without breaking the rule. With ``legacy``, a step must also
+    keep the rule against the legacy thresholds inside it (``_pieces_keep``); the result
+    is then safe, if not always the most cuts.
     """
     t, tp, fp = basis.thresholds, basis.true_positives, basis.false_positives
     if not t or t[0] != 0.0:
@@ -119,7 +223,14 @@ def _greedy(basis: SweepBasis, required: Sequence[float], minimum: int) -> tuple
 
     def enough(i: int, j: int | None) -> bool:
         above = (0, 0) if j is None else (tp[j], fp[j])
-        return tp[i] - above[0] >= minimum and fp[i] - above[1] >= minimum
+        if not (tp[i] - above[0] >= minimum and fp[i] - above[1] >= minimum):
+            return False
+        if legacy is None:
+            return True
+        try:
+            return _pieces_keep(basis, legacy, t[i], None if j is None else t[j], minimum)
+        except ValueError:
+            return False
 
     kept = [0]
     for stop in [*sorted(set(stops)), None]:
@@ -139,19 +250,21 @@ def safe_cuts(
     required: Iterable[float] = (),
     preferred: Iterable[float] = (),
     minimum: int = MIN_CELL,
+    legacy: Legacy | None = None,
 ) -> tuple[float, ...] | None:
     """Cuts of ``basis``'s grid that keep the rule: ``required`` always, and as many of
     ``preferred`` as fit together - earlier ones first; ``None`` when no such cuts exist.
 
     Preferred cuts are where other published figures sit (the documents' peak, 0.5): one
-    that cannot be kept is dropped alone, not with the others.
+    that cannot be kept is dropped alone, not with the others. With ``legacy``, the cuts
+    also keep the rule read together with the thresholds other documents state.
     """
     required, preferred = tuple(required), tuple(preferred)
     for size in range(len(preferred), 0, -1):
         for chosen in combinations(preferred, size):  # in the order given
-            if (cuts := _greedy(basis, (*required, *chosen), minimum)) is not None:
+            if (cuts := _greedy(basis, (*required, *chosen), minimum, legacy)) is not None:
                 return cuts
-    return _greedy(basis, required, minimum)
+    return _greedy(basis, required, minimum, legacy)
 
 
 def restrict(basis: SweepBasis, cuts: Sequence[float]) -> SweepBasis:

@@ -213,11 +213,11 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     ],
     importance_basis: { partition: 'validation', customers: 300 },
     association: [
-      { feature: 'Contract', measure: "Cramer's V", strength: 0.419 },
-      { feature: 'tenure', measure: 'point-biserial |r|', strength: 0.353 },
-      { feature: 'InternetService', measure: "Cramer's V", strength: 0.322 },
-      { feature: 'PaymentMethod', measure: "Cramer's V", strength: 0.303 },
-      { feature: 'OnlineSecurity', measure: "Cramer's V", strength: 0.346 },
+      { feature: 'Contract', measure: "Cramer's V", strength: 0.42 },
+      { feature: 'tenure', measure: 'point-biserial |r|', strength: 0.35 },
+      { feature: 'InternetService', measure: "Cramer's V", strength: 0.32 },
+      { feature: 'PaymentMethod', measure: "Cramer's V", strength: 0.3 },
+      { feature: 'OnlineSecurity', measure: "Cramer's V", strength: 0.35 },
       { feature: 'TechSupport', measure: "Cramer's V", strength: 0.34 },
     ],
     campaign: {

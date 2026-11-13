@@ -270,8 +270,11 @@ def _segment_tab(d: Dashboard, key: str) -> out.SegmentTab | None:
     if split is None:
         return None
     reported = [c for c in split.row_totals if c.rate is not None]
-    top = max(reported, key=lambda c: c.rate, default=None)
-    low = min(reported, key=lambda c: c.rate, default=None)
+    # A spread and a peak compare levels: with fewer than two shown there is nothing to
+    # compare, and a hidden level must not be read as the lowest or highest one.
+    compared = len(reported) >= 2
+    top = max(reported, key=lambda c: c.rate, default=None) if compared else None
+    low = min(reported, key=lambda c: c.rate, default=None) if compared else None
     return out.SegmentTab(
         key=key,
         partition_customers=split.partition_customers,
@@ -816,17 +819,27 @@ WHOLE_PARTITION_SCALARS = ("roc_auc", "average_precision", "brier")
 
 
 def validation_metrics_served(
-    recorded: dict[str, Any], basis: SweepBasis | None, synthetic: bool
+    recorded: dict[str, Any],
+    basis: SweepBasis | None,
+    synthetic: bool,
+    measured: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The model's validation record, as ``/model-info`` states it.
 
     It is a count at a cut of its own (0.5). With the dataset's own book it is served as
     recorded. A public demo states counts only at a cut of its published sweep, read off
     that sweep; where the record's cut is not one, only the whole-partition scalars.
+
+    In a public demo the scalars are the published evidence's (``measured``), the ones
+    ``/api/performance`` serves, so one partition has one ROC-AUC. Training recorded its own
+    from the same model and customers; isotonic calibration ties hundreds of scores, and
+    rounding noise of about 1e-15 between the two scoring paths breaks one tie differently,
+    which moves ROC-AUC in the sixth decimal (docs/MODEL_CARD.md).
     """
     if not synthetic:
         return recorded
-    scalars = {key: recorded[key] for key in WHOLE_PARTITION_SCALARS if key in recorded}
+    source = recorded if measured is None else measured
+    scalars = {key: source[key] for key in WHOLE_PARTITION_SCALARS if key in source}
     cut = recorded.get("threshold")
     at = [
         i
