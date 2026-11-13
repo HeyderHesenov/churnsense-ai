@@ -153,9 +153,43 @@ def _identity(root: Path) -> dict:
     return json.loads((root / bundle.LEDGER).read_text())["identity"]
 
 
+def _evidence_hash(root: Path) -> str:
+    path = root / bundle.EVIDENCE
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
 def _problems(root: Path, **kwargs) -> list[str]:
     kwargs.setdefault("allow_example_domain", True)
+    kwargs.setdefault("evidence_sha256", _evidence_hash(root))
     return list(bundle.verify(root, in_image=True, **kwargs)[0])
+
+
+def test_the_image_check_requires_the_hash_of_the_evidence_it_bakes_in(image):
+    """The build names the evidence by its sha256 (the image's label), and refuses one it
+    is not told, or one that is not the file copied in."""
+    assert any("no EVIDENCE_SHA256" in p for p in _problems(image, evidence_sha256=""))
+    assert any("no EVIDENCE_SHA256" in p for p in _problems(image, evidence_sha256=None))
+    assert any("not the file" in p for p in _problems(image, evidence_sha256="0" * 64))
+    assert any("not a sha256" in p for p in _problems(image, evidence_sha256="abc"))
+    assert _problems(image) == []
+    validated = _evidence_hash(image)
+    (image / bundle.EVIDENCE).write_text((image / bundle.EVIDENCE).read_text() + " ")
+    assert any("not the file" in p for p in _problems(image, evidence_sha256=validated))
+
+
+def test_the_dockerfile_validates_the_evidence_before_the_image_exists():
+    """The baked evidence passes the verifier with its hash and the publication pipeline's
+    own check - reader, joint guard, audit - before the runtime user exists, and the image
+    is labelled with that hash."""
+    dockerfile = (REPO / "Dockerfile").read_text()
+    verify_at = dockerfile.index("RUN python scripts/verify_deploy_bundle.py --in-image")
+    check_at = dockerfile.index("&& python -m churnsense.demo.migrate --check")
+    user_at = dockerfile.index("useradd --system")
+    assert verify_at < check_at < user_at
+    assert "ARG EVIDENCE_SHA256=\n" in dockerfile
+    assert '--evidence-sha256 "${EVIDENCE_SHA256}"' in dockerfile
+    assert 'io.churnsense.evidence.sha256="${EVIDENCE_SHA256}"' in dockerfile
+    assert dockerfile.index("COPY artifacts/public_evidence.json") < verify_at
 
 
 def test_the_image_check_refuses_the_example_domain_unless_waived(image):
@@ -582,7 +616,19 @@ def test_the_command_fails_loudly_and_prints_no_contents(image, capsys):
 
 
 def test_the_command_passes_a_complete_bundle(image, capsys):
-    assert bundle.main(["--in-image", "--allow-example-domain", "--root", str(image)]) == 0
+    assert (
+        bundle.main(
+            [
+                "--in-image",
+                "--allow-example-domain",
+                "--root",
+                str(image),
+                "--evidence-sha256",
+                _evidence_hash(image),
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr()
     assert out.out == "deployment bundle ready\n" == bundle.PASSED + "\n"
     assert out.err == ""
@@ -601,11 +647,16 @@ def _repo_bundle(tmp_path: Path, image: Path) -> Path:
 def test_a_passing_run_prints_one_fixed_line_and_nothing_it_found(image, tmp_path, capsys, mode):
     """What the checks found - hash prefixes, hosts, proxy addresses - never reaches the output."""
     if mode == "image":
-        root, argv = image, ["--in-image"]
+        root, argv = image, ["--in-image", "--evidence-sha256", _evidence_hash(image)]
     else:
         root, argv = _repo_bundle(tmp_path, image), []
     argv += ["--allow-example-domain", "--root", str(root)]
-    problems, notes = bundle.verify(root, in_image=mode == "image", allow_example_domain=True)
+    problems, notes = bundle.verify(
+        root,
+        in_image=mode == "image",
+        allow_example_domain=True,
+        evidence_sha256=_evidence_hash(root) if mode == "image" else None,
+    )
     assert list(problems) == []
     assert len(notes) >= 5, "the checks still record what they found, for a caller"
     assert bundle.main(argv) == 0
@@ -648,7 +699,8 @@ def test_the_check_never_loads_a_model_or_the_data_stack(image):
     stack - joblib (unpickling) and scikit-learn - must stay unimported."""
     probe = (
         "import runpy, sys\n"
-        f"sys.argv = ['verify', '--in-image', '--allow-example-domain', '--root', {str(image)!r}]\n"
+        f"sys.argv = ['verify', '--in-image', '--allow-example-domain', '--root', {str(image)!r},"
+        f" '--evidence-sha256', {_evidence_hash(image)!r}]\n"
         "try:\n"
         f"    runpy.run_path({str(REPO / 'scripts' / 'verify_deploy_bundle.py')!r}, run_name='__main__')\n"
         "except SystemExit as exit_:\n"
@@ -1124,6 +1176,27 @@ def test_the_image_says_unknown_provenance_unless_told():
 
 
 HEAD = "c8495555f9553c72dbaf9a8eae693e1e3ba3d148"
+
+
+def test_the_build_command_names_the_evidence_it_bakes_in(tmp_path, monkeypatch):
+    """Git ignores the evidence, so the revision cannot name it: the command passes the
+    file's sha256, which the image labels and the build checks against the copy."""
+    from scripts import image_provenance as prov
+
+    evidence = tmp_path / "public_evidence.json"
+    evidence.write_text('{"format": 4}')
+    digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    assert prov.evidence_hash(evidence) == digest
+    assert prov.evidence_hash(tmp_path / "missing.json") == ""
+    command = prov.provenance(HEAD, "", digest).build_command()
+    assert f"EVIDENCE_SHA256={digest}" in command
+    assert command[-1] == "."
+    monkeypatch.setattr(prov, "ROOT", tmp_path)
+    monkeypatch.setattr(prov, "EVIDENCE", Path("public_evidence.json"))
+    monkeypatch.setattr(prov, "_git", lambda *args: HEAD if args[0] == "rev-parse" else "")
+    monkeypatch.setattr(prov, "context_paths", lambda _text: [])
+    (tmp_path / ".dockerignore").write_text("*\n")
+    assert prov.current().evidence_sha256 == digest
 
 
 def test_a_clean_tree_is_tagged_with_its_commit():

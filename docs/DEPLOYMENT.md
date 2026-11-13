@@ -382,6 +382,10 @@ The tag depends on the build context (every path `.dockerignore` re-includes, pl
 - Deploy only clean tags. A `-dirty` image is for local validation.
 - The model artifact is ignored by git, so git cannot vouch for it. The bundle check's
   hash does (§7).
+- The published evidence (`artifacts/public_evidence.json`) is ignored by git too. The
+  helper passes its sha256 as `EVIDENCE_SHA256`, the image labels it
+  `io.churnsense.evidence.sha256`, and the build refuses a missing hash or one that is
+  not the copied file. The label is where to read which evidence an image serves.
 
 **Front end stage:** `npm ci` (install scripts are disabled by `frontend/.npmrc`), then
 `npm run build`.
@@ -390,12 +394,98 @@ The tag depends on the build context (every path `.dockerignore` re-includes, pl
 
 - Installs the hash-locked runtime packages and runs `pip check`.
 - Copies the source and the approved files (never the dataset, never
-  `shap_global.json`) and runs the bundle check.
+  `shap_global.json`) and runs the bundle check, with the evidence's hash.
+- Runs `python -m churnsense.demo.migrate --check` on the copied evidence (below): no
+  image exists unless the file passes.
 - Compiles the source, and drops to the non-root user `churnsense` (uid 10001). No
   `data/` folder is created: there is nothing to mount.
 
 To get the image to the host, either build it there from the same checkout, or
 `docker save … | ssh host docker load`. Do not push it to a public registry.
+
+### The published evidence: from the builder to a running container
+
+The file every public page reads its figures from (evidence format 4) goes through these
+checks, in order. Each one refuses rather than passes along.
+
+1. **Written.** Only `make demo-data` (the builder) or `python -m churnsense.demo.migrate`
+   (the data-free migration) writes it. Both run the strict reader, the joint disclosure
+   guard over every training table (`churnsense.joint_disclosure`) and the disclosure
+   audit (`evidence.audited`), and write nothing when any of them refuses.
+2. **Baked.** Git ignores the file. `.dockerignore` re-includes it and the `Dockerfile`
+   copies it into the image.
+3. **Checked before the image exists**, in the build step that also runs the bundle check:
+   - **The bundle check** (`scripts/verify_deploy_bundle.py --in-image`) checks:
+     - the top-level keys, and `format` 4;
+     - the identity: model hash, dataset hash, split and threshold, against
+       `model_meta.json`;
+     - the dataset pin;
+     - that no customer column appears;
+     - that the file's sha256 equals `EVIDENCE_SHA256`.
+   - **`python -m churnsense.demo.migrate --check`** gives the copied file to the
+     migration's own validation and requires it unchanged: the strict reader, the joint
+     guard's fixpoint and the audit, with the release reports' and the dataset's public
+     figures. It reads no dataset and writes nothing.
+
+   Either one failing stops the build, so no image is made from a file the pipeline
+   would not publish.
+4. **Labelled.** The image carries `io.churnsense.evidence.sha256`: the sha256 of exactly
+   the bytes that passed.
+5. **Not replaceable while running.**
+   - The file lives in an image layer owned by root, and the service runs as uid 10001.
+   - The container is `read_only: true`, with only `/tmp` as tmpfs.
+   - The compose file mounts nothing; the bundle check refuses volumes, configs, secrets,
+     `env_file`, `extends` and override files (`check_nothing_mounted`).
+   - Changing the file means building a new image, which runs step 3 again.
+6. **Read again at start.** The service's strict reader (`evidence.parse`) checks:
+   - `format` 4;
+   - the full identity: model, dataset, split, threshold, minimum cell and risk bands;
+   - the hidden reasons;
+   - that the tables agree with one another.
+
+   On any failure the service answers 503 `demo_data_unavailable`, `/ready` fails, the
+   container is unhealthy and Caddy does not start. It does not re-run the joint guard on
+   every start (2-15 s); step 3 already did, on the same bytes.
+
+What this does not do: the label is not a signature. Whoever can build an image can label
+it as they like. The chain guarantees that every image built from this repository holds a
+file the publication pipeline accepts, named by its hash. It does not protect against
+someone who controls the build itself.
+
+### What the independent disclosure check covers, and what it does not
+
+The joint guard is checked in the tests against a referee written separately from it,
+`tests/joint_oracle.py`.
+
+What the referee models, as an outsider:
+- one unknown per published count;
+- each two-way table's cells adding up to its margins, and each one-way table to the
+  partition;
+- the same customers counted twice as one count;
+- a group inside another as a bounded difference.
+
+  In the tests, the "same" and "inside" relations come from the true population, not from
+  the published sizes.
+- `0 <= churned <= customers`.
+
+It reads ranges over every whole-number completion with mixed integer programs.
+
+Its exact coverage:
+- **Determined sums of up to `size` distinct hidden groups.**
+  - Size 3 in the four review cases (the 403/92 - 313/75 subtraction, its reverse, a
+    margin rebuilt from a shown row, five stayers), at 20 churners and 20 stayers.
+  - Size 2 in the twenty random populations and the overlapping-tables case, at 8.
+  - Size 1 in the controls.
+- **Determined differences** of nested groups.
+- **Not covered:**
+  - **A determined sum of more than three hidden groups is not checked by the referee.**
+    Only the joint guard's own search covers those, so they are not independently
+    verified.
+  - The lifecycle's median tenures are not modelled by the referee. Their bound is
+    tested on the guard directly.
+  - The referee never runs on the published file in CI. It was run once, by hand, on the
+    migrated real file: relations read off the published sizes, single groups and
+    differences, 0 violations. That run is evidence, not a recurring check.
 
 ## 9. Start
 

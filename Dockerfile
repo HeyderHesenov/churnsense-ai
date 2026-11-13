@@ -65,9 +65,16 @@ COPY scripts/verify_deploy_bundle.py scripts/
 # It refuses the example domain; only a local test build may waive that, with
 # --build-arg ALLOW_EXAMPLE_DOMAIN=1. Then compile the source, so a read-only
 # container never needs to write it.
+# The published evidence must be the file scripts/image_provenance.py hashed
+# (EVIDENCE_SHA256, labelled below), and one the publication pipeline leaves as it is:
+# the strict reader, the joint disclosure guard and the audit, without the dataset
+# (`python -m churnsense.demo.migrate --check`, which writes nothing). Else no image.
 ARG ALLOW_EXAMPLE_DOMAIN=
+ARG EVIDENCE_SHA256=
 RUN python scripts/verify_deploy_bundle.py --in-image --root /app \
         ${ALLOW_EXAMPLE_DOMAIN:+--allow-example-domain} \
+        --evidence-sha256 "${EVIDENCE_SHA256}" \
+    && python -m churnsense.demo.migrate --check \
     && python -m compileall -q src \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin churnsense
 
@@ -78,7 +85,8 @@ ARG SOURCE_DIRTY=unknown
 LABEL org.opencontainers.image.title="ChurnSense AI portfolio demo" \
       org.opencontainers.image.source="https://github.com/HeyderHesenov/churnsense-ai" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
-      io.churnsense.source.dirty="${SOURCE_DIRTY}"
+      io.churnsense.source.dirty="${SOURCE_DIRTY}" \
+      io.churnsense.evidence.sha256="${EVIDENCE_SHA256}"
 
 USER churnsense
 EXPOSE 8000

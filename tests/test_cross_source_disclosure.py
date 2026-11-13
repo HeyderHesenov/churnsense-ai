@@ -677,3 +677,62 @@ def test_the_external_audit_reads_what_every_table_together_determines(real, mon
     assert frozenset({"Month-to-month"}) in contract
     assert frozenset({"One year", "Two year"}) in contract
     assert frozenset({"Two year"}) not in contract and frozenset({"One year"}) not in contract
+
+
+# --- the image build's check: the baked file is what the validation accepts -------------------
+
+
+def test_the_check_passes_a_file_the_validation_leaves_as_it_is(body, public_predictor, tmp_path):
+    path = tmp_path / evidence.EVIDENCE_FILE
+    path.write_text(evidence.dumps(body), encoding="utf-8")
+    before = path.read_bytes()
+    assert migrate.check_file(path, public_predictor) == []
+    assert path.read_bytes() == before
+
+
+def test_the_check_refuses_a_file_the_guard_would_change_and_writes_nothing(
+    public_predictor, public_book, shap_cache, monkeypatch, tmp_path
+):
+    """The tables as each one alone would publish them - the joint pass switched off - are a
+    file no builder writes now: the guard would hide more of them, and the image is not
+    built from it."""
+    from churnsense import joint_disclosure
+    from churnsense.demo import build
+
+    def per_table_only(self, **_):
+        return {key for var in self.vars if var.published and var.hidden for key in var.members}
+
+    with monkeypatch.context() as patch:
+        patch.setattr(joint_disclosure.Joint, "guard", per_table_only)
+        patch.setattr(insights, "_TABLES", {})
+        patch.setattr(evidence, "audited", lambda body, *_args, **_kwargs: body)
+        older = build.evidence_of(public_predictor, public_book, shap_cache)
+    insights._TABLES.clear()
+    path = tmp_path / evidence.EVIDENCE_FILE
+    path.write_text(evidence.dumps(older), encoding="utf-8")
+    before = path.read_bytes()
+    assert migrate.check_file(path, public_predictor)
+    assert path.read_bytes() == before
+
+
+def test_the_check_refuses_an_unreadable_or_older_file(body, public_predictor, tmp_path):
+    path = tmp_path / evidence.EVIDENCE_FILE
+    path.write_text("{not json", encoding="utf-8")
+    assert migrate.check_file(path, public_predictor)
+    older = copy.deepcopy(body)
+    older["format"] = 3
+    path.write_text(evidence.dumps(older), encoding="utf-8")
+    assert any("format" in p for p in migrate.check_file(path, public_predictor))
+
+
+def test_the_check_command_writes_nothing_and_says_so_by_its_exit_status(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(migrate, "check_file", lambda path, _model: calls.append(path) or ["x"])
+    monkeypatch.setattr(
+        migrate, "migrate_file", lambda *_: (_ for _ in ()).throw(AssertionError("wrote"))
+    )
+    monkeypatch.setattr(migrate, "_served_model", lambda: type("M", (), {"source": tmp_path})())
+    assert migrate.main(["--check"]) == 1
+    assert calls == [tmp_path / evidence.EVIDENCE_FILE]
+    monkeypatch.setattr(migrate, "check_file", lambda *_: [])
+    assert migrate.main(["--check"]) == 0

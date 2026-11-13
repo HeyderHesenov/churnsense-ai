@@ -19,7 +19,9 @@ merged into one. This command makes those changes and nothing else:
   in one step.
 
 It reads no dataset, scores nobody, fits nothing and evaluates nothing; a figure it
-cannot derive from the file, it withholds. ``python -m churnsense.demo.migrate``.
+cannot derive from the file, it withholds. ``python -m churnsense.demo.migrate``; with
+``--check`` it writes nothing and fails unless the file is already what it would write
+(the image build runs that on the copy it bakes in).
 """
 
 from __future__ import annotations
@@ -150,15 +152,57 @@ def migrate_file(path: Path, model: Predictor) -> dict[str, Any]:
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
-    argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0]).parse_args(argv)
-    configure_logging()
+def check_file(path: Path, model: Predictor) -> list[str]:
+    """What keeps ``path`` from being the file this command would leave as it is: nothing
+    (``[]``) when it is current evidence that the strict reader, the joint guard and the
+    disclosure audit accept unchanged. Read only - nothing is written.
+
+    The image build runs it (``--check``) on the copy it bakes in: an image holds only a
+    file the publication pipeline would publish, whatever wrote it.
+    """
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError, RecursionError) as exc:
+        return [f"the published evidence could not be read: {exc.__class__.__name__}"]
+    if not isinstance(body, dict) or body.get("format") != evidence.FORMAT:
+        return [f"not evidence format {evidence.FORMAT}: migrate it first"]
+    try:
+        result = migrated(body, model)
+    except ChurnSenseError as exc:
+        return [f"refused: {exc}"]
+    published = json.loads(evidence.dumps(body))
+    if result != published:
+        changed = sorted(k for k in published if result.get(k) != published.get(k))
+        return [f"the guard or the audit would change it: {', '.join(changed)}"]
+    return []
+
+
+def _served_model() -> Predictor:
+    """The configured model's metadata and configuration only: nothing is scored."""
     from churnsense.models.predict import load_predictor
 
+    cfg = load_config()
+    return replace(load_predictor(cfg.paths.artifacts_dir), config=cfg)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="write nothing; exit 1 unless the file is one this command would leave as it is",
+    )
+    args = parser.parse_args(argv)
+    configure_logging()
     try:
-        cfg = load_config()
-        # The model's metadata and configuration only: nothing is scored.
-        model = replace(load_predictor(cfg.paths.artifacts_dir), config=cfg)
+        model = _served_model()
+        if args.check:
+            problems = check_file(model.source / evidence.EVIDENCE_FILE, model)
+            for problem in problems:
+                logger.error("published evidence refused: %s", problem)
+            if not problems:
+                logger.info("published evidence is current and passes the guard and the audit")
+            return 1 if problems else 0
         result = migrate_file(model.source / evidence.EVIDENCE_FILE, model)
     except ChurnSenseError as exc:
         logger.error("nothing was written: %s", exc)

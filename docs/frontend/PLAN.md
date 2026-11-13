@@ -3071,3 +3071,28 @@ On the synthetic test books, whose generator nests levels the real data does not
   of 30 runs failed with the defaults, a different test each time; with these, 0 of 20.
 - **Test time.** The Python suite takes about 58 minutes, up from about 15: the synthetic
   books, whose generator nests levels, make the joint guard hide most of every table.
+
+## Before the push (2026-11-13)
+
+The user approved these decisions:
+- the e2e server's in-flight cap of 12 × Playwright workers, with production pinned at 12
+  (`tests/test_limits.py`, which does not import the e2e server);
+- the test speed-up deferred to a task of its own;
+- validation on real GitHub Actions through a draft PR.
+
+Two blockers were reported first:
+
+- **CI's `test` and `lock` jobs.** They allowed 30 minutes; the suite takes about an hour.
+  Both now allow 120 minutes, and nothing else in the workflow changed.
+- **The published evidence was not fully validated before an image existed.** The build
+  checked format, keys and identity, but the joint guard and the audit ran only where the
+  file was written.
+  - The image build now runs `python -m churnsense.demo.migrate --check`: the migration's
+    own validation of the baked copy, reader, joint guard fixpoint and audit, writing
+    nothing.
+  - The bundle check now requires the copy's sha256, `EVIDENCE_SHA256` from
+    `scripts/image_provenance.py`, which the image labels `io.churnsense.evidence.sha256`.
+
+The whole chain, and what the separate disclosure referee does and does not cover (sums
+of more than three hidden groups only by the guard's own search), are in
+`docs/DEPLOYMENT.md` §8.

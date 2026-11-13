@@ -767,14 +767,43 @@ def check_image(root: Path, problems: Problems, notes: list[str]) -> None:
 # --- entry point ---------------------------------------------------------------------------
 
 
+def check_evidence_hash(
+    root: Path, expected: str | None, problems: Problems, notes: list[str], *, required: bool
+) -> None:
+    """The published evidence is exactly the file the build was told it bakes in.
+
+    ``scripts/image_provenance.py`` passes the sha256 of ``artifacts/public_evidence.json``
+    as ``EVIDENCE_SHA256``; the image labels it, so an image names the validated bytes it
+    holds. In the image the hash is required: a build without it is refused.
+    """
+    if not expected:
+        if required:
+            problems.add(
+                "the build passes no EVIDENCE_SHA256: build with scripts/image_provenance.py"
+            )
+        return
+    path = root / EVIDENCE
+    if not path.is_file():
+        return  # check_assets names the missing file
+    if not re.fullmatch(r"[0-9a-f]{64}", expected):
+        problems.add("EVIDENCE_SHA256 is not a sha256")
+        return
+    if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        problems.add(f"{EVIDENCE} is not the file EVIDENCE_SHA256 names")
+        return
+    notes.append(f"evidence: {expected[:12]}")
+
+
 def verify(
     root: Path,
     *,
     in_image: bool,
     allow_example_domain: bool = False,
+    evidence_sha256: str | None = None,
 ) -> tuple[Problems, list[str]]:
     problems, notes = Problems(), []
     check_assets(root, problems, notes)
+    check_evidence_hash(root, evidence_sha256, problems, notes, required=in_image)
     deploy = check_config(root, problems, notes)
     if deploy is not None and not allow_example_domain:
         check_domain(deploy, problems)
@@ -799,6 +828,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="accept demo.example.com (a local test build only; never for a real deployment)",
     )
+    parser.add_argument(
+        "--evidence-sha256",
+        default=None,
+        help="the sha256 the build labels the published evidence with (required in the image)",
+    )
     args = parser.parse_args(argv)
     if not args.root.is_dir():
         parser.error(f"no such directory: {args.root}")
@@ -806,6 +840,7 @@ def main(argv: list[str] | None = None) -> int:
         args.root.resolve(),
         in_image=args.in_image,
         allow_example_domain=args.allow_example_domain,
+        evidence_sha256=args.evidence_sha256,
     )
     for problem in problems:
         print(f"PROBLEM: {problem}", file=sys.stderr)
