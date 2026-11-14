@@ -255,6 +255,7 @@ export function explainResponse(
   return {
     model_sha256: ARTIFACT,
     background_customers: 100,
+    background: 'training',
     permutations: 10,
     seed: 42,
     explanations,

@@ -58,9 +58,9 @@ Three findings deserve naming:
 2. **No missing values and no duplicate rows** once that single quirk is handled.
    `customerID` is unique across all 7,043 rows of the file.
 3. **`tenure == 0` customers cannot have churned** within the observation window:
-   of the 7 in the training partition, 0 are labelled
-   as churned. They are retained as valid negatives, but they are an artefact of
-   where the snapshot was cut, not evidence that new customers never leave.
+   they joined in the snapshot's last month, so none can carry a churn label. They
+   are retained as valid negatives, but they are an artefact of where the snapshot
+   was cut, not evidence that new customers never leave.
 
 ## 3. Contract type is the strongest single signal
 
@@ -69,13 +69,16 @@ Three findings deserve naming:
 | Contract | Customers | Churned | Churn rate |
 |---|---|---|---|
 | Month-to-month | 2,326 | 1,002 | 43.1% |
-| One year | 865 | 93 | 10.8% |
-| Two year | 1,034 | 26 | 2.5% |
+| One year | 865 | *suppressed* | *suppressed* |
+| Two year | 1,034 | *suppressed* | *suppressed* |
 
 Month-to-month customers churn at 43.1% against
-2.5% on a two-year contract - a
-17.1x difference,
-and the single largest gap in the dataset.
+6.3% on one- and two-year contracts together -
+the single largest gap in the dataset. The two longer contracts' own figures are
+withheld: with the test partition's churners per contract, which an earlier release
+report states, and the dataset's public totals, Two year's would give the validation
+partition's by subtraction, a group of fewer than 20
+(`churnsense.insights.CROSS_PARTITION`).
 
 The business reading needs care. Customers who expect to stay are the ones
 willing to sign a long contract, so part of this gap is self-selection rather
@@ -183,25 +186,25 @@ simply be more invested to begin with.
 
 | Feature | Measure | Strength |
 |---|---|---|
-| Contract | Cramer's V | 0.419 |
-| OnlineSecurity | Cramer's V | 0.353 |
-| tenure | point-biserial |r| | 0.353 |
-| TechSupport | Cramer's V | 0.345 |
-| InternetService | Cramer's V | 0.328 |
-| PaymentMethod | Cramer's V | 0.307 |
-| OnlineBackup | Cramer's V | 0.296 |
-| DeviceProtection | Cramer's V | 0.279 |
-| StreamingMovies | Cramer's V | 0.230 |
-| StreamingTV | Cramer's V | 0.229 |
-| TotalCharges | point-biserial |r| | 0.202 |
-| MonthlyCharges | point-biserial |r| | 0.196 |
+| Contract | Cramer's V | 0.42 |
+| OnlineSecurity | Cramer's V | 0.35 |
+| tenure | point-biserial |r| | 0.35 |
+| TechSupport | Cramer's V | 0.35 |
+| InternetService | Cramer's V | 0.33 |
+| PaymentMethod | Cramer's V | 0.31 |
+| OnlineBackup | Cramer's V | 0.30 |
+| DeviceProtection | Cramer's V | 0.28 |
+| StreamingMovies | Cramer's V | 0.23 |
+| StreamingTV | Cramer's V | 0.23 |
+| TotalCharges | point-biserial |r| | 0.20 |
+| MonthlyCharges | point-biserial |r| | 0.20 |
 
 Two statistics share one axis here: bias-corrected Cramer's V for categorical
 features and |point-biserial r| for numeric ones. Both are bounded in [0, 1] and
 both vanish under independence, so the ranking is meaningful - but they are not
 the same quantity and the chart labels which is which.
 
-**`gender` measures 0.0000.** It carries no detectable
+**`gender` measures 0.00.** It carries no detectable
 association with churn in this dataset *and* it is a protected attribute, so it
 is excluded from the model (`features.drop_columns` in `configs/config.yaml`).
 The decision costs nothing measurable (the ablation is in the model
@@ -232,7 +235,7 @@ resolved silently.
 | Moderate 1 : 2.8 imbalance | `class_weight='balanced'`; no synthetic oversampling |
 | Contract, tenure and payment dominate | A regularised linear model should already be competitive - it is the baseline to beat, not a formality |
 | Near-duplicate `TotalCharges` | Report the ablation; expect coefficient instability in the linear model |
-| `gender` at 0.0000 | Dropped: no measured signal, and a protected attribute |
+| `gender` at 0.00 | Dropped: no measured signal, and a protected attribute |
 | Suppressed low-count cells | Risk segments need a minimum size before anyone acts on their rate |
 
 ## 10. Limits of this analysis

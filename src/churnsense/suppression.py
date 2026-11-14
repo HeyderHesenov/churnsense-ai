@@ -38,21 +38,21 @@ Totals - a breakdown's margins and the partition - are never hidden here: a
 margin is decided by its own one-way breakdown, so a two-way table hides only
 cells, and two responses that share a margin agree on it.
 
-**Scope: one response at a time.** Each table is protected on its own, and this
-is a rule for what a report states, not privacy protection. Responses can add
-to each other: two two-way tables that share a margin the one-way breakdown hid
-can each narrow that margin's churn and together pin it, and two dimensions can
-name the same people (no internet service under ``InternetService`` and under an
-add-on), so a count hidden in one table may be published in the other. Protecting
-every table of every dimension at once is not attempted. Nor does this reach
-beyond breakdowns: the API lists training customers with their own outcomes.
+**Scope: one table at a time.** Each table is protected on its own here, and this
+is a rule for what a report states, not privacy protection. Tables add to each
+other - two two-way tables sharing a margin the one-way table hid, two dimensions
+naming the same people (no internet service under ``InternetService`` and under an
+add-on), one group inside another - so this is only the first step:
+``churnsense.joint_disclosure`` then reads every table at once and hides what they
+give away together, a one-way margin included. Nor does this reach beyond
+breakdowns: in dataset mode the API lists training customers with their outcomes.
 """
 
 from __future__ import annotations
 
 import heapq
 import logging
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -62,6 +62,22 @@ logger = logging.getLogger(__name__)
 
 #: The cost of hiding a set of edges: how many groups, then how many customers.
 Cost = tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class Guard:
+    """What a table must keep open beyond the size rule, and what is known to judge it by.
+
+    ``protected`` are hidden counts that no published figure may fix - alone, or summed
+    with each other - unless the fixed sum has at least ``minimum`` churners *and*
+    ``minimum`` stayers. ``known`` gives the churn of those whose count is known; any other
+    is read at its worst (none of either outcome). ``alone`` are counts that must stay open
+    even when large: a fixed sum of them only is refused whatever it holds.
+    """
+
+    protected: frozenset[int]
+    known: Mapping[int, int]
+    alone: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +94,12 @@ class _Table:
     """A table's graph, the edges hidden so far, and what they give away."""
 
     def __init__(
-        self, nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum: int
+        self,
+        nodes: int,
+        edges: Sequence[_Edge],
+        hidden: Iterable[int],
+        minimum: int,
+        guard: Guard | None = None,
     ) -> None:
         self.nodes = nodes
         self.edges = edges
@@ -89,8 +110,13 @@ class _Table:
         for i, edge in enumerate(edges):
             self.incidence[edge.tail, i] += 1
             self.incidence[edge.head, i] -= 1
-        # Only hideable edges are ever added, and none of them is small: this never changes.
-        self.small = sorted(i for i in self.hidden if edges[i].customers < minimum)
+        self.guard = guard
+        if guard is None:
+            # Only hideable edges are ever added, and none of them is small: this never changes.
+            self.small = sorted(i for i in self.hidden if edges[i].customers < minimum)
+        else:
+            # Named by the caller, whatever their size.
+            self.small = sorted(i for i in guard.protected if i in self.hidden)
         #: Hidden edges found free. Hiding more only widens the completions: they stay free.
         self.free: set[int] = set()
 
@@ -212,36 +238,60 @@ class _Table:
         return set(self.small) - set(moving), self._cycles(moving)
 
     def pinned_group(self, given_up: set[frozenset[int]]) -> frozenset[int] | None:
-        """A set of small hidden edges, under ``minimum`` together, whose sum is fixed.
+        """A set of protected hidden edges whose sum is fixed and may not be.
 
-        The one with the fewest customers (ties to the earliest edges), found by
-        an integer program: pick small edges over which every fundamental cycle
-        sums to zero. ``None`` when there is none outside ``given_up``.
+        Without a ``Guard``: small edges under ``minimum`` customers together. With one: a
+        sum with fewer than ``minimum`` churners or fewer than ``minimum`` stayers (an unknown
+        count read as none of either), or a sum of ``alone`` edges only. The one with the
+        fewest customers (ties to the earliest edges), found by an integer program: pick
+        protected edges over which every fundamental cycle sums to zero. ``None`` when
+        there is none outside ``given_up``.
         """
         if not self.small:
             return None
         cycles = self._state()[:, self.small]
         size = np.array([self.edges[i].customers for i in self.small])
         width = len(self.small)
-        constraints = [
-            LinearConstraint(np.ones((1, width)), lb=1),
-            LinearConstraint(size[None, :], ub=self.minimum - 1),
-        ]
+        base = [LinearConstraint(np.ones((1, width)), lb=1)]
         if len(cycles):
-            constraints.append(LinearConstraint(cycles, lb=0, ub=0))
+            base.append(LinearConstraint(cycles, lb=0, ub=0))
         for group in given_up:
             inside = np.array([1 if i in group else -1 for i in self.small])
-            constraints.append(LinearConstraint(inside[None, :], ub=len(group) - 1))
+            base.append(LinearConstraint(inside[None, :], ub=len(group) - 1))
         # Fewest customers first: the index terms add up to less than one customer's weight.
         objective = size * width**2 + np.arange(width)
-        result = milp(
-            objective, constraints=constraints, integrality=np.ones(width), bounds=Bounds(0, 1)
-        )
-        if result.status == 2:  # infeasible: no small group is fixed
-            return None
-        if result.status != 0:
-            raise RuntimeError(f"the disclosure check did not finish: {result.message}")
-        return frozenset(i for i, z in zip(self.small, result.x, strict=True) if z > 0.5)
+        if self.guard is None:
+            searches = [([LinearConstraint(size[None, :], ub=self.minimum - 1)], np.ones(width))]
+        else:
+            known = self.guard.known
+            churned = np.array([known.get(i, 0) for i in self.small])
+            stayed = np.array(
+                [self.edges[i].customers - known[i] if i in known else 0 for i in self.small]
+            )
+            alone = np.array([1 if i in self.guard.alone else 0 for i in self.small])
+            searches = [
+                ([LinearConstraint(churned[None, :], ub=self.minimum - 1)], np.ones(width)),
+                ([LinearConstraint(stayed[None, :], ub=self.minimum - 1)], np.ones(width)),
+                ([], alone),
+            ]
+        best: tuple[float, frozenset[int]] | None = None
+        for extra, upper in searches:
+            if not upper.any():
+                continue
+            result = milp(
+                objective,
+                constraints=[*base, *extra],
+                integrality=np.ones(width),
+                bounds=Bounds(0, upper),
+            )
+            if result.status == 2:  # infeasible: no such group is fixed
+                continue
+            if result.status != 0:
+                raise RuntimeError(f"the disclosure check did not finish: {result.message}")
+            group = frozenset(i for i, z in zip(self.small, result.x, strict=True) if z > 0.5)
+            if best is None or result.fun < best[0]:
+                best = (float(result.fun), group)
+        return None if best is None else best[1]
 
     # --- the repairs ------------------------------------------------------------------------
 
@@ -304,7 +354,13 @@ class _Table:
         return {min(rest, key=lambda j: (self.edges[j].customers, j))} if rest else set()
 
 
-def _protect(nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum: int) -> set[int]:
+def _protect(
+    nodes: int,
+    edges: Sequence[_Edge],
+    hidden: Iterable[int],
+    minimum: int,
+    guard: Guard | None = None,
+) -> set[int]:
     """``hidden``, plus the edges that keep every small group's count open; deterministic.
 
     What the published totals fix by themselves (a total with no churner in
@@ -312,7 +368,7 @@ def _protect(nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum:
     first and logged once, so it costs no further group. Every other round
     hides at least one more edge or sets one group aside, so it ends.
     """
-    table = _Table(nodes, edges, hidden, minimum)
+    table = _Table(nodes, edges, hidden, minimum, guard)
     lost, everything = table.settled()
     table.small = [i for i in table.small if i not in lost]
     given_up: set[frozenset[int]] = set()
@@ -321,6 +377,12 @@ def _protect(nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum:
         if not added:
             given_up.add(group)
         table.hidden |= added
+    if (lost or given_up) and guard is not None:
+        # The guard judges a publication: a group it cannot keep open is a failure, not a
+        # note - ``_safely`` then hides every count the table may hide.
+        raise RuntimeError(
+            f"{len(lost) + len(given_up)} protected group(s) cannot be kept open by hiding"
+        )
     if lost or given_up:
         logger.warning(
             "%d small group(s) have a churn count the published totals fix by themselves",
@@ -329,11 +391,17 @@ def _protect(nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum:
     return table.hidden
 
 
-def _safely(nodes: int, edges: Sequence[_Edge], hidden: Iterable[int], minimum: int) -> set[int]:
+def _safely(
+    nodes: int,
+    edges: Sequence[_Edge],
+    hidden: Iterable[int],
+    minimum: int,
+    guard: Guard | None = None,
+) -> set[int]:
     """``_protect``, or - should a solver fail - every count the table may hide."""
     hidden = set(hidden)
     try:
-        return _protect(nodes, edges, hidden, minimum)
+        return _protect(nodes, edges, hidden, minimum, guard)
     except RuntimeError:
         logger.exception("the disclosure check failed: hiding every count the table may hide")
         return {i for i, e in enumerate(edges) if e.customers > 0 and (not e.fixed or i in hidden)}
@@ -383,3 +451,138 @@ def two_way(
     hidden |= {cells + r for r in hidden_rows} | {cells + rows + k for k in hidden_columns}
     protected = _safely(rows + columns + 2, edges, hidden, minimum)
     return frozenset(divmod(i, columns) for i in sorted(protected) if i < cells)
+
+
+# --- from what a table publishes ----------------------------------------------------------------
+#
+# The same protection, run on a table's published figures as well as on its true counts. A
+# hidden count is only ever read as ``0 <= churned <= customers`` (``_Table._moving``), so a
+# count already hidden may be unknown (``None``): the guard can be applied again to a published
+# table, with no dataset behind it, and what it guarantees is what an outsider sees.
+#
+# Every hidden count is kept from being fixed - alone or summed with others - unless the fixed
+# sum has ``minimum`` churners *and* ``minimum`` stayers (``Guard``); a sum of ``alone`` counts
+# only is never allowed to be fixed. A fixed sum is judged by its value, which any completion of
+# the published table gives (every completion agrees on a fixed sum): the true counts where they
+# are known, else one feasible completion. An outsider can compute exactly that value, no more.
+
+Count = int | None
+
+
+def _judged(
+    nodes: int, edges: Sequence[_Edge], hidden: set[int], unknown: set[int]
+) -> dict[int, int]:
+    """Each hidden edge's count in one completion of the published table: the true count where
+    known, else a feasible one. Sound for any sum the published figures fix."""
+    if not unknown:
+        return {i: edges[i].churned for i in hidden}
+    incidence = np.zeros((nodes, len(edges)))
+    for i, edge in enumerate(edges):
+        incidence[edge.tail, i] += 1
+        incidence[edge.head, i] -= 1
+    bounds = [
+        (0, e.customers) if i in unknown else (e.churned, e.churned) for i, e in enumerate(edges)
+    ]
+    result = linprog(
+        np.zeros(len(edges)), A_eq=incidence, b_eq=np.zeros(nodes), bounds=bounds, method="highs"
+    )
+    if result.status != 0:
+        raise ValueError(f"the published table has no consistent completion: {result.message}")
+    # A network matrix with whole-number bounds: the vertex the solver returns is whole.
+    return {i: int(np.rint(result.x[i])) for i in hidden}
+
+
+def guard_one_way(
+    customers: Sequence[int],
+    churned: Sequence[Count],
+    partition_churned: int,
+    *,
+    hidden: Iterable[int],
+    alone: Iterable[int] = (),
+    minimum: int,
+) -> frozenset[int]:
+    """The levels of a one-way table to hide: ``hidden``, every unknown count, and what keeps
+    every hidden one from following out of the partition's total (``Guard``)."""
+    unknown = {i for i, c in enumerate(churned) if c is None}
+    hide = set(hidden) | unknown
+    edges = [
+        _Edge(0, 1, int(n), 0 if c is None else int(c))
+        for n, c in zip(customers, churned, strict=True)
+    ]
+    edges.append(_Edge(1, 0, int(sum(customers)), int(partition_churned), fixed=True))
+    return _guarded(2, edges, hide, unknown, set(alone), minimum, len(customers))
+
+
+def _guarded(
+    nodes: int,
+    edges: list[_Edge],
+    hide: set[int],
+    unknown: set[int],
+    alone: set[int],
+    minimum: int,
+    groups: int,
+) -> frozenset[int]:
+    """Protect every hidden edge, judging fixed sums by their value, until nothing changes:
+    a newly hidden edge is itself protected in the next round."""
+    while True:
+        hide = {i for i in hide if edges[i].customers > 0}
+        try:
+            known = _judged(nodes, edges, hide, unknown)
+        except ValueError:
+            logger.exception("a published table is inconsistent: hiding every count it may hide")
+            return frozenset(i for i, e in enumerate(edges) if i < groups and e.customers > 0)
+        guard = Guard(frozenset(hide), known, frozenset(alone & hide))
+        found = _safely(nodes, edges, hide, minimum, guard)
+        if found == hide:
+            return frozenset(i for i in found if i < groups)
+        hide = found
+
+
+def guard_two_way(
+    customers: np.ndarray | Sequence[Sequence[int]],
+    churned: Sequence[Sequence[Count]],
+    row_margins: Sequence[Count],
+    column_margins: Sequence[Count],
+    partition_churned: int,
+    *,
+    hidden: Iterable[tuple[int, int]],
+    alone: Iterable[tuple[int, int]] = (),
+    alone_lines: tuple[Iterable[int], Iterable[int]] = ((), ()),
+    minimum: int,
+) -> frozenset[tuple[int, int]]:
+    """The cells of a two-way table to hide, as (row, column).
+
+    The margins are the two dimensions' own one-way tables, decided there: one that is
+    ``None`` is hidden, and must not come back as its line's sum either. Every unknown cell
+    is hidden. ``alone_lines`` are rows and columns whose margin must never be fixed.
+    """
+    n = np.asarray(customers, dtype=int)
+    rows, columns = n.shape
+    rows_top, columns_top = rows + columns, rows + columns + 1
+    value = [list(line) for line in churned]
+
+    def known(c: Count) -> int:
+        return 0 if c is None else int(c)
+
+    edges = [
+        _Edge(r, rows + k, int(n[r, k]), known(value[r][k]))
+        for r in range(rows)
+        for k in range(columns)
+    ]
+    edges += [
+        _Edge(rows_top, r, int(n[r].sum()), known(row_margins[r]), fixed=True) for r in range(rows)
+    ]
+    edges += [
+        _Edge(rows + k, columns_top, int(n[:, k].sum()), known(column_margins[k]), fixed=True)
+        for k in range(columns)
+    ]
+    edges.append(_Edge(columns_top, rows_top, int(n.sum()), int(partition_churned), fixed=True))
+    cells = rows * columns
+    unknown = {r * columns + k for r in range(rows) for k in range(columns) if value[r][k] is None}
+    unknown |= {cells + r for r in range(rows) if row_margins[r] is None}
+    unknown |= {cells + rows + k for k in range(columns) if column_margins[k] is None}
+    hide = {r * columns + k for r, k in hidden} | unknown
+    lone = {r * columns + k for r, k in alone}
+    lone |= {cells + r for r in alone_lines[0]} | {cells + rows + k for k in alone_lines[1]}
+    found = _guarded(rows + columns + 2, edges, hide, unknown, lone, minimum, cells)
+    return frozenset(divmod(i, columns) for i in sorted(found))

@@ -114,15 +114,16 @@ describe('useSettledDraft', () => {
         <Box name="max" />
       </>,
     );
-    const pause = () => new Promise((resolve) => setTimeout(resolve, 150));
-    await userEvent.type(screen.getByRole('textbox', { name: 'min' }), '3');
-    await act(pause);
-    await userEvent.type(screen.getByRole('textbox', { name: 'max' }), '1');
-    await act(pause);
-    expect(search().get('min')).toBe('3');
+    // max is typed a keystroke every 50 ms for half a second, so min settles (250 ms after
+    // its keystroke) while max is still being typed: only a stall of 200 ms between two of
+    // max's keystrokes could settle it early, where a fixed real-time pause left 100 ms.
+    const typist = userEvent.setup({ delay: 50 });
+    await typist.type(screen.getByRole('textbox', { name: 'min' }), '3');
+    const typing = typist.type(screen.getByRole('textbox', { name: 'max' }), '1234567890');
+    await waitFor(() => expect(search().get('min')).toBe('3'));
     expect(search().get('max')).toBeNull();
-    await userEvent.type(screen.getByRole('textbox', { name: 'max' }), '2');
-    await waitFor(() => expect(search().get('max')).toBe('12'));
+    await typing;
+    await waitFor(() => expect(search().get('max')).toBe('1234567890'));
   });
 
   it('drops what is typed when the reader goes back: that entry is no longer shown', async () => {

@@ -12,6 +12,7 @@ import { useParams } from '../../app/params';
 import { MIN_CUSTOMERS } from '../../lib/cells';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
@@ -92,6 +93,7 @@ export default function PatternsPage() {
         <PageHeader eyebrow="Churn patterns" title={TITLE} size="md">
           {lede(query.data?.min_customers ?? MIN_CUSTOMERS, query.isError && withheld(query.error))}
         </PageHeader>
+        <DataSourceNote parts={['evidence']} />
         <Controls
           view={view}
           measure={state.show}

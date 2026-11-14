@@ -15,6 +15,7 @@ import type { Sweep, SweepPoint } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { ChartTooltip, TipLine } from '../../components/charts/ChartTooltip';
 import { Card, CardHeader, SimulatedBadge } from '../../components/ui/Surface';
+import { tabledCuts } from '../../lib/cuts';
 import { cut, int, moneyShort, signedMoney } from '../../lib/format';
 import { cssVars, cx } from '../../lib/style';
 import { precisionText, recallText } from './copy';
@@ -62,13 +63,6 @@ function path(
     drawing = true;
   }
   return d.trim();
-}
-
-/** Every 0.05, and every cut the chart marks, for the tables. */
-function tabled(sweep: Sweep, marked: readonly number[]): SweepPoint[] {
-  return sweep.points.filter(
-    (point, i) => Math.round(point.threshold * 100) % 5 === 0 || marked.includes(i),
-  );
 }
 
 interface ChartsProps {
@@ -127,7 +121,7 @@ export function SweepCharts({ sweep, selected, stale, onPick }: ChartsProps) {
         table={{
           caption: 'Simulated net benefit by cut',
           columns: ['Cut', 'Flagged', 'Net benefit', 'Marked'],
-          rows: tabled(sweep, marked).map((p) => {
+          rows: tabledCuts(sweep.points, marked).map((p) => {
             const i = points.indexOf(p);
             return [
               cut(p.threshold),
@@ -293,7 +287,7 @@ export function SweepCharts({ sweep, selected, stale, onPick }: ChartsProps) {
         table={{
           caption: 'Precision and recall by cut',
           columns: ['Cut', 'Precision', 'Recall'],
-          rows: tabled(sweep, marked).map((p) => [
+          rows: tabledCuts(sweep.points, marked).map((p) => [
             cut(p.threshold),
             precisionText(p),
             recallText(p, sweep.churners),

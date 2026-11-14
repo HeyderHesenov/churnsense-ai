@@ -90,8 +90,8 @@ select{color-scheme:dark}
 <div style="font-size: 12px; color: #8b949e">isotonic-calibrated, clamped</div>
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 8px; margin-top: 12px; font-size: 12px">
 <div><div style="color: #8b949e">Threshold</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.36</div></div>
-<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.553</div></div>
-<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.703</div></div>
+<div><div style="color: #8b949e">Test precision</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.559</div></div>
+<div><div style="color: #8b949e">Test recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13px">0.714</div></div>
 </div>
 </div>
 <p style="margin: 0; padding: 0 6px; font-size: 11.5px; line-height: 1.55; color: #8b949e">Decision support, not a decision system. A probability is similarity to past churners, not a causal claim.</p>
@@ -102,6 +102,7 @@ select{color-scheme:dark}
 
 <!-- Main column -->
 <main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column">
+<div role="note" data-mock="illustrative" style="padding: 8px 28px; background: #2a2210; border-bottom: 1px solid #5a4316; color: #f6c873; font-size: 12.5px; font-weight: 600; letter-spacing: 0.01em">Illustrative mock data — not measured model results <span style="font-weight: 400; color: #d8c49a">&#183; every number on this artboard comes from scripts/design_mock_data.py, an invented population; none was measured on the dataset or the model.</span></div>
 
 <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 12px 28px; border-bottom: 1px solid #1c232c; background: #0b0f14">
 <button type="button" class="ghost show-sm" onClick="{{toggleMnav}}" aria-label="Open navigation menu" aria-expanded="{{mnavStr}}" style="flex: none; width: 40px; height: 40px; align-items: center; justify-content: center; background: transparent; border: 1px solid #222a34; border-radius: 10px; color: #e6edf3; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"></path></svg></button>
@@ -124,9 +125,9 @@ select{color-scheme:dark}
 </button>
 <sc-if value="{{prov}}" hint-placeholder-val="{{ false }}">
 <div id="prov" role="dialog" aria-label="Data provenance" style="position: absolute; right: 0; top: 48px; z-index: 30; width: 340px; background: #121821; border: 1px solid #2a3440; border-radius: 12px; padding: 14px 16px; box-shadow: 0 18px 40px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 10px; font-size: 12.5px">
-<div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Dataset SHA-256</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8fd99a">16320c9c…5e91 ✓</span></div>
+<div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Dataset SHA-256</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8fd99a">mock0000…0000 ✓</span></div>
 <div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Split digest</span><span style="font-family: 'Geist Mono', ui-monospace, monospace; color: #8fd99a">matches model ✓</span></div>
-<div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Model artifact</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">02b2466d…47a9</span></div>
+<div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Model artifact</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">mock0000…0000</span></div>
 <div style="display: flex; justify-content: space-between; gap: 10px"><span style="color: #8b949e">Served on</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">127.0.0.1 · local only</span></div>
 <p style="margin: 0; padding-top: 10px; border-top: 1px solid #222a34; color: #8b949e; font-size: 12px">Partition membership is trusted only while both digests match the model's record; otherwise every outcome on this page is withheld.</p>
 </div>
@@ -145,7 +146,7 @@ select{color-scheme:dark}
 <div style="flex: 1 1 400px; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 4px 0">
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: {{accentText}}">Executive overview</span>
 <h1 style="margin: 0; font-size: 32px; line-height: 1.12; font-weight: 650; letter-spacing: -0.028em; max-width: 600px; text-wrap: balance">Where retention risk sits in the book today</h1>
-<p style="margin: 0; max-width: 600px; font-size: 14.5px; color: #adb7c2; text-wrap: pretty">7,043 customers, scored by one calibrated model through the same path the API uses. Observed outcomes come from the train and validation partitions only; test outcomes stay withheld.</p>
+<p style="margin: 0; max-width: 600px; font-size: 14.5px; color: #adb7c2; text-wrap: pretty">6,000 customers, scored by one calibrated model through the same path the API uses. Observed outcomes come from the train and validation partitions only; test outcomes stay withheld.</p>
 </div>
 <div style="flex: 1 1 460px; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 16px 20px 14px; display: flex; flex-direction: column; gap: 12px">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px">
@@ -182,28 +183,28 @@ select{color-scheme:dark}
 <section aria-label="Key figures" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px">
 <div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-size: 12.5px; color: #adb7c2; font-weight: 500; white-space: nowrap">Customers scored</span>
-<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">7,043</span>
+<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">6,000</span>
 <span style="font-size: 12px; color: #8b949e; white-space: nowrap">every row, one prediction path</span>
 </div>
 <div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-size: 12.5px; color: #adb7c2; font-weight: 500; white-space: nowrap">Observed churn rate</span>
-<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">26.5%</span>
-<span style="font-size: 12px; color: #8b949e; white-space: nowrap">1,495 of 5,634 · <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px">TRAIN+VAL</span></span>
+<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">25.9%</span>
+<span style="font-size: 12px; color: #8b949e; white-space: nowrap">1,241 of 4,800 · <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px">TRAIN+VAL</span></span>
 </div>
 <div style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
 <span style="font-size: 12.5px; color: #adb7c2; font-weight: 500; white-space: nowrap">Monthly charges</span>
-<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">$456,117</span>
+<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">$385,530</span>
 <span style="font-size: 12px; color: #8b949e; white-space: nowrap">recurring, across the book</span>
 </div>
-<a href="#queue" onClick="{{kpiHC}}" aria-label="High or Critical: 1,531 customers. Show them in the retention queue" class="tile" style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; color: inherit; cursor: pointer">
+<a href="#queue" onClick="{{kpiHC}}" aria-label="High or Critical: 1,244 customers. Show them in the retention queue" class="tile" style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; color: inherit; cursor: pointer">
 <span style="display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: #adb7c2; font-weight: 500; white-space: nowrap">High or Critical<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg></span>
-<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">1,531</span>
-<span style="font-size: 12px; color: #8b949e; white-space: nowrap">21.7% · $124,029 / mo</span>
+<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">1,244</span>
+<span style="font-size: 12px; color: #8b949e; white-space: nowrap">20.7% · $96,510 / mo</span>
 </a>
-<a href="#queue" onClick="{{kpiFlagged}}" aria-label="Flagged at 0.36: 2,306 customers. Show them in the retention queue" class="tile" style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; color: inherit; cursor: pointer; box-shadow: inset 0 2px 0 {{accent}}">
+<a href="#queue" onClick="{{kpiFlagged}}" aria-label="Flagged at 0.36: 2,077 customers. Show them in the retention queue" class="tile" style="background: #10151c; border: 1px solid #1f2730; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; color: inherit; cursor: pointer; box-shadow: inset 0 2px 0 {{accent}}">
 <span style="display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; color: #adb7c2; font-weight: 500; white-space: nowrap">Flagged at 0.36<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"></path></svg></span>
-<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">2,306</span>
-<span style="font-size: 12px; color: #8b949e; white-space: nowrap">32.7% · $180,847 / mo</span>
+<span style="font-size: 28px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.2">2,077</span>
+<span style="font-size: 12px; color: #8b949e; white-space: nowrap">34.6% · $151,232 / mo</span>
 </a>
 </section>
 
@@ -214,7 +215,7 @@ select{color-scheme:dark}
 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap">
 <div>
 <h2 style="margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em">Where the book sits on the probability scale</h2>
-<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">How is risk spread across 7,043 customers, and do the probabilities hold up against what happened?</p>
+<p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">How is risk spread across 6,000 customers, and do the probabilities hold up against what happened?</p>
 </div>
 <div role="group" aria-label="Measure" style="display: inline-flex; padding: 3px; background: #0b0f14; border: 1px solid #222a34; border-radius: 10px; gap: 2px">
 <button type="button" class="seg" onClick="{{mCust}}" aria-pressed="{{mCustP}}" style="min-height: 32px; padding: 0 12px; border: 0; border-radius: 7px; background: {{mCustBg}}; color: {{mCustFg}}; font-family: inherit; font-size: 12.5px; font-weight: 550; cursor: pointer">Customers</button>
@@ -287,23 +288,23 @@ select{color-scheme:dark}
 </div>
 <div>
 <div style="font-size: 12.5px; color: #adb7c2">Net benefit on validation</div>
-<div style="font-size: 32px; font-weight: 600; letter-spacing: -0.03em; color: #f6c873; line-height: 1.15">$26,547</div>
+<div style="font-size: 32px; font-weight: 600; letter-spacing: -0.03em; color: #f6c873; line-height: 1.15">$20,698</div>
 </div>
 <figure style="margin: 0; display: flex; flex-direction: column; gap: 4px">
-<svg viewBox="0 0 260 64" role="img" aria-label="Simulated net benefit by threshold on validation. Peak at 0.30, shipped threshold 0.36 within one offer's cost of the peak." style="width: 100%; height: auto; display: block; overflow: visible">
+<svg viewBox="0 0 260 64" role="img" aria-label="Simulated net benefit by threshold on validation. Peak at 0.32; the shipped threshold 0.36 is drawn beside it." style="width: 100%; height: auto; display: block; overflow: visible">
 <line x1="0" x2="260" y1="52.8" y2="52.8" stroke="#2a3440" stroke-dasharray="3 3"></line>
 <line x1="93.6" x2="93.6" y1="0" y2="60" stroke="#5a4316"></line>
-<path d="M0.0 60.0 L2.6 50.1 L5.2 44.9 L7.8 35.3 L10.4 31.9 L13.0 30.1 L15.6 24.5 L18.2 23.7 L20.8 23.3 L23.4 22.3 L26.0 19.7 L28.6 17.4 L31.2 16.2 L33.8 15.5 L36.4 14.5 L39.0 14.5 L41.6 14.5 L44.2 14.3 L46.8 13.1 L49.4 12.4 L52.0 11.8 L54.6 10.4 L57.2 9.4 L59.8 8.0 L62.4 8.6 L65.0 8.2 L67.6 7.8 L70.2 7.7 L72.8 7.8 L75.4 6.4 L78.0 6.0 L80.6 6.3 L83.2 6.7 L85.8 6.7 L88.4 7.2 L91.0 6.9 L93.6 6.1 L96.2 6.2 L98.8 6.6 L101.4 7.8 L104.0 8.3 L106.6 9.0 L109.2 9.4 L111.8 9.0 L114.4 8.9 L117.0 9.5 L119.6 10.6 L122.2 10.4 L124.8 10.6 L127.4 10.8 L130.0 10.7 L132.6 11.6 L135.2 13.5 L137.8 15.4 L140.4 15.8 L143.0 16.0 L145.6 16.2 L148.2 18.7 L150.8 21.1 L153.4 22.1 L156.0 23.8 L158.6 26.5 L161.2 27.8 L163.8 29.2 L166.4 29.2 L169.0 29.4 L171.6 30.7 L174.2 32.5 L176.8 32.8 L179.4 33.3 L182.0 33.7 L184.6 34.9 L187.2 36.5 L189.8 38.0 L192.4 38.2 L195.0 39.3 L197.6 40.2 L200.2 40.7 L202.8 42.4 L205.4 42.4 L208.0 43.2 L210.6 43.2 L213.2 44.8 L215.8 45.8 L218.4 46.1 L221.0 46.5 L223.6 46.9 L226.2 47.9 L228.8 48.2 L231.4 48.8 L234.0 49.4 L236.6 49.4 L239.2 49.9 L241.8 50.1 L244.4 50.1 L247.0 50.7 L249.6 50.9 L252.2 50.9 L254.8 52.8 L257.4 52.8 L260.0 52.8" fill="none" stroke="#f0b54a" stroke-width="1.8" stroke-linejoin="round"></path>
-<circle cx="78" cy="6" r="3.5" fill="#10151c" stroke="#f0b54a" stroke-width="1.5"></circle>
-<circle cx="93.6" cy="6.1" r="4" fill="#f0b54a" stroke="#10151c" stroke-width="1.5"></circle>
+<path d="M0.0 60.0 L2.6 60.0 L5.2 60.0 L7.8 60.0 L10.4 60.0 L13.0 60.0 L15.6 60.0 L18.2 59.3 L20.8 56.7 L23.4 54.0 L26.0 49.9 L28.6 46.3 L31.2 43.5 L33.8 40.6 L36.4 38.1 L39.0 35.0 L41.6 31.9 L44.2 29.2 L46.8 27.7 L49.4 26.1 L52.0 23.6 L54.6 22.1 L57.2 19.9 L59.8 17.4 L62.4 14.5 L65.0 13.4 L67.6 12.4 L70.2 12.1 L72.8 10.4 L75.4 8.1 L78.0 7.2 L80.6 6.7 L83.2 6.0 L85.8 7.2 L88.4 8.6 L91.0 8.4 L93.6 7.7 L96.2 7.4 L98.8 7.6 L101.4 8.3 L104.0 7.4 L106.6 8.5 L109.2 8.6 L111.8 7.3 L114.4 6.9 L117.0 8.5 L119.6 7.7 L122.2 8.4 L124.8 8.9 L127.4 9.0 L130.0 10.4 L132.6 11.3 L135.2 12.5 L137.8 14.0 L140.4 15.6 L143.0 15.7 L145.6 17.2 L148.2 19.4 L150.8 20.5 L153.4 21.3 L156.0 22.2 L158.6 23.8 L161.2 24.6 L163.8 25.2 L166.4 27.0 L169.0 27.7 L171.6 28.8 L174.2 29.8 L176.8 31.0 L179.4 33.2 L182.0 34.4 L184.6 36.4 L187.2 37.6 L189.8 40.8 L192.4 42.0 L195.0 44.0 L197.6 45.5 L200.2 46.4 L202.8 47.5 L205.4 49.0 L208.0 50.0 L210.6 51.4 L213.2 51.9 L215.8 52.4 L218.4 52.2 L221.0 53.5 L223.6 54.3 L226.2 54.8 L228.8 56.1 L231.4 57.1 L234.0 57.1 L236.6 57.8 L239.2 58.1 L241.8 58.6 L244.4 59.1 L247.0 59.2 L249.6 59.9 L252.2 59.9 L254.8 60.0 L257.4 60.0 L260.0 60.0" fill="none" stroke="#f0b54a" stroke-width="1.8" stroke-linejoin="round"></path>
+<circle cx="83.2" cy="6.0" r="3.5" fill="#10151c" stroke="#f0b54a" stroke-width="1.5"></circle>
+<circle cx="93.6" cy="7.7" r="4" fill="#f0b54a" stroke="#10151c" stroke-width="1.5"></circle>
 </svg>
-<figcaption style="display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: #8b949e; flex-wrap: wrap"><span><span style="color: #f6c873">●</span> 0.36 shipped · ○ 0.30 peak, $32 higher</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">threshold 0 → 1</span></figcaption>
+<figcaption style="display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: #8b949e; flex-wrap: wrap"><span><span style="color: #f6c873">●</span> 0.36 shipped · ○ 0.32 peak, $671 higher</span><span style="font-family: 'Geist Mono', ui-monospace, monospace">threshold 0 → 1</span></figcaption>
 </figure>
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; font-size: 12px">
-<div><div style="color: #8b949e">Flagged</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">448 <span style="color: #8b949e; font-size: 12px">/ 1,409</span></div></div>
-<div><div style="color: #8b949e">Precision · recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">0.580 · 0.695</div></div>
-<div><div style="color: #8b949e">Campaign cost</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">$22,400</div></div>
-<div><div style="color: #8b949e">Retained value</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">$48,947</div></div>
+<div><div style="color: #8b949e">Flagged</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">439 <span style="color: #8b949e; font-size: 12px">/ 1,200</span></div></div>
+<div><div style="color: #8b949e">Precision · recall</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">0.608 · 0.834</div></div>
+<div><div style="color: #8b949e">Campaign cost</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">$21,950</div></div>
+<div><div style="color: #8b949e">Retained value</div><div style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 13.5px">$42,648</div></div>
 </div>
 <p style="margin: 0; font-size: 12px; color: #adb7c2">Assumed: offer $50, success 30%, 12 months, margin 65%. Not measured: the data holds no campaign outcomes.</p>
 <a href="Simulator.dc.html" style="margin-top: auto; align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 10px; background: #f0b54a; color: #1d1403; font-weight: 600; font-size: 13px">Open simulator
@@ -322,7 +323,7 @@ select{color-scheme:dark}
 <div style="flex: 1 1 320px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
 <div><h3 style="margin: 0; font-size: 14.5px; font-weight: 600">Churn by segment</h3><p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">Which groups lost customers?</p></div>
-<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px; white-space: nowrap">TRAIN · 4,225</span>
+<span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; color: #8b949e; border: 1px solid #2a3440; border-radius: 5px; padding: 1px 6px; white-space: nowrap">TRAIN · 3,600</span>
 </div>
 <div role="tablist" aria-label="Segment" style="display: flex; gap: 2px; border-bottom: 1px solid #1f2730">
 <sc-for list="{{segTabs}}" as="t" hint-placeholder-count="4">
@@ -333,21 +334,21 @@ select{color-scheme:dark}
 <sc-for list="{{segRows}}" as="r" hint-placeholder-count="3">
 <div style="display: flex; flex-direction: column; gap: 5px">
 <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.label}}</span><span style="white-space: nowrap"><span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: #8b949e">{{r.detail}}</span> <span style="font-family: 'Geist Mono', ui-monospace, monospace; margin-left: 6px">{{r.rate}}</span></span></div>
-<div style="position: relative; height: 8px; border-radius: 4px; background: #161d26"><div class="bar" style="width: {{r.w}}; height: 100%; border-radius: 4px; background: {{accent}}"></div><div style="position: absolute; left: 53%; top: -3px; bottom: -3px; width: 1.5px; background: #8b949e"></div></div>
+<div style="position: relative; height: 8px; border-radius: 4px; background: #161d26"><div class="bar" style="width: {{r.w}}; height: 100%; border-radius: 4px; background: {{accent}}"></div><div style="position: absolute; left: 51.8%; top: -3px; bottom: -3px; width: 1.5px; background: #8b949e"></div></div>
 </div>
 </sc-for>
 </div>
-<p style="margin: auto 0 0; font-size: 12px; color: #8b949e">{{segNote}} <span style="white-space: nowrap">Tick = 26.5% average.</span></p>
+<p style="margin: auto 0 0; font-size: 12px; color: #8b949e">{{segNote}} <span style="white-space: nowrap">Tick = 25.9% average.</span></p>
 </div>
 
 <div style="flex: 1.3 1 360px; min-width: 0; box-sizing: border-box; background: #10151c; border: 1px solid #1f2730; border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 12px">
 <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap">
 <div><h3 style="margin: 0; font-size: 14.5px; font-weight: 600">Risk is front-loaded</h3><p style="margin: 3px 0 0; font-size: 12.5px; color: #8b949e">When in the relationship do customers leave?</p></div>
-<span style="font-size: 12px; color: #adb7c2; white-space: nowrap">median tenure <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">10</b> mo churned · <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">37</b> retained</span>
+<span style="font-size: 12px; color: #adb7c2; white-space: nowrap">median tenure <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">10</b> mo churned · <b style="font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 500; color: #e6edf3">20</b> retained</span>
 </div>
 <div style="position: relative; height: 196px; display: flex; align-items: flex-end; gap: 10px; padding-top: 30px; box-sizing: border-box; border-bottom: 1px solid #2a3440" onMouseLeave="{{leaveBin}}">
-<div style="position: absolute; left: 0; right: 0; bottom: 44.2%; border-top: 1px dashed #4a5664; pointer-events: none"></div>
-<span style="position: absolute; right: 0; bottom: 44.2%; transform: translateY(-3px); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #adb7c2; background: #10151c; padding-left: 6px; pointer-events: none">avg 26.5%</span>
+<div style="position: absolute; left: 0; right: 0; bottom: 43.2%; border-top: 1px dashed #4a5664; pointer-events: none"></div>
+<span style="position: absolute; right: 0; bottom: 43.2%; transform: translateY(-3px); font-family: 'Geist Mono', ui-monospace, monospace; font-size: 10.5px; color: #adb7c2; background: #10151c; padding-left: 6px; pointer-events: none">avg 25.9%</span>
 <sc-for list="{{bins}}" as="c" hint-placeholder-count="6">
 <button type="button" class="col" onMouseEnter="{{c.hover}}" onFocus="{{c.hover}}" onBlur="{{leaveBin}}" aria-label="{{c.aria}}" style="flex: 1; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 5px; padding: 0; border: 0; background: transparent; color: #e6edf3; cursor: default">
 <span style="font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11.5px; color: {{c.labelFg}}">{{c.rate}}</span>
@@ -476,7 +477,7 @@ select{color-scheme:dark}
 </section>
 
 <footer style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding-top: 4px; font-family: 'Geist Mono', ui-monospace, monospace; font-size: 11px; color: #8b949e">
-<span>IBM Telco Customer Churn · 7,043 rows · attributions are signed SHAP, pp · orange raises, blue lowers</span>
+<span>Illustrative mock book · 6,000 rows · attributions are signed SHAP, pp · orange raises, blue lowers</span>
 <span>Every figure on this page was produced by running the code.</span>
 </footer>
 
@@ -503,6 +504,8 @@ function shell(self) {
     ...mnav(self),
   };
 }
+// Illustrative mock data — not measured model results: every figure below is generated by scripts/design_mock_data.py
+// from an invented population. None was measured on the dataset or the model.
 const RISK = {
   Low: { fill: '#56667b', ink: '#a9b4c2', soft: 'rgba(86,102,123,0.16)', line: '#3a4656', range: '0–0.25' },
   Moderate: { fill: '#6b62b0', ink: '#b8b0f3', soft: 'rgba(107,98,176,0.16)', line: '#3f3a6b', range: '0.25–0.50' },
@@ -524,26 +527,26 @@ function csvCell(v) { const s = v == null ? '' : String(v); return /[",\n]/.test
 function loadJson(url) { return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }); }
 
 const BANDS = [
-  { k: 'Low', cust: 4007, mon: 226244.9, churn: '8.0%', flagged: 0 },
-  { k: 'Moderate', cust: 1505, mon: 105843.0, churn: '35.5%', flagged: 775 },
-  { k: 'High', cust: 1126, mon: 89216.4, churn: '60.8%', flagged: 1126 },
-  { k: 'Critical', cust: 405, mon: 34812.3, churn: '82.0%', flagged: 405 },
+  { k: 'Low', cust: 3312, mon: 199076.2, churn: '7.4%', flagged: 0 },
+  { k: 'Moderate', cust: 1444, mon: 89943.8, churn: '35.4%', flagged: 833 },
+  { k: 'High', cust: 1082, mon: 82978.6, churn: '60.4%', flagged: 1082 },
+  { k: 'Critical', cust: 162, mon: 13530.9, churn: '82.1%', flagged: 162 },
 ];
 const BAND_COLOR = { Low: RISK.Low.fill, Moderate: RISK.Moderate.fill, High: RISK.High.fill, Critical: RISK.Critical.fill };
-const HIST = [[1857,91996,1485,33],[947,62991,746,61],[411,24691,337,37],[296,16402,246,44],[496,30165,395,81],[426,28757,338,86],[208,14283,177,69],[497,35202,401,152],[227,16246,173,67],[147,11355,120,55],[323,24933,247,126],[282,22089,223,133],[254,20407,205,125],[132,10777,105,76],[135,11010,103,77],[135,11016,107,81],[108,9162,94,75],[78,6882,66,60],[48,4372,37,29],[36,3380,29,28]];
+const HIST = [[1696,98952.4,1336,30],[639,44001.6,507,38],[370,22271.5,306,41],[330,18860.2,260,42],[277,14990.5,225,44],[281,16088.5,226,61],[279,15977.1,217,66],[278,17355.2,235,76],[323,21129.4,272,105],[283,19393.6,218,106],[267,19234.1,225,115],[264,20216.1,206,115],[243,18784.3,197,120],[172,13421.7,128,93],[136,11322.3,108,79],[83,6813.8,67,51],[53,4503.0,45,41],[19,1600.8,17,13],[7,613.1,5,5],[0,0.0,0,0]];
 const HX0 = 40, HW = 28, HY = 180, HH = 150;
 const SEG = {
-  contract: { label: 'Contract', rows: [['Month-to-month', 2326, 1002], ['One year', 865, 93], ['Two year', 1034, 26]], note: 'A 17× spread, partly self-selection: people who expect to stay sign longer.' },
-  payment: { label: 'Payment', rows: [['Electronic check', 1410, 643], ['Mailed check', 980, 191], ['Bank transfer (auto)', 926, 150], ['Credit card (auto)', 909, 137]], note: 'A useful flag, not a lever: it proxies for commitment and billing friction.' },
-  internet: { label: 'Internet', rows: [['Fiber optic', 1843, 780], ['DSL', 1474, 275], ['No internet', 908, 66]], note: 'Fiber is the premium tier; price and service expectations both fit, and the data separates neither.' },
-  price: { label: 'Price', rows: [['Under $35', 1032, 112], ['$35–55', 545, 149], ['$55–75', 774, 200], ['$75–95', 1094, 407], ['$95+', 780, 253]], note: 'Not monotonic: churn peaks at $75–95, then falls where long-tenure, multi-service customers dominate.' },
+  contract: { label: 'Contract', rows: [["Month-to-month", 1937, 810], ["One year", 759, 92], ["Two year", 904, 31]], note: 'Longer contracts churn far less here; part of that is self-selection.' },
+  payment: { label: 'Payment', rows: [["Electronic check", 1181, 373], ["Mailed check", 789, 209], ["Bank transfer (auto)", 819, 176], ["Credit card (auto)", 811, 175]], note: 'A useful flag, not a lever: it proxies for commitment and billing friction.' },
+  internet: { label: 'Internet', rows: [["Fiber optic", 1547, 501], ["DSL", 1310, 320], ["No internet", 743, 112]], note: 'The premium tier churns most; price and expectations both fit, and mock data separates neither.' },
+  price: { label: 'Price', rows: [["Under $35", 645, 96], ["$35–55", 594, 126], ["$55–75", 908, 255], ["$75–95", 1059, 322], ["$95+", 394, 134]], note: 'Not monotonic: churn rises with price, then eases where long-tenure customers dominate.' },
 };
-const BINS = [['0–3', 646, 360], ['4–6', 258, 113], ['7–12', 414, 150], ['13–24', 629, 184], ['25–48', 940, 186], ['49–72', 1338, 128]];
+const BINS = [["0–3", 386, 158], ["4–6", 378, 155], ["7–12", 656, 227], ["13–24", 921, 260], ["25–48", 725, 117], ["49–72", 534, 16]];
 const IMP = {
-  model: { q: 'Mean |SHAP| on 300 validation customers, in percentage points.', note: 'Contract ranks first on its own but fourth here: it overlaps with tenure, so its unique contribution is smaller.', max: 16,
-    rows: [['Tenure', 14.9, 'pp'], ['Monthly charges', 13.7, 'pp'], ['Internet service', 11.9, 'pp'], ['Contract type', 7.1, 'pp'], ['Total charges to date', 6.7, 'pp']] },
+  model: { q: 'Mean |SHAP| on 300 mock customers, in percentage points.', note: 'Contract ranks first on its own but fourth here: it overlaps with tenure, so its unique contribution is smaller.', max: 16,
+    rows: [["Tenure", 12.0, 'pp'], ["Monthly charges", 10.5, 'pp'], ["Internet service", 9.0, 'pp'], ["Contract type", 6.5, 'pp'], ["Total charges to date", 5.0, 'pp']] },
   alone: { q: 'Univariate association with churn on the training partition.', note: 'Cramér’s V for categories, point-biserial |r| for tenure. Both rankings are published; neither is a cause.', max: 0.45,
-    rows: [['Contract type', 0.419, 'V'], ['Online security', 0.353, 'V'], ['Tenure', 0.353, '|r|'], ['Tech support', 0.345, 'V'], ['Internet service', 0.328, 'V']] },
+    rows: [["Contract type", 0.40, "V"], ["Online security", 0.33, "V"], ["Tenure", 0.31, "|r|"], ["Tech support", 0.30, "V"], ["Internet service", 0.29, "V"]] },
 };
 const QUEUE = [["DEMO-00000",0.97,"Critical",68,76.88,74.57,"One year · DSL · Mailed check","test","Withheld",[["Tenure",31.7],["Monthly",-20.9]]],["DEMO-00001",0.973,"Critical",67,118.93,115.72,"Two year · Fiber · E-check","train","Churned",[["Tenure",31.8],["Monthly",-20.2]]],["DEMO-00002",0.978,"Critical",54,71.09,69.53,"Two year · Fiber · Card","train","Churned",[["Tenure",33.9],["Monthly",-17.8]]],["DEMO-00003",0.97,"Critical",25,78.11,75.77,"Month-to-month · Fiber · Mailed check","validation","Churned",[["Tenure",26.7],["Monthly",-17.3]]],["DEMO-00004",0.97,"Critical",19,72.5,70.33,"Month-to-month · Fiber · Card","validation","Churned",[["Tenure",25.6],["Monthly",-17.1]]],["DEMO-00005",0.978,"Critical",65,27.85,27.24,"Two year · No internet · E-check","test","Withheld",[["Tenure",27.8],["Internet",16.6]]],["DEMO-00006",0.97,"Critical",38,38.42,37.27,"Month-to-month · No internet · Mailed check","train","Churned",[["Tenure",22.5],["Internet",16.3]]],["DEMO-00007",0.944,"Critical",43,110.79,104.59,"Two year · DSL · Card","test","Withheld",[["Tenure",27.5],["Monthly",-18.5]]],["DEMO-00008",0.728,"High",61,72.91,53.08,"Two year · DSL · Bank transfer","test","Withheld",[["Monthly",-25.8],["Tenure",20.8]]],["DEMO-00009",0.73,"High",29,64.75,47.27,"Month-to-month · DSL · E-check","test","Withheld",[["Tenure",29.3],["Monthly",-23.2]]],["DEMO-00010",0.728,"High",9,36.78,26.78,"Month-to-month · No internet · Card","train","Stayed",[["Monthly",-22.2],["Tenure",20.0]]],["DEMO-00011",0.729,"High",9,26.87,19.59,"Month-to-month · No internet · Card","validation","Stayed",[["Monthly",-20.1],["Internet",14.3]]],["DEMO-00012",0.715,"High",7,95.73,68.45,"Month-to-month · DSL · Card","train","Churned",[["Monthly",-20.3],["Internet",13.9]]],["DEMO-00013",0.715,"High",7,35.31,25.25,"Month-to-month · No internet · Mailed check","train","Stayed",[["Monthly",-20.1],["Internet",14.0]]],["DEMO-00014",0.715,"High",36,109.13,78.03,"Month-to-month · DSL · Mailed check","train","Stayed",[["Monthly",-19.1],["Internet",13.6]]],["DEMO-00015",0.741,"High",13,68.16,50.51,"One year · Fiber · E-check","validation","Churned",[["Monthly",-16.2],["Internet",14.1]]],["DEMO-00016",0.499,"Moderate",27,81.59,40.71,"Two year · Fiber · Card","validation","Stayed",[["Monthly",-27.8],["Tenure",13.7]]],["DEMO-00017",0.485,"Moderate",27,33.1,16.05,"Two year · No internet · Mailed check","train","Stayed",[["Monthly",-23.2],["Internet",11.6]]],["DEMO-00018",0.48,"Moderate",55,76.1,36.53,"One year · DSL · Mailed check","train","Stayed",[["Monthly",-20.6],["Tenure",-18.6]]],["DEMO-00019",0.483,"Moderate",27,106.28,51.33,"Two year · DSL · Bank transfer","test","Withheld",[["Monthly",-20.0],["Tenure",-18.5]]],["DEMO-00020",0.48,"Moderate",12,106.24,51.0,"Month-to-month · Fiber · Bank transfer","validation","Stayed",[["Monthly",-20.6],["Internet",11.8]]],["DEMO-00021",0.489,"Moderate",37,80.05,39.14,"Month-to-month · DSL · Bank transfer","train","Stayed",[["Monthly",-20.4],["Internet",12.3]]],["DEMO-00022",0.485,"Moderate",71,101.83,49.39,"One year · DSL · Card","train","Churned",[["Tenure",-20.4],["Monthly",-17.5]]],["DEMO-00023",0.485,"Moderate",22,78.9,38.27,"Month-to-month · Fiber · E-check","train","Churned",[["Tenure",-19.0],["Monthly",-17.3]]]];
 const DEFAULT_BANDS = ['Critical', 'High', 'Moderate'];
@@ -582,7 +585,7 @@ class Component extends DCLogic {
     const im = segOn(impKey === 'model'), ia = segOn(impKey === 'alone');
 
     // Risk distribution
-    const total = metric === 'cust' ? 7043 : 456116.6;
+    const total = metric === 'cust' ? 6000 : 385529.5;
     const max = Math.max.apply(null, BANDS.map((b) => (metric === 'cust' ? b.cust : b.mon)));
     const bands = BANDS.map((b) => {
       const v = metric === 'cust' ? b.cust : b.mon;
@@ -697,10 +700,10 @@ class Component extends DCLogic {
     const bookCount = int(BANDS.filter((b) => sel.includes(b.k)).reduce((s, b) => s + b.flagged, 0));
 
     let emptyTitle = 'No loaded customer matches';
-    let emptyBody = 'This view loads the top eight flagged customers per band. Open the explorer to search all 7,043.';
+    let emptyBody = 'This view loads the top eight flagged customers per band. Open the explorer to search all 6,000.';
     if (sel.length === 1 && sel[0] === 'Low') {
       emptyTitle = 'Nobody in the Low band is flagged';
-      emptyBody = 'Low tops out at a probability of 0.25, below the 0.36 threshold, so these 4,007 customers never enter the queue.';
+      emptyBody = 'Low tops out at a probability of 0.25, below the 0.36 threshold, so these 3,312 customers never enter the queue.';
     } else if (sel.length === 0) {
       emptyTitle = 'No band selected';
       emptyBody = 'Choose at least one band to see flagged customers.';
@@ -728,7 +731,7 @@ class Component extends DCLogic {
       obsLine: 'M' + obsPts.map((q) => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' L'),
       obsDots: obsPts.map((q) => 'M' + (q[0] - 3).toFixed(1) + ' ' + q[1].toFixed(1) + ' a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0').join(' '),
       hyTop: metric === 'cust' ? '2,000' : '$100k', hyMid: metric === 'cust' ? '1,000' : '$50k',
-      histLabel: 'Histogram of churn probability for 7,043 customers in 20 bins, with observed churn per bin close to the diagonal of perfect calibration',
+      histLabel: 'Histogram of churn probability for 6,000 customers in 20 bins, with observed churn per bin close to the diagonal of perfect calibration',
       hOp: hb2 >= 0 ? 1 : 0, hX: hxv,
       tipL: ((hxv > 360 ? hxv - 6 : hxv + 34) / 640) * 100 + '%', tipX: hxv > 360 ? '-100%' : '0',
       tRange: (hbin / 20).toFixed(2) + '–' + ((hbin + 1) / 20).toFixed(2), tBand: binBand(hbin),
@@ -747,7 +750,7 @@ class Component extends DCLogic {
       impModelP: im.p, impModelBg: im.bg, impModelFg: im.fg, impAloneP: ia.p, impAloneBg: ia.bg, impAloneFg: ia.fg,
       imp, impQuestion: I.q, impNote: I.note,
 
-      exporting: !!st.exporting, exportLabel: st.exporting ? 'Preparing…' : st.exportDone ? 'Exported 7,043 rows' : 'Export scored CSV',
+      exporting: !!st.exporting, exportLabel: st.exporting ? 'Preparing…' : st.exportDone ? 'Exported 6,000 rows' : 'Export scored CSV',
       exportBook: () => {
         set({ exporting: true });
         loadJson(ASSET.book).then((book) => {

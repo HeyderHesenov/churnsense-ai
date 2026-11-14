@@ -34,7 +34,7 @@ export function Associations({ data, view, onView }: Props) {
         <ul className={styles.associations}>
           {rows.map((row) => {
             const name = isFeature(row.feature) ? FEATURE[row.feature] : row.feature;
-            const figure = `${measureSymbol(row.measure)} ${row.strength.toFixed(3)}`;
+            const figure = `${measureSymbol(row.measure)} ${row.strength.toFixed(2)}`;
             const bar = (
               <span
                 className={styles.strength}

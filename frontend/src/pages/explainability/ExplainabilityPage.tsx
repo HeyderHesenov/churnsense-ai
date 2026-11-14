@@ -22,6 +22,7 @@ import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button, ButtonLink } from '../../components/ui/Button';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
@@ -109,7 +110,10 @@ export default function ExplainabilityPage() {
           Explain one customer <icons.arrowRight size={14} />
         </ButtonLink>
       </Header>
-      <Page density="dense">{body}</Page>
+      <Page density="dense">
+        <DataSourceNote parts={['customers', 'evidence']} />
+        {body}
+      </Page>
     </>
   );
 }

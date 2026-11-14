@@ -84,17 +84,42 @@ The API, the front end it serves (`frontend/`) and the dashboard are **local
 by design**: they have no authentication and bind to `127.0.0.1`, and the API
 answers loopback peers only. That is documented in the
 [README](README.md#security) and is not a vulnerability in itself. The one
-deployment the repository supports, a public portfolio demo of the sample
-dataset behind Caddy ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), adds exactly
+deployment the repository supports, a public portfolio demo behind Caddy
+([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)), adds exactly
 one peer: the proxy address listed in `api.trusted_proxies`, whose forwarded
 client address and scheme are the only ones believed. It is still
-unauthenticated, so it must never hold real customer data. Its image never holds
-the sample dataset (the operator mounts it read-only), and every request body is
+unauthenticated, so it must never hold real customer data. It holds no dataset
+either: it is configured as `deployment: {mode: public_demo, customer_records:
+synthetic}`, lists generated demo customers only, and shows the sample dataset
+solely as published aggregates in which no group with fewer than 20 churners or
+fewer than 20 stayers has an outcome shown. The dataset is not in its image, not mounted into its container and not read
+by that code path; a missing or untrusted demo file is answered with 503, never
+with other data. Every request body is
 limited by path: 5 MiB on the three upload paths, 64 KiB everywhere else. A way around one of
 the mitigations described there (the body-size limit, upload validation,
 export neutralisation, the Host and Origin checks, the trusted-proxy rule, the
 per-client limits on explanations and batch uploads and the process-wide
-batch limit, the front end's Content-Security-Policy) is in scope.
+batch limit, the front end's Content-Security-Policy) is in scope. So is any way
+to make the public demo return a row of the dataset, name one of its customers,
+or give the outcome of a group with fewer than 20 churners or 20 stayers - including a
+count solved for exactly by combining the demo's published figures with one another, with
+the current documents in this repository, or with the immutable release reports and the
+dataset's public per-level totals ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md), section 20).
+
+Known and **not** resolved, recorded in the same section:
+
+- the immutable release reports (`reports/final_evaluation.md`,
+  `reports/held_out_release.md`) state the validation sweep at 0.10 to 0.80, and two of
+  their own intervals hold fewer than 20 stayers; the current suppression keeps the demo
+  from cutting them finer, but does not and cannot cover what those reports state;
+- every earlier commit still holds the full validation sweep, the old segment table, the
+  design artboards' measured arrays and the one- and two-year contract counts, from which a
+  figure the demo now withholds (Two year's validation churners) can be worked out; the
+  history was not rewritten.
+
+Bounds are not covered either: published counts still limit hidden ones from above and
+below. A report showing such a bound is welcome, but it is a known limit of minimum-cohort
+suppression, not a defect in it.
 
 Out of scope: a vulnerable third-party dependency with no demonstrated effect
 on this project (report it upstream; Dependabot tracks advisories here), and

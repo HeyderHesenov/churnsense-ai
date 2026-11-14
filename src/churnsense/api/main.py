@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, File, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -37,7 +37,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from churnsense.api import spa
-from churnsense.api.dashboard import recorded_evaluation
+from churnsense.api.dashboard import recorded_evaluation, validation_metrics_served
 from churnsense.api.dashboard import router as dashboard_router
 from churnsense.api.middleware import (
     BodySizeLimit,
@@ -53,6 +53,7 @@ from churnsense.api.schemas import (
     BatchResponse,
     BusinessAssumptions,
     CustomerFeatures,
+    DataSource,
     ErrorResponse,
     HealthResponse,
     HoldoutSummary,
@@ -68,6 +69,7 @@ from churnsense.api.schemas import (
 from churnsense.api.state import (
     Dashboard,
     batch_slot,
+    deployment_of,
     get_predictor,
     optional_dashboard,
     readiness,
@@ -185,6 +187,15 @@ async def _unhandled_handler(request: Request, exc: Exception) -> JSONResponse:
 
 # --- the scoring service: on its original paths and under /api ------------------------
 
+
+def _measured(dashboard: Dashboard | None) -> dict[str, Any] | None:
+    """The served model's validation metrics as the evidence states them, if it does."""
+    if dashboard is None:
+        return None
+    evaluation = dashboard.evidence.validation_evaluation()
+    return None if evaluation is None else evaluation.metrics.as_dict()
+
+
 service = APIRouter()
 
 
@@ -251,7 +262,13 @@ def model_info(
         dropped_columns=meta["dropped_columns"],
         n_train=meta["n_train"],
         n_validation=meta["n_validation"],
-        validation_metrics=meta["validation_metrics"],
+        validation_metrics=validation_metrics_served(
+            meta["validation_metrics"],
+            None if dashboard is None else dashboard.evidence.sweep_basis(),
+            # Fail closed: a public demo whose book failed to build states no count.
+            dashboard.synthetic if dashboard is not None else deployment_of(predictor).synthetic,
+            _measured(dashboard),
+        ),
         test_metrics=None if record is None else record.metrics.model_dump(),
         sklearn_version=meta["sklearn_version"],
         limitations=LIMITATIONS,
@@ -272,10 +289,10 @@ def model_info(
         provenance=None
         if dashboard is None
         else Provenance(
-            verified=dashboard.book.withheld is None,
+            verified=dashboard.evidence.withheld is None,
             data_sha256=meta.get("data_sha256"),
             split_digest=meta.get("split_digest"),
-            withheld_reason=dashboard.book.withheld,
+            withheld_reason=dashboard.evidence.withheld,
         ),
         test_evaluation=None
         if record is None
@@ -283,6 +300,11 @@ def model_info(
             evaluated_at=record.evaluated_at,
             precision=record.metrics.precision,
             recall=record.metrics.recall,
+        ),
+        data_source=None
+        if dashboard is None
+        else DataSource.of(
+            dashboard.synthetic, len(dashboard.book.frame), dashboard.evidence.sweep_withheld
         ),
     )
 

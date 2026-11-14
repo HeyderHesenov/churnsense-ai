@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import os
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -154,6 +155,82 @@ def test_one_client_at_the_real_query_budget_is_refused_and_at_the_e2e_one_is_no
     assert _drive(dict(e2e_cfg.api.rate_limits), path, 400) == [(204, None)] * 400
 
 
+def _concurrent(cap: int, clients: int, each: int) -> list[str | None]:
+    """``clients`` browsers sending ``each`` requests at once, all from 127.0.0.1, held in
+    flight until every one has been answered or refused: each one's error code."""
+    import asyncio
+    import json
+
+    from churnsense.api import middleware
+
+    async def run() -> list[str | None]:
+        release = asyncio.Event()
+
+        async def app(scope, receive, send):
+            await release.wait()
+            await send({"type": "http.response.start", "status": 204, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        limiter = middleware.RateLimit(app, clock=lambda: 0.0)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/customers",
+            "headers": [],
+            "client": ("127.0.0.1", 50000),
+        }
+
+        async def one() -> str | None:
+            sent: list[dict] = []
+
+            async def send(message):
+                sent.append(message)
+
+            await limiter(dict(scope), receive, send)
+            status = sent[0]["status"]
+            return None if status == 204 else json.loads(sent[1]["body"])["error"]
+
+        tasks = [asyncio.create_task(one()) for _ in range(clients * each)]
+        await asyncio.sleep(0)
+        release.set()
+        return await asyncio.gather(*tasks)
+
+    before = (middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS)
+    middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS = {}, cap
+    try:
+        return asyncio.run(run())
+    finally:
+        middleware.RATE_LIMITS, middleware.MAX_CLIENT_REQUESTS = before
+
+
+def test_two_browsers_behind_one_address_share_one_in_flight_cap():
+    """What the browser suite met under load: two pages loading at once from 127.0.0.1,
+    eight requests each, against one browser's twelve slots - four refused, by the in-flight
+    cap, not a budget. With a browser's slots for each browser, none is."""
+    from churnsense.api import middleware
+
+    production = middleware.MAX_CLIENT_REQUESTS
+    refused = _concurrent(production, clients=2, each=8)
+    assert refused.count("too_many_in_flight") == 16 - production
+    assert set(refused) == {None, "too_many_in_flight"}
+    assert _concurrent(production, clients=1, each=8) == [None] * 8
+    assert _concurrent(e2e_server.in_flight_cap(), clients=2, each=8) == [None] * 16
+
+
+def test_the_e2e_server_counts_as_many_browsers_as_playwright_runs():
+    config = (Path(__file__).resolve().parents[1] / "frontend" / "playwright.config.ts").read_text()
+    workers = re.search(r"^\s*workers:\s*(\d+),", config, re.MULTILINE)
+    assert workers is not None
+    assert int(workers.group(1)) == e2e_server.E2E_CLIENTS
+    from churnsense.api import middleware
+
+    assert middleware.MAX_CLIENT_REQUESTS == 12, "importing the e2e server changes nothing"
+    assert e2e_server.in_flight_cap() == 12 * e2e_server.E2E_CLIENTS
+
+
 def test_the_e2e_budgets_do_not_alter_the_production_defaults(cfg):
     """Importing and using the test server leaves every real limit exactly as it was."""
     from churnsense.api import middleware
@@ -233,18 +310,33 @@ def test_the_in_flight_cap_still_applies_under_the_e2e_budgets(e2e_cfg):
 
 
 def test_the_test_server_overrides_budgets_through_its_own_configuration_only():
-    """No patch of the middleware, no change to the cap, and no place in a deployment."""
+    """Budgets through its own configuration file; of the middleware, only the in-flight cap,
+    once, and only to give each browser the production cap (the browsers share one address:
+    ``test_two_browsers_behind_one_address_share_one_in_flight_cap``); no place in a
+    deployment."""
     import ast
 
     source = (PROJECT_ROOT / "scripts" / "e2e_server.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
-    names = {
-        *(node.id for node in ast.walk(tree) if isinstance(node, ast.Name)),
-        *(node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)),
-        *(alias.name for node in ast.walk(tree) if isinstance(node, ast.alias) for alias in [node]),
-    }
-    assert "MAX_CLIENT_REQUESTS" not in names
-    assert "middleware" not in names and "churnsense.api.middleware" not in names
+    touched = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "middleware"
+    ]
+    assert sorted(node.attr for node in touched) == ["MAX_CLIENT_REQUESTS", "MAX_CLIENT_REQUESTS"]
+    assigned = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Attribute) and t.attr == "MAX_CLIENT_REQUESTS" for t in node.targets
+        )
+    ]
+    assert len(assigned) == 1
+    assert ast.unparse(assigned[0].value) == "in_flight_cap()"
+    assert "middleware.MAX_CLIENT_REQUESTS * E2E_CLIENTS" in source
     keys = [
         node.value
         for node in ast.walk(tree)
@@ -311,3 +403,132 @@ def test_nothing_is_written_before_the_paths_are_checked(base, tmp_path, monkeyp
         e2e_server.prepare(root, rows=300, seed=1)
     assert not (tmp_path / "escaped").exists()
     assert list(root.iterdir()) == []
+
+
+# --- the public server: the deployed demo's own deployment, with no dataset in reach ------------
+
+
+def test_the_ordinary_server_lists_its_dataset_and_says_so(e2e_cfg):
+    assert (e2e_cfg.deployment.mode, e2e_cfg.deployment.customer_records) == ("local", "dataset")
+
+
+def test_the_public_server_states_the_deployed_demos_deployment(base, tmp_path):
+    from scripts import verify_deploy_bundle as bundle
+
+    assert e2e_server.PUBLIC_DEPLOYMENT == bundle.PUBLIC_DEPLOYMENT
+    conf = e2e_server.e2e_config(base, tmp_path, sha256="0" * 64, rows=2000)
+    conf["deployment"] = dict(e2e_server.PUBLIC_DEPLOYMENT)
+    path = tmp_path / e2e_server.PUBLIC_CONFIG
+    path.write_text(yaml.safe_dump(conf), encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.deployment.public and loaded.deployment.synthetic
+    e2e_server.confine(loaded, tmp_path)
+
+
+def test_a_public_server_counts_any_dataset_customer_it_would_list():
+    import pandas as pd
+
+    from churnsense.data import schema
+    from churnsense.demo.customers import demo_customers
+
+    assert e2e_server.listed_dataset_customers(demo_customers(n=50)) == 0
+    mixed = pd.DataFrame({schema.ID_COLUMN: ["DEMO-000001", "E2E-00007", e2e_server.LONG_ID]})
+    assert e2e_server.listed_dataset_customers(mixed) == 2
+
+
+def test_publishing_touches_nothing_in_the_repository(e2e_cfg):
+    """Refused before anything is built or deleted when the folder is the repository's."""
+    with pytest.raises(ValueError, match="inside the repository"):
+        e2e_server.publish(PROJECT_ROOT / "artifacts", e2e_cfg)
+
+
+@pytest.fixture
+def prepared(base, tmp_path, monkeypatch):
+    """A prepared folder as ``publish`` finds it, with the evidence builder replaced.
+
+    The builder records whether the dataset and the cache were still there when
+    it ran; restoring ``CHURNSENSE_CONFIG`` and the config cache is the teardown.
+    """
+    from churnsense.demo import build
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "config.yaml").write_text(
+        yaml.safe_dump(e2e_server.e2e_config(base, root, sha256="0" * 64, rows=2000)),
+        encoding="utf-8",
+    )
+    cfg = load_config(root / "config.yaml")
+    for held in (cfg.raw_data_file, cfg.paths.shap_cache_file):
+        held.parent.mkdir(parents=True, exist_ok=True)
+        held.write_text("held", encoding="utf-8")
+    built = []
+    monkeypatch.setattr(
+        build,
+        "publish",
+        lambda cfg, **_: built.append(
+            (cfg.raw_data_file.exists(), cfg.paths.shap_cache_file.exists())
+        ),
+    )
+    monkeypatch.setenv("CHURNSENSE_CONFIG", str(root / "config.yaml"))
+    yield root, cfg, built
+    load_config.cache_clear()
+
+
+def test_publishing_builds_then_removes_the_dataset_and_states_the_public_deployment(prepared):
+    root, cfg, built = prepared
+    public = e2e_server.publish(root, cfg)
+    assert built == [(True, True)], "the evidence is built from the dataset, then it is removed"
+    assert not cfg.raw_data_file.exists() and not cfg.paths.shap_cache_file.exists()
+    assert public.deployment.public and public.deployment.synthetic
+    written = root.resolve() / e2e_server.PUBLIC_CONFIG
+    assert os.environ["CHURNSENSE_CONFIG"] == str(written)
+    stated = yaml.safe_load(written.read_text(encoding="utf-8"))
+    assert stated["deployment"] == e2e_server.PUBLIC_DEPLOYMENT
+    original = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    assert {k: v for k, v in stated.items() if k != "deployment"} == {
+        k: v for k, v in original.items() if k != "deployment"
+    }
+
+
+def test_publishing_refuses_a_held_file_that_leads_out_of_the_folder(prepared, tmp_path):
+    """A link inside the folder to a file outside it: nothing is built and nothing removed."""
+    root, cfg, built = prepared
+    outside = tmp_path / "outside.json"
+    outside.write_text("kept", encoding="utf-8")
+    cfg.paths.shap_cache_file.unlink()
+    cfg.paths.shap_cache_file.symlink_to(outside)
+    with pytest.raises(ValueError, match="is outside"):
+        e2e_server.publish(root, cfg)
+    assert built == []
+    assert cfg.paths.shap_cache_file.is_symlink() and cfg.raw_data_file.exists()
+    assert outside.read_text(encoding="utf-8") == "kept"
+
+
+def test_publishing_refuses_to_write_beside_a_model_outside_the_folder(prepared, tmp_path):
+    """The builder writes beside the model: its folder must be inside, even where the
+    cache in it is a link back inside."""
+    root, cfg, built = prepared
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / cfg.paths.shap_cache_file.name).symlink_to(cfg.paths.shap_cache_file)
+    moved = replace(cfg, paths=replace(cfg.paths, artifacts_dir=elsewhere))
+    with pytest.raises(ValueError, match="artifacts_dir"):
+        e2e_server.publish(root, moved)
+    assert built == [] and cfg.raw_data_file.exists() and cfg.paths.shap_cache_file.exists()
+
+
+def test_the_public_server_refuses_a_book_it_was_not_asked_for():
+    """``serve`` cannot run here (it blocks): its refusals are read from its source."""
+    source = (PROJECT_ROOT / "scripts" / "e2e_server.py").read_text(encoding="utf-8")
+    serve = source[source.index("def serve(") : source.index("def listed_dataset_customers(")]
+    assert "dashboard.synthetic is not public" in serve
+    assert "listed_dataset_customers(dashboard.frame)" in serve
+
+
+def test_the_public_server_holds_enough_customers_for_a_sweep_at_safe_cuts():
+    """Its sweep is published only where twenty churners and twenty stayers lie between two
+    cuts, the threshold among them (E8). The e2e model leaves about 7% of churners below its
+    threshold: 2,000 rows leave too few there, so the public server holds more."""
+    assert e2e_server.rows_for(None, public=False) == e2e_server.DEFAULT_ROWS == 2000
+    assert e2e_server.rows_for(None, public=True) == e2e_server.PUBLIC_ROWS >= 8000
+    assert e2e_server.rows_for(500, public=True) == 500

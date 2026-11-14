@@ -10,7 +10,7 @@ import type { Performance } from '../../api/queries';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { cut, int, pct } from '../../lib/format';
 import { cssVars } from '../../lib/style';
-import { GENDER, segmentsSubtitle, SMALL, UNAVAILABLE, UNSCANNED, withheld } from './copy';
+import { GENDER, segmentsSubtitle, SMALL, UNSCANNED, unavailableText } from './copy';
 import {
   dimensionName,
   groups,
@@ -20,6 +20,7 @@ import {
   type SegmentRow,
 } from './performance';
 import styles from './Performance.module.css';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 
 /** A rate with its interval, when the row carries one. */
 function withInterval(value: string, low?: number | null, high?: number | null): string {
@@ -86,6 +87,7 @@ function Row({ row }: { row: SegmentRow }) {
 }
 
 export function Segments({ figures }: { figures: Performance }) {
+  const sweepNote = useSweepNote();
   const rows: readonly SegmentRow[] | null = figures.validation_evaluation?.segments ?? null;
   const threshold = figures.validation_evaluation?.metrics.threshold ?? figures.threshold;
 
@@ -97,9 +99,7 @@ export function Segments({ figures }: { figures: Performance }) {
         subtitle={segmentsSubtitle(threshold)}
       />
       {rows === null ? (
-        <p className={styles.unavailable}>
-          {figures.withheld_reason ? withheld(figures.withheld_reason) : UNAVAILABLE}
-        </p>
+        <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>
       ) : (
         <>
           {/* A region that scrolls sideways must take the keyboard's focus, or its

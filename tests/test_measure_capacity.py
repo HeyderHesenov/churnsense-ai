@@ -448,7 +448,11 @@ def test_the_helper_says_the_memory_peak_is_cumulative():
 
 
 def test_the_guide_records_the_local_measurement_and_leaves_the_vps_open(section_16):
-    assert "LOCAL DOCKER MEASUREMENT DONE (2026-11-10). VPS NOT MEASURED." in section_16
+    assert (
+        "LOCAL DOCKER MEASUREMENT DONE (2026-11-10), FOR THE EARLIER LAYOUT. "
+        "THE CURRENT IMAGE AND THE VPS ARE NOT MEASURED."
+    ) in section_16
+    assert "LOCAL DOCKER MEASUREMENT DONE (2026-11-10). VPS NOT MEASURED." not in section_16
     assert "PENDING REAL DOCKER MEASUREMENT" not in section_16
     assert "has not been measured: repeat the procedure there" in section_16
     assert "`churnsense-ai:c8495555f955-dirty`" in section_16
@@ -492,8 +496,20 @@ def test_the_guide_no_longer_calls_local_memory_unmeasured():
     assert "Memory is not measured" not in docs
     assert "which is not measured" not in docs
     assert "Nothing has run in Docker yet" not in docs
-    assert "The VPS's real RAM use is not measured" in docs
+    assert "The VPS's real RAM use is not measured" not in docs
+    assert "Neither the current image nor the VPS's real RAM use is measured" in docs
     assert "not a measurement of a VPS" in docs
+
+
+def test_the_guide_does_not_call_the_earlier_figures_a_bound_on_the_current_image(section_16):
+    """The figures predate the generated book; how they compare to it is not measured."""
+    docs = " ".join((REPO / "docs" / "DEPLOYMENT.md").read_text().split())
+    assert "upper estimate" not in docs
+    assert docs.count("expected to overstate") == 2
+    assert ("expected to overstate what is deployed, but that expectation is not measured") in docs
+    assert (
+        "expected to overstate the current image's use, but that expectation is not measured"
+    ) in section_16
 
 
 # --- the build command's context -----------------------------------------------------------

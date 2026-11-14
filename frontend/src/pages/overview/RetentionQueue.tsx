@@ -12,6 +12,7 @@ import {
   useCustomers,
   useExplanations,
   type CustomerRow,
+  type DataSource,
   type Explanation,
   type Overview,
 } from '../../api/queries';
@@ -33,6 +34,7 @@ import { CardHeader } from '../../components/ui/Surface';
 import { RemovableChip, ToggleChip } from '../../components/ui/Toggle';
 import type { BandName } from '../../lib/bands';
 import { cents, cut, int } from '../../lib/format';
+import { SyntheticTag, useDataSource } from '../../components/ui/DataSourceNote';
 import { CHIP, isFeature, PARTITION_OPTIONS, profile } from '../../lib/labels';
 import { cx } from '../../lib/style';
 import {
@@ -46,7 +48,7 @@ import {
   type QUEUE_PARAMS,
   type QueueState,
 } from './queue';
-import { unflaggedNote } from './copy';
+import { allFlaggedLink, unflaggedNote } from './copy';
 import styles from './RetentionQueue.module.css';
 
 /** The queue's heading: where the reader continues when its controls go away. */
@@ -66,7 +68,20 @@ interface RetentionQueueProps {
   set: SetParams<typeof QUEUE_PARAMS>;
 }
 
+/**
+ * What the queue asks, and of whom. Where the service lists generated customers,
+ * its own sentence about their figures follows the question.
+ */
+function queueSubtitle(source: DataSource | null): string {
+  const question = 'Which flagged customers carry the most monthly revenue at risk?';
+  return source?.customer_records === 'synthetic'
+    ? `${question} ${source.figures_note ?? source.title}`
+    : `${question} It is known only for customers recorded active. Test customers stay listed, status unknown: neither confirmed current nor churned.`;
+}
+
 export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
+  const source = useDataSource();
+  const synthetic = source?.customer_records === 'synthetic';
   const defaults = defaultBands(book);
   const bands = state.bands ?? defaults;
   const listing = useCustomers(queueQuery(state, defaults));
@@ -116,7 +131,7 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
           focusable
           title={
             <>
-              Retention queue{' '}
+              Retention queue <SyntheticTag />{' '}
               <span className={styles.count}>
                 {bands.length === 0
                   ? '0 flagged'
@@ -126,10 +141,10 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
               </span>
             </>
           }
-          subtitle="Which flagged customers carry the most monthly revenue at risk? It is known only for customers recorded active. Test customers stay listed, status unknown: neither confirmed current nor churned."
+          subtitle={queueSubtitle(source)}
           aside={
             <Link to="/explorer?flagged=true" className={styles.arrowLink}>
-              See all {int(book.flagged.customers)} flagged, churned included, in the explorer
+              {allFlaggedLink(book.flagged.customers, synthetic)}
               <icons.arrowRight size={14} />
             </Link>
           }
@@ -151,13 +166,18 @@ export function RetentionQueue({ book, state, set }: RetentionQueueProps) {
             </ToggleChip>
           ))}
         </div>
-        <span className={styles.divider} aria-hidden="true" />
-        <Select
-          label="Partition"
-          value={state.part ?? 'all'}
-          options={PARTITION_OPTIONS}
-          onChange={(part) => set({ part: part === 'all' ? null : part, page: 1 })}
-        />
+        {/* Generated customers are in no partition of the dataset: there is nothing to choose. */}
+        {!synthetic && (
+          <>
+            <span className={styles.divider} aria-hidden="true" />
+            <Select
+              label="Partition"
+              value={state.part ?? 'all'}
+              options={PARTITION_OPTIONS}
+              onChange={(part) => set({ part: part === 'all' ? null : part, page: 1 })}
+            />
+          </>
+        )}
         {state.q && (
           <RemovableChip label="Clear search" onRemove={() => clear({ q: '', page: 1 })}>
             id ∋ “{state.q}”

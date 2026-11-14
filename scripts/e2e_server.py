@@ -14,7 +14,14 @@ The API itself is the real one, middleware included; only its configuration
 differs, through ``CHURNSENSE_CONFIG``. No final evaluation is ever recorded, so
 the test partition stays withheld exactly as it does for the real model.
 
-    .venv/bin/python scripts/e2e_server.py [--port 8799]
+    .venv/bin/python scripts/e2e_server.py [--port 8799] [--public]
+
+With ``--public`` it serves as the deployed demo does: after the model is
+trained, the "dataset"'s aggregates are published (``churnsense.demo.build``),
+then the dataset file and ``make explain``'s cache are **deleted** and the
+service is started as ``deployment: {mode: public_demo, customer_records:
+synthetic}``. What it lists is generated ``DEMO-`` customers; no ``E2E-``
+customer is in its reach, and the browser tests assert none is ever shown.
 
 It serves ``frontend/dist``, so build first (``make frontend``). The temporary
 folder is removed when the server stops (SIGTERM or Ctrl-C).
@@ -56,7 +63,16 @@ LONG_ID = ID_PREFIX + "X" * 28
 DATASET_FILENAME = "synthetic_customers.csv"
 DEFAULT_PORT = 8799
 DEFAULT_ROWS = 2000
+#: The public server's book. Its sweep is published only at cuts with twenty churners and
+#: twenty stayers between any two, the threshold among them (E8). Below its threshold the
+#: e2e model leaves about 7% of churners, so twenty there need about 300 churners in
+#: validation. Measured 2026-11-12: 4,000 rows leave 12 (no safe cuts); 8,000 leave 33
+#: and give 7 cuts, prepared in about 15 s.
+PUBLIC_ROWS = 8000
 DEFAULT_SEED = 11
+#: The deployment a ``--public`` server states: the deployed demo's own.
+PUBLIC_DEPLOYMENT = {"mode": "public_demo", "customer_records": "synthetic"}
+PUBLIC_CONFIG = "public.yaml"
 
 #: One point per model family: the pages need a trained model of each kind to
 #: compare, not a tuned one, and a full grid would make every run slow.
@@ -87,10 +103,26 @@ E2E_BUDGET = {"burst": 1000, "per_seconds": 0.001}
 #: and never makes the browser tests depend on their order again. This reaches
 #: nothing but the temporary configuration file ``prepare`` writes: the
 #: defaults, ``configs/config.yaml`` and ``configs/deploy.yaml`` are only read,
-#: and this script is not in the deployment image. The cap on requests in
-#: flight (``middleware.MAX_CLIENT_REQUESTS``) is not a budget and is left as it
-#: is: the tests run under it.
+#: and this script is not in the deployment image.
 RATE_LIMITS = {name: dict(E2E_BUDGET) for name, _ in DEFAULT_RATE_LIMITS}
+
+#: The browsers the suite runs at once: Playwright's ``workers`` in
+#: ``frontend/playwright.config.ts`` (``tests/test_e2e_server.py`` keeps the two
+#: equal). Each is a client of its own, but all reach this server from
+#: 127.0.0.1, which the in-flight cap (``middleware.MAX_CLIENT_REQUESTS``) counts
+#: as one: two pages loading at once - an explorer page sends about eight requests
+#: - then share one browser's slots, and under load, when each request is held
+#: longer, the second gets 429 ``too_many_in_flight``. So this server alone allows
+#: that one address the slots of as many browsers as share it: each still has
+#: exactly the production cap, which ``tests/test_limits.py`` tests as it is.
+E2E_CLIENTS = 2
+
+
+def in_flight_cap() -> int:
+    """The in-flight cap for the one address every browser of the suite shares."""
+    from churnsense.api import middleware
+
+    return middleware.MAX_CLIENT_REQUESTS * E2E_CLIENTS
 
 
 def synthetic_customers(rows: int, seed: int) -> pd.DataFrame:
@@ -199,7 +231,38 @@ def prepare(root: Path, *, rows: int, seed: int) -> Config:
     return cfg
 
 
-def serve(root: Path, port: int) -> None:
+def publish(root: Path, cfg: Config) -> Config:
+    """Turn the prepared folder into a public demo's: aggregates in, the dataset out.
+
+    The evidence is built from the folder's dataset exactly as ``make demo-data``
+    builds it. Then the dataset file and the cache of its validation rows are
+    removed, and a second configuration - the same one, stating the public
+    deployment - becomes the one in force. Nothing outside ``root`` is touched:
+    every path is checked before the first file is written or removed.
+    """
+    from churnsense.demo import build
+
+    root = outside_repository(root)
+    confine(cfg, root)
+    held = (cfg.raw_data_file, cfg.paths.shap_cache_file)
+    for path in held:  # a link inside the folder may still point out of it
+        if not path.resolve().is_relative_to(root):
+            raise ValueError(f"{path} is outside {root}")
+    build.publish(cfg, sample=30)
+    for path in held:
+        path.unlink()
+    stated = yaml.safe_load((root / "config.yaml").read_text(encoding="utf-8"))
+    stated["deployment"] = dict(PUBLIC_DEPLOYMENT)
+    config_file = root / PUBLIC_CONFIG
+    config_file.write_text(yaml.safe_dump(stated), encoding="utf-8")
+    os.environ["CHURNSENSE_CONFIG"] = str(config_file)
+    load_config.cache_clear()
+    public = load_config()
+    confine(public, root)
+    return public
+
+
+def serve(root: Path, port: int, *, public: bool = False) -> None:
     """Check the served model and book come from ``root``, then serve until stopped."""
     import uvicorn
 
@@ -216,6 +279,14 @@ def serve(root: Path, port: int) -> None:
         raise RuntimeError(f"the served model {dashboard.model.source} is not the synthetic one")
     if dashboard.book.withheld is not None:
         raise RuntimeError(f"the synthetic book withholds its outcomes: {dashboard.book.withheld}")
+    if dashboard.synthetic is not public:
+        raise RuntimeError("the served book is not the one this server was asked for")
+    if public and listed_dataset_customers(dashboard.frame):
+        raise RuntimeError("a public server is listing the dataset's customers")
+    from churnsense.api import middleware
+
+    # This process only: the browsers share one address (``E2E_CLIENTS``).
+    middleware.MAX_CLIENT_REQUESTS = in_flight_cap()
     uvicorn.run(
         main.app,
         host="127.0.0.1",
@@ -224,6 +295,13 @@ def serve(root: Path, port: int) -> None:
         log_level="warning",
         access_log=False,
     )
+
+
+def listed_dataset_customers(frame: pd.DataFrame) -> int:
+    """How many listed customers carry the "dataset"'s ID prefix: none, on a public server."""
+    from churnsense.data import schema
+
+    return int(frame[schema.ID_COLUMN].str.startswith(ID_PREFIX).sum())
 
 
 def _stop(signum: int, _frame: object) -> None:
@@ -236,11 +314,28 @@ def _stop(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
 
+def rows_for(rows: int | None, *, public: bool) -> int:
+    """The rows asked for, or the default for the kind of server: see ``PUBLIC_ROWS``."""
+    if rows is not None:
+        return rows
+    return PUBLIC_ROWS if public else DEFAULT_ROWS
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--port", type=int, default=int(os.getenv("E2E_PORT", DEFAULT_PORT)))
-    parser.add_argument("--rows", type=int, default=DEFAULT_ROWS)
+    parser.add_argument(
+        "--rows",
+        type=int,
+        default=None,
+        help=f"default {DEFAULT_ROWS}; {PUBLIC_ROWS} with --public",
+    )
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--public",
+        action="store_true",
+        help="serve as the deployed demo does: generated customers, no dataset in reach",
+    )
     args = parser.parse_args(argv)
 
     if not (ROOT / "frontend" / "dist" / "index.html").is_file():
@@ -251,8 +346,10 @@ def main(argv: list[str] | None = None) -> None:
     signal.signal(signal.SIGTERM, _stop)
     with tempfile.TemporaryDirectory(prefix="churnsense-e2e-") as folder:
         root = Path(folder)
-        prepare(root, rows=args.rows, seed=args.seed)
-        serve(root, args.port)
+        cfg = prepare(root, rows=rows_for(args.rows, public=args.public), seed=args.seed)
+        if args.public:
+            publish(root, cfg)
+        serve(root, args.port, public=args.public)
 
 
 if __name__ == "__main__":

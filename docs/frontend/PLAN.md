@@ -312,7 +312,7 @@ Supporting changes:
   - the host in the API panel.
 - **The Main queue is the real paginated flagged list** ("Showing 1–8 of 2,306 flagged"). The prototype loaded only the top 8 per band.
 - **"Add to campaign list" is omitted.** It is a dead button, and no such feature exists. "Export selection" works.
-- **Numbers typed into the copy become API values:** "17×", "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V 0.419 … fourth", "0.27", "34 churners", validation ECE 0.144 → 0.027, ε.
+- **Numbers typed into the copy become API values:** the contract spread, "r = 0.9996", "0.88 at 10% to 0.22 at 50%", "Cramér's V … fourth", "0.27", "34 churners", validation ECE 0.144 → 0.027, ε.
 - **The Single-customer picker uses a deterministic rule.** The design's four case types are kept, but no hard-coded IDs; the chosen customers may differ from the prototype's.
 
 ## Phase 4 — hardening, CI, docs
@@ -535,7 +535,7 @@ them: the KPIs, the band cards, the campaign card, and the first queue row's
 attributions (Tenure +31.7, Monthly −20.9).
 
 **Copy that depended on the data now depends on it explicitly** (`overview/copy.ts`, unit-tested):
-- Every number in a sentence comes from the API: the 17× spread, the price
+- Every number in a sentence comes from the API: the contract spread, the price
   peak, the median tenures, "300 validation customers", "first … fourth",
   "$32 higher", the assumptions and the Low band's figures.
 - A claim is made only when the figures support it:
@@ -1653,8 +1653,8 @@ every figure equals `curl /api/performance` and `/api/model-info` (at 0.36:
 260 reached, 188 offers to stayers, 114 missed, 847 left alone, as the sweep;
 PR-AUC 0.644, ROC-AUC 0.838, precision 0.580, recall 0.695, F1 0.633, Brier
 0.138, ECE 0.027; cutoff 0.6646 = 0.6714 − 0.0068); "Test evaluation not
-recorded"; Two year and No internet NOT SCANNED; 0.9–1.0 not drawn (14
-customers); the slider's arrows write `?cut=0.38` and keep the focus; a chart
+recorded"; Two year and No internet NOT SCANNED; 0.9–1.0 not drawn (fewer than
+20 customers); the slider's arrows write `?cut=0.38` and keep the focus; a chart
 click loads 0.46; `?cut=1.00` reads precision "—" in the strip and the
 chart's name; 0 console messages; no element past the right edge at
 375/768/1024/1440. `artifacts/` and `reports/` are byte-identical before and
@@ -1975,8 +1975,8 @@ All additive; `/api/segments` keeps its shape and its 14 dimensions.
     numerical problem never takes `/api/overview` down with it.
   - **Real data cost** (91 pairs, 2.5 s, memoised per dashboard): Contract ×
     tenure also hides Month-to-month × 0–3 and × 4–6, One year × 25–48 and Two
-    year × 25–48 (Two year's low-tenure cells all have 0 churners, so only a
-    cell with churners protects them); tenure × monthly hides 3 more cells and
+    year × 25–48 (cells with too few churners can only be protected by a cell
+    that holds some); tenure × monthly hides 3 more cells and
     monthly × Streaming TV 3 more. The margins still show every level. No
     one-way level is hidden.
   - **Scope: one response at a time.** Two two-way tables sharing a margin
@@ -2298,8 +2298,8 @@ in it, `make evaluate` was not run, and `reports/` was not touched.
 ## Disclosure remediation, second pass (2026-11-06)
 
 An independent review found the per-dimension rule of the first pass recoverable: a
-union of hidden levels by subtraction (flagged 480/1/1 said "1 churner among 2 named
-customers"), two dimensions read together, a reader who replays the rule, and tied
+union of hidden levels by subtraction (the hidden levels' flagged counts, summed, gave
+a group of fewer than twenty away), two dimensions read together, a reader who replays the rule, and tied
 scores through full-precision score metrics. Where this section and an earlier one
 disagree about the test partition, this one holds.
 
@@ -2527,3 +2527,572 @@ differs from the sections above, it stands.
   through `make lock LOCK_ARGS="--upgrade-package tornado"`. No other pin moved. Both locks audit
   clean, `pip check` passes, and a notebook kernel runs, on Python 3.12 and 3.13.
 
+
+## Public demo data safety (2026-11-11/12)
+
+The last blocker of the deployment guide was the API itself: unauthenticated, it handed out the
+dataset's rows, against the project's own policy that the IBM sample is not redistributed. A read-only
+audit (2026-11-11) found seven ways:
+
+| | Route | What it gave |
+|---|---|---|
+| E1 | `GET /api/customers/export` | the whole book in one request: ID, 18 inputs, scores, partition, outcome |
+| E2 | `GET /api/customers` | the same, 100 rows a page |
+| E3 | `GET /api/customers/{id}` | one customer's 18 inputs, under no rate budget |
+| E4 | `POST /api/explain` with IDs | each `Contribution.value` is an input |
+| E5 | `GET /api/customers/examples` | four validation customers |
+| E6 | `GET /api/explain/global` | `x`: 300 validation rows of 18 raw inputs; the same file sat in the image |
+| E7 | batch `labels.excluded_test` | whether an uploaded customer is in the test partition |
+
+Dropping the ID would not have helped: 6,661 of the 7,043 rows are unique on tenure and the two
+charges alone. The aggregates (overview, segments, sweep, performance) were already held to 20
+customers a group with complementary suppression, and stay.
+
+### What was built
+
+- **A stated policy.** `deployment.mode` (`local` | `public_demo`) and `deployment.customer_records`
+  (`dataset` | `synthetic`) in the configuration (`config.Deployment`). `public_demo` with `dataset`
+  does not load. `configs/deploy.yaml` states `public_demo` / `synthetic`; `configs/config.yaml`
+  states `local` / `dataset`, so a developer's machine behaves as before.
+- **Generated customers.** `src/churnsense/demo/customers.py`: 2,000 customers from a size and a
+  seed, opening no file and taking no frame. IDs are `DEMO-` and six digits; no outcome, no protected
+  attribute. `book.synthetic_book` scores them with the served model: partition `synthetic`, outcome
+  `withheld`, status `active`.
+- **Published evidence.** `make demo-data` (`churnsense.demo.build`), run once by the maintainer
+  beside the dataset, writes `artifacts/public_evidence.json` (the training and validation
+  aggregates every page shows) and `artifacts/demo_explanations.json` (attributions of 300 generated
+  customers against 100 generated ones). `src/churnsense/evidence.py` holds the two sources behind one
+  interface: `LiveEvidence` computes from the dataset, `PublishedEvidence` reads the file through a
+  closed, strict reader bound to the model, the dataset pin, the split and the threshold.
+- **Two build paths, no bridge between them** (`api/state.py`). The synthetic path never calls the
+  dataset's loader, refuses to start beside a dataset file in a public demo, and turns every failure
+  into 503 `demo_data_unavailable`. Nothing falls back to the dataset.
+- **Routes.** Every customer listing, lookup, export, example and explanation is of generated
+  customers; observed figures come from `d.evidence`. `ModelInfoResponse.data_source` carries the
+  sentences the pages print; `ExplainResponse.background` says `synthetic`. The batch label comparison
+  is off in synthetic mode (E7). The sweep is priced from a basis of per-threshold totals
+  (`threshold.sweep_basis` / `sweep_from_basis`), which is what the published file holds.
+- **Deployment files.** The app mounts no volume; neither the dataset nor `shap_global.json` is in
+  the build context or the image. `scripts/verify_deploy_bundle.py` requires the policy above and
+  refuses an app volume, a dataset, a customer column anywhere in the evidence, and demo attributions
+  that are not, row for row, of the generated book.
+- **Front end.** `components/ui/DataSourceNote.tsx` prints the service's own sentences wherever a
+  customer or a figure of theirs appears; the outcome pill reads "Synthetic · no outcome"; the
+  partition filters and the Patterns link into the dataset's customers are not offered; the queue's
+  link to the explorer no longer says "churned included" where nobody has an outcome.
+- **End to end.** `scripts/e2e_server.py --public` deletes its dataset before serving; Playwright has
+  a second project, `public-demo`, against it.
+
+### Decisions
+
+- **The policy is stated, never inferred.** It is not read from `trusted_proxies` or the host names:
+  a network setting that also chose the data would change the data whenever the network changed.
+- **No dataset in the container, rather than a guarded one.** A route cannot return what the process
+  does not have. The price is one offline step (`make demo-data`) whenever the model changes.
+- **No validation row in any form** on the explainability page (E6): not unlinked per feature, not
+  jittered. The public sample is of generated customers, and says so.
+- **One book.** In a public demo the overview's counts are the generated book's, labelled
+  illustrative; the observed rates beside them are the dataset's published aggregates, labelled as
+  such. The two are never added together.
+
+### Where it differs from its plan
+
+- `evidence.py` is `src/churnsense/evidence.py`, not inside `demo/`: development mode uses it too.
+- The component is `DataSourceNote`, not `SyntheticNotice`: it also says where observed figures come
+  from.
+- `threshold.sweep_thresholds` and `threshold_sensitivity` were left as they are instead of becoming
+  wrappers over the basis: `evaluation/report.py` and `models/train.py`, both fingerprinted by the
+  published release, call them. A test holds the two paths to the same figures.
+- `tests/test_governance.py` needed no change.
+
+### The two files, as built on 2026-11-11
+
+- `public_evidence.json`: 1,099,149 bytes; 196 breakdowns (14 one-way, 182 two-way); 101
+  thresholds; validation n 1,409; observed 5,634 customers, 1,495 churned (training and validation).
+- `demo_explanations.json`: 297,684 bytes; 300 explained, 100 in the background; base value 0.2128.
+- Read back through the service, the published sweep gives the figures the model card states: 0.36
+  retains $26,547, the peak at 0.30 retains $26,579.
+- Both are ignored by git, like the model they are bound to. The 13 sources the published release
+  fingerprints, the ledger, its report and the existing artifacts were not touched.
+
+### Review (code-reviewer, 2026-11-12)
+
+One read-only pass over the whole change. It found no route, error text, log line or cached file
+through which a dataset row, an ID or a partition-membership fact reaches a client in synthetic mode,
+and no regression with the dataset's own customers listed. What it did find, and what was done:
+
+- **The sweep can be differenced** (rated high). Known before the review and left open on purpose:
+  see "Still open" below. The review added that the counts, not only the money, difference; the
+  deployment guide now says so, with the measured number of single-customer steps.
+- **Fixed, test first:**
+  - Preparing the dashboard ran after the last fail-closed check, so a failure there answered 500 and
+    was tried again by every request. It is built inside the same block: 503
+    `demo_data_unavailable`, remembered like any other failed build.
+  - The bundle check let a file reach the app by ways it did not read: `extends`, an environment
+    file, a top-level `include`, and an override file beside `compose.yaml` (which
+    `docker compose up`, as the guide runs it, merges unasked). All four are refused.
+  - The image check knew the dataset by its file name only. It now refuses any file that hashes to
+    the pinned dataset.
+  - The demo attributions could carry anything under a key nobody reads. The bundle check holds the
+    file to the builder's keys, and (found before the review) to rows that are, whole, customers of
+    the book it generates itself.
+  - An upload's `Churn` column was described as "kept only to compare" where nothing is compared.
+    The note now says what the service does.
+  - A test of the evidence's closed format passed on any problem at all; it names the problem now.
+- **Not changed, and why:**
+  - *The bundle check does not read the evidence's figures.* The service's strict reader does, at
+    start, and refuses; reusing it in the check would import the model stack the check is built never
+    to load. The guide no longer calls what the check does a check of the whole format.
+  - *The strict reader does not prove complementary suppression again.* It checks every cell's size,
+    rate and stated reason, not that the hidden cells of a table cannot be solved for. That proof is
+    made when the file is built (`suppression.py`); a file edited by hand afterwards is outside what
+    the reader defends against.
+  - *The page-level note needs the service's sentence.* Until `/model-info` answers, or if it fails,
+    a page prints no note. Every listed customer is still marked "Synthetic · no outcome", because
+    that comes from the row itself. The front end words no label of its own, by design.
+  - *An empty `deployment:` section is the local default*, like a partial one. The deploy
+    configuration is pinned to its exact section by the bundle check, and the image holds no dataset
+    for a wrong mode to list.
+  - *The Dockerfile's `ADD`/`COPY --from` are not parsed in the checkout.* The image check runs on
+    what was actually copied, which is where a stray file would be caught.
+
+### Mutants (2026-11-12)
+
+Hand-written mutants, each applied once to a copy of the repository (never to the checkout), the
+copy's own tests run against it, the file restored and its hash checked; a no-op control first.
+The script is outside the repository.
+
+- **First round: 133 mutants**, over the configuration, the generator, the builder, the strict
+  reader, the two build paths in `api/state.py`, the routes, the bundle check and the e2e server.
+  118 were caught. Of the 15 left: the control (expected), two equivalent ones, and 12 real gaps.
+- **Equivalent, no test added:**
+  - the bundle check's integer cell (`36` and `36.0` hash alike, and a boolean is refused before
+    that line);
+  - the order of the bundle check's feature comparison (a repeated feature changes the row's
+    length, so the row is refused anyway).
+- **The 12 gaps, closed test first.** Most were tests that did break the rule they named, but broke
+  a second one too, so the reader refused them whether or not the first rule's check existed (a rate
+  moved outside its own interval; a sweep count pushed below zero; a ranked cell whose size no longer
+  matched its rate). Each damage now breaks one rule and keeps every other:
+  - the strict reader: a rate inside its interval that is not its counts, and an overall rate that is
+    not; `too_few` on a group of 20 or more and `complementary` on one under 20; a ranked group that
+    is a total, and one that is hidden; row totals that do not add up to the partition; a histogram
+    mean without an observed rate; a sweep that flags one more churner, one more stayer, or more
+    charges as the cut rises; NaN, infinity and an integer past a float's range; a good file padded
+    past the 8 MiB cap;
+  - the builder: a demo book that repeats two dataset customers' inputs, everything else in order,
+    is refused and writes nothing (the guide's §6 claimed this; nothing tested it);
+  - readiness: a book built from another generator, or for another deployment, is not ready, and is
+    again when the configuration returns to it, with nothing rebuilt;
+  - the e2e server's `publish`: it builds, then removes the dataset and the cache, and writes a
+    configuration that differs from the prepared one only by the public deployment.
+- **One defect found while writing those tests.** The e2e server's `publish` ran the builder (which
+  writes beside the model) before it checked that the files it removes are inside its folder. It now
+  checks the whole configuration (`confine`) and both files, links resolved, before anything is
+  written or removed. Two tests hold that order.
+- **Second round: the 12, plus 8 new mutants** (one per alternative of the sweep's monotone rule, of
+  the ranking rule and of the reason rule, and the new `confine` call): all 20 caught, each by the
+  test written for it. The 28 earlier mutants of the same files were run again against the changed
+  tests: see "Checks".
+- **Final count: 141 mutants, 138 caught, the control and the two equivalent ones not.**
+
+### Checks (2026-11-12)
+
+Run one at a time on the final tree:
+
+- the 28 earlier mutants of the reader, the builder and the e2e server, again against the changed
+  tests: all caught;
+- `npm run build`; `make lint`; full `pytest`: 4,157 passed, none failed;
+- front end: lint, typecheck, format check; vitest twice, 1,108 passed each time;
+- Playwright, both projects (`chromium` and `public-demo`): 98 passed, 2 skipped;
+- `scripts/verify_deploy_bundle.py --allow-example-domain`: "deployment bundle ready" (without the
+  flag it refuses, as it should while the domain is the example one);
+- `git diff --check` clean; the 13 fingerprinted sources, the ledger, the lock files, `artifacts/`
+  and `reports/` show no change.
+
+### Still open
+
+- **E8, differencing the validation sweep** (rated high by the review). *Closed in the API on
+  2026-11-12: see the next section. The repository's tracked reports still hold it.* The sweep and the
+  precision-recall curve give cumulative counts and money at every 0.01 of threshold; of the
+  100 steps of the built file, 16 hold exactly one churner and 4 exactly one customer, 74 fewer than
+  20. Between two such neighbours the difference gives one unnamed validation customer's monthly
+  charge and outcome within a known score interval. Recommended: close it before going public, as a
+  change of its own (a coarser grid, or merging steps until each holds at least 20 customers),
+  because it moves figures the model card states. It is the maintainer's decision; nothing was
+  changed.
+- **Not measured:** the current image's memory and the VPS's (the local Docker figures are of the
+  earlier layout, which held the dataset). The image was built and smoke-tested locally on
+  2026-11-12 (see the E8 section's Docker check); the load phases were not run on it.
+- **Not set:** the real domain. The bundle check passes only with `--allow-example-domain`.
+
+## E8: the validation sweep at safe cuts (2026-11-12)
+
+A separate change on top of the Option C commit (`d668799`), uncommitted. The maintainer's
+rule: every interval between two published cuts holds at least 20 churners **and** 20
+stayers, merging cuts where needed; segments and other groups that would break it are hidden
+with their complements; anything that still gives a customer's charge away is removed, and if
+no safe sweep exists, the public demo shows none.
+
+### Why the sweep was not the only edge
+
+Every figure that splits validation customers by score is a cut, and two sets of cuts
+difference into intervals finer than either. Besides the sweep (101 cuts), the public answers
+carried the calibration bins (tenths), the operating point (0.36), precision and recall at
+0.5 (of the calibrated model, and of the uncalibrated candidate, whose scores are another
+ordering), the overview's observed churn per 0.05 of score (validation customers), the risk
+bands (training and validation together) and the segments at 0.36. All of them were brought
+under the one rule.
+
+### What was built
+
+- `src/churnsense/score_disclosure.py`: the rule (`two_sided`: none, or at least 20 of each),
+  `safe_cuts` (from the left, each cut the first that leaves enough behind it and before the
+  next required cut; the served threshold is required, 0.5 preferred; no grid cut can be added
+  to the result), `reliability_on` the same cuts, `guard_segments` and `guard_bands` with
+  complementary suppression (hiding grows, smallest first, until the hidden ones together keep
+  the rule).
+- The published evidence is format 2: the sweep at those cuts or none; the calibration bins
+  are the intervals between them; the operating point is a cut of them; no validation
+  histogram. The reader checks every part again and refuses a file that breaks any of it: a
+  step narrower than the rule, a sweep not starting at everyone, bins that are not the
+  intervals, an operating point that is not the sweep at the threshold, segment figures that
+  are not their own counts or whose hidden ones can be solved for, bands likewise. The bundle
+  check refuses the first format, which held the 0.01 sweep.
+- Routes: with no sweep the sweep answers 503 `outcomes_withheld` with the reason; in a public
+  demo the calibration card states the served model at 0.5 from the published cut, and not the
+  candidate.
+- Front end: a table of a sweep off the 0.01 grid lists every cut (`lib/cuts.ts`, shared by
+  the performance and simulator pages); a bin between uneven cuts is labelled to the hundredth;
+  the calibration subtitle says what the bins are; the overview claims, draws and labels no
+  observed churn where none is published.
+
+### What it gives on the real file
+
+Eleven cuts at first (superseded on 2026-11-13: read together with the release reports'
+thresholds, five remain - 0, 0.30, 0.36, 0.50, 0.53; see "Disclosure review remediation"
+below). The thinnest published interval holds exactly 20 churners (0.30-0.36). Contract and
+SeniorCitizen are hidden whole at 0.36 (a side of a level in each breaks the rule, so its
+complement would give it away); InternetService and gender are shown; every risk band is
+shown. The demo's peak and
+recommendation are the model card's: 0.30 ($26,579) and 0.36 ($26,547). Precision and recall
+at 0.5 are the model card's (0.672 / 0.532).
+
+### How it was checked
+
+- `src/churnsense/disclosure_audit.py` (first written as a test helper) does an outsider's arithmetic: every published count is a
+  linear function of the counts in the intervals between all published edges, per partition
+  and outcome; every interval (each partition, and both) whose churners or stayers lie in the
+  span of the published figures is solved for and must keep the rule. The same for every union
+  of a dimension's segments on each side of the threshold. It checks its own model of the API
+  against the book first, and runs once more from the published figures alone.
+- On a larger synthetic book (3,000 customers, the same estimator): nothing can be solved for
+  that breaks the rule; the control, the dataset's own answers, gives customers away.
+- On the real published file, served in-process: 4,130 counts can be solved for (every set
+  of atoms, not only intervals), none breaks the rule, also with the README's figures at 0.30,
+  0.36 and 0.50 added. The same arithmetic on the first-format file finds 1,248.
+- Rebuilding it read the dataset's training and validation partitions (`make demo-data`); it
+  fitted nothing and ran no evaluation. The model, its metadata, `shap_global.json`, `reports/`
+  and `governance/` hash as before.
+
+### Still open
+
+- `reports/threshold_sweep.csv` (tracked, public) holds the full validation sweep at every
+  0.01, and `reports/model_comparison.md` states validation figures at six thresholds and a
+  segment table with groups of a few customers. Both are written by fingerprinted code and are
+  part of the published record; they were not changed. Removing them from the repository, and
+  from its history, is the maintainer's decision.
+- The performance page serves each candidate's validation PR-AUC and ROC-AUC only: ranking
+  figures over the whole partition, with no cut. Their precision and recall at 0.5 are in
+  `reports/model_comparison.csv` in the repository, not in any answer; they are of other
+  models' scores, and belong with the tracked reports above.
+
+### Docker check (2026-11-12)
+
+- Built with the provenance helper's command as `churnsense-ai:d6687995d4b3-dirty` (a local
+  validation tag: the E8 change is uncommitted). The bundle check inside the build said
+  "deployment bundle ready".
+- In the image: of 24,760 files none hashes to the pinned dataset; no `data/` folder, no
+  `shap_global.json`, no `threshold_sweep.csv`; `artifacts/` holds the model, its metadata and the
+  two demo files (evidence format 2, the 11 cuts); the one string shaped like an IBM customer ID
+  is the search field's placeholder `1234-ABCDE`, which is not in the dataset.
+- Under Compose: the app healthy, no mount, read-only root, all capabilities dropped, no
+  published port, user `churnsense`; `configs/deploy.yaml` in force with `public_demo` /
+  `synthetic`; the dataset path does not exist. 2,000 customers listed, every one `DEMO-`,
+  `synthetic`, `withheld`, `active`; a dataset ID answered 404; no IBM-shaped ID in any answer.
+- The outsider arithmetic on the container's own answers: 158 counts could be solved for (the
+  auditor then tried intervals only), none broke the rule. This image predates the final cuts
+  (it has 0.26 where the file now has 0.30) and was not rebuilt: no Docker was run after.
+- Caddy redirected HTTP to HTTPS and could not get a certificate for `demo.example.com`, as
+  expected. Idle memory about 197 MiB, peak 211 MiB; no load was run. Stopped with
+  `docker compose down`.
+
+### Mutants and checks (2026-11-12)
+
+- **E8's own mutants: 53**, over the rule, the cuts, the guards, the builder, the reader, the
+  routes, the bundle check and the service's sentence. The first run left 7 alive besides the
+  control. Three were checks another check already made (the sweep starting at everyone, a
+  negative segment count, an outcome of a hidden segment): those checks were removed. Four were
+  tests that broke two rules at once, made to break one. Every applicable mutant is now caught.
+- **The earlier mutants of the files this change touched: 111**, run again against the changed
+  tests. Seven no longer apply (the code they mutated was rewritten; four of them were replaced
+  by mutants of the new code). Of the 104, 98 were caught at once. Of the six real survivors,
+  four were checks the new rule makes again (tp and fp falling as the cut rises, the metrics
+  adding up, a shown segment's size): removed; two needed a damage that breaks only their own
+  rule. Equivalent and left: the two bundle-check ones recorded above, and the overview's
+  histogram source (a public book and the published evidence both give no observed churn).
+- **After those changes, every mutant of `evidence.py`** (46 applicable): all caught.
+- **Checks:** `make lint`; full `pytest` 4,288 passed, none failed; front end lint, typecheck,
+  format check and build; vitest twice, 1,114 each; Playwright both projects, 99 passed and 2
+  skipped. The public e2e server now holds 8,000 synthetic rows: with 2,000 (or 4,000) its model
+  leaves fewer than 20 churners below the threshold, so it had, correctly, no sweep to show.
+  The bundle check is ready with the example-domain flag; the 13 fingerprinted sources, the
+  ledger, `reports/`, the lock files and the existing artifacts are unchanged, and the release
+  fingerprints recomputed from the tree match the ledger.
+
+### Final review (code-reviewer, 2026-11-12, before the commit)
+
+A second read-only pass over the whole E8 change, adversarial against every public answer,
+any assumption set, the repository and `/api/predict`. No critical finding; the mechanism was
+confirmed on the real file by recomputation. What it found, and what was done (test first):
+
+- **High: `/api/model-info` served the model's validation record at 0.5 as recorded**, counts
+  included, whatever the published cuts. In a public demo it is now read off the published cut
+  at 0.5, and where 0.5 is not a cut only the whole-partition scalars (ROC-AUC, average
+  precision, Brier) are stated; with no book built, the same. The outsider arithmetic in the
+  tests now models it.
+- **Preferred cuts were all or nothing.** They are tried in priority order and a cut that does
+  not fit is dropped alone. The full sweep's peak at the configured assumptions is now the first
+  preferred cut (0.30 on the real file), because the model card and the README state figures
+  there: with 0.26 published beside the README's 0.30 row, [0.26, 0.30) held fewer than 20
+  churners.
+- **The cross-table property was proved only by tests.** The auditor moved into the package;
+  `make demo-data` runs it on the file it is about to write, over every set of atoms (unions
+  that are not neighbours included) and every union of segments, and writes nothing if a group
+  under 20 can be solved for. It also refuses a segment hidden under one dimension and shown,
+  as the same customers, under another (none of the four dimensions does that today; an
+  add-on column would).
+- **Bounds remain.** A hidden segment's flagged customers bound its flagged churners (One year
+  and Two year together: at most the flagged customers they publish). The documents now say "solved for exactly" and that bounds remain,
+  and that none of this is differential privacy or anonymity.
+- **The disabled path said the wrong thing.** With no published sweep the sweep answers 503
+  `sweep_withheld` (not `outcomes_withheld`), `/model-info`'s `data_source.sweep_note` carries
+  the reason, and the simulator, the overview's campaign and every performance figure print it;
+  the refusal is not asked for again.
+- **"Peak" among coarse cuts.** The service's evidence sentence now says the peak and the
+  recommendation are read among the published cuts; with 0.30 a cut, the default figures are
+  the model card's.
+- **The reader trusted more than it said.** It now refuses a first cut that does not flag
+  everyone, a served threshold that is not a cut (also without validation figures), metrics
+  whose rates are not their counts', segment rates that are not theirs, and a format given as
+  `2.0`; the bundle check refuses `2.0` too.
+- **Kept, and why:** the two ECE scalars. Each is one number over the whole partition, a sum of
+  absolute gaps over ten fixed bins; no count follows from it, and the calibration card needs
+  it. Recorded as a judgement, not a proof.
+
+### Repository disclosure cleanup (2026-11-12)
+
+- `reports/threshold_sweep.csv` and `reports/model_comparison.md` are removed from git with
+  `git rm --cached`; the files stay where `make train` writes them, and `.gitignore` names
+  exactly those two paths. Their hashes before and after are the same.
+- Neither is a fingerprinted source or part of the ledger. The held-out release report and the
+  final evaluation report name `reports/model_comparison.md`; both are published record and
+  unchanged.
+- Tests: `tracked_report` now knows `LOCAL_REPORTS`, which a check uses where they exist and
+  skips everywhere else, GitHub Actions included. The selection-rule quote check reads the
+  tracked `model_comparison.csv`; the CSV's columns are checked in CI; the report-text checks,
+  the tracked-sweep checks and the CSV-to-markdown check run where `make train` wrote the files.
+- Documents: no link to an untracked file; the model card's validation segment table, the
+  README and the interview notes suppress the Contract and SeniorCitizen outcomes the demo
+  hides, and no longer state the two-year segment's churners or the total of both unflagged
+  segments. (This line itself quoted both counts until 2026-11-13; they are gone from the tree,
+  not from history.)
+- **What it does not do:** every earlier commit, on GitHub and in every clone, still holds both
+  files (`git show afdd8257:reports/threshold_sweep.csv`). The history was not rewritten; that
+  exposure stays.
+
+## Disclosure review remediation (2026-11-13)
+
+An independent pre-push review of `d668799` and `70c3cb0` returned NOT READY. This section
+records what changed in the commit after them; neither earlier commit was altered.
+
+**The four CI failures.** Four public-demo tests asserted `/ready` 200, which needs a built
+front end; CI's Python job builds none. The module's service now gets a test-local
+`frontend/dist` (`frontend_dist` fixture monkeypatching `spa.FRONTEND_DIST`); `/ready` is
+unchanged, and a new test shows the same service answering 503 without it. Checked from a
+`git archive` with no `frontend/dist`, no artifacts and no local reports.
+
+**Read together with what is already published.** E8 judged the API alone. The immutable
+release reports state the validation sweep at 0.10 to 0.80; the final evaluation states the
+test partition's churners per Contract and InternetService segment; the IBM sample's totals
+per level are public.
+
+- *Cuts.* `score_disclosure.legacy_holds`: every piece the reports' thresholds cut a demo
+  interval into keeps 20/20, read at the worst counts the reports' two-decimal rounding allows
+  (`legacy_disclosures.churner_range`); no cut sits on the edge of a report interval that is
+  already small (0.70 to 0.80 and 0.80 up hold 11 and 12 stayers in the reports themselves).
+  Applied only to evidence of the released model (`legacy_disclosures.describes`): another
+  model's scores have no relation to those thresholds. Of the eleven cuts, five remain: 0,
+  0.30, 0.36, 0.50, 0.53 - the peak and the operating point among them.
+- *Two year.* `total - test report - training breakdown` gave validation's Two year churners
+  (fewer than 20). One- and two-year contracts' training churn is now hidden in every table
+  that holds them (`insights.CROSS_PARTITION`, reason `cross_partition`; One year is the
+  complement); only Month-to-month and the two together follow, both far above 20. The same
+  count came back from Contract's Cramér's V at full precision (one solution); strengths are
+  now two decimals in the API, `reports/association_ranking.csv`, the EDA report and the UI.
+- *Training breakdowns.* The validation rule applies (user decision): a shown group has 20
+  churners and 20 stayers. `suppression.guard_one_way`/`guard_two_way` protect every hidden
+  count, judging a fixed sum by its value - which every completion of the published table
+  agrees on - and treat cross-partition cells as never-fixed (`Guard.alone`).
+  `insights.guard_published` re-applies the guard from published figures only; on the
+  builder's own output it changes nothing (tested). On the real file 911 of 1,741 cells
+  remain shown (was 1,589).
+- *The file.* FORMAT 3. `make demo-data` was not run: `python -m churnsense.demo.migrate`
+  rewrote the existing file from itself (restricted cuts, merged calibration bins, guarded
+  tables), reading no dataset and scoring nobody; the reader refuses format 2.
+- *Audit.* `disclosure_audit` gained legacy facts, `new_score_violations` (what the demo adds
+  to the reports), external segment totals and an outsider mode for segments. On the real
+  file with the reports at exact counts: 4,130 solvable counts, none new below the rule; the
+  eleven old cuts with the same reports: 10 new groups below it.
+
+**Repository.** Design artboards: invented figures from `scripts/design_mock_data.py`
+(seeded, imports nothing of the project, reads no file), a visible "Illustrative mock data"
+banner on each, a test per constant. README, EDA report and notebook withhold one- and
+two-year contract churn; this log no longer quotes hidden cells (lines rewritten by meaning).
+`tests/test_documentation_cuts.py` scans every tracked markdown file for threshold tables at
+unpublished cuts, long contracts' churn rates and a long Contract strength.
+
+**Smaller findings.** `/api/model-info`'s scalars are the evidence's in public mode (one
+ROC-AUC per partition; the two paths differ by tie-breaking on isotonic plateaus, 5e-15
+apart). A segment tab with fewer than two shown levels states no spread and no peak (it said
+"1.0x" with only Month-to-month shown). The 0.36 recommendation is checked in CI from tracked
+figures (`tests/test_operating_point_ci.py`). The candidate's figures at 0.5 are labelled as
+another model's. The sensitivity 0.88/0.22 is labelled as the full grid's.
+
+**Not resolved, and not claimed to be.** The release reports keep their sweep and money;
+every earlier commit keeps the full sweep, the artboards' arrays, the README's and the EDA
+report's contract counts and the full-precision ranking - from which the Two year validation
+count can still be worked out. Bounds remain. None of this is differential privacy or
+anonymity.
+
+## Every training table at once (2026-11-13)
+
+The tables were guarded one by one (`churnsense.suppression`); the user chose to read them
+as one system instead. `churnsense.joint_disclosure`:
+
+- Each set of customers is one count. The same people named twice are one count, found
+  from the published sizes alone (the add-ons' "No internet service" is InternetService
+  "No"). A group inside another (InternetService "No" inside "<$35") makes their
+  difference a protected group in every third dimension.
+- The constraints are equalities (cells add up to margins, margins to the partition) and
+  bounds. The lifecycle's median tenures bound the tenure buckets.
+- A sum of hidden counts that every whole-number completion gives the same value must
+  hold 20 churners and 20 stayers; a sum of Two year groups only may never be determined.
+- How each part is checked:
+  - linear programs pin bounds;
+  - mixed integer programs find the whole numbers' own equations;
+  - a search finds the smallest forbidden group, confirmed modulo two primes.
+- What is hidden: a published count in every table that shows it, cells before margins,
+  each chosen by what the sum's certificate says it frees.
+- No safe configuration means nothing is published (`Unprotectable` → `DemoDataError`).
+  Dataset mode then withholds the tables.
+
+Reasons collapse to `too_few`, `cross_partition` and `withheld` (evidence format 4).
+`complementary` and `few_of_an_outcome` told apart bounded the count.
+
+Other changes:
+
+- **Reader.** It now refuses tables that disagree.
+- **External audit.** It reads every set of Contract and InternetService levels that
+  the tables determine together (`disclosure_audit.training_determined`).
+- **EDA report.** It hides the levels the demo hides (`insights.training_reasons`).
+
+The real file was migrated without the dataset: 23 more two-way groups hidden, no one-way
+level, and it is a fixpoint. `tests/test_joint_disclosure.py` checks this against an
+independent outsider (`tests/joint_oracle.py`). Cases:
+
+- the review's 403/92 − 313/75 = 90/17 example and its reverse;
+- a margin rebuilt from a shown row;
+- stayers;
+- tables overlapping through a nested dimension;
+- a hidden margin reaching every table;
+- identities and differences;
+- alone groups;
+- refusal;
+- builder = file mode;
+- twenty random populations.
+
+The same tests fail with the joint pass switched off.
+
+On the synthetic test books, whose generator nests levels the real data does not (tenure
+4-6 inside Month-to-month, "<$35" inside "No internet"), far more is hidden.
+
+**Test stability.**
+
+- **E2E 429s.** They were the in-flight cap, `too_many_in_flight`: both Playwright workers
+  reach the e2e server from 127.0.0.1, one client key, so two pages loading at once shared
+  one browser's 12 slots. `tests/test_e2e_server.py` reproduces it: 4 of 16 refused. The
+  e2e server alone now allows that address 12 per browser (`E2E_CLIENTS`, kept equal to
+  Playwright's `workers`). Production's cap is unchanged. The guard fixture names the
+  refusal's code.
+- **Vitest.** `useSettledDraft`'s "lets one box settle" test asserted after a real 150 ms
+  pause against a 250 ms debounce. It now asserts right after the keystroke.
+
+**Review, mutants, decisions.**
+
+- **Review.** The code review found one P1, now fixed: an outsider reads the lifecycle's
+  median tenure off whole months, so a bucket is "above" a median when `edges[k] + 1 >
+  median`. A median of 3.5 then pins the churners of "0-3" exactly; a test shows the
+  guard refuses when that is small.
+- **Group search.** A search the solver could not finish now reads as determined, not
+  safe.
+- **Older files.** A shown count the rule hides is read as hidden.
+- **The builder's fixpoint check.** It reads the medians too.
+- **Single-flight.** `LiveEvidence` computes each value once, single-flight.
+- **Mutants.** Every caught mutant has a test that catches it. The joint search for each
+  kind of group (few churners, few stayers, Two year only) has one; so do whole numbers
+  over reals, nested Two year levels, the reader's consistency, old reasons and the
+  external audit's wiring. Six are equivalent:
+  - the control;
+  - a never-published count's flag;
+  - the single-count screen, which the search repeats;
+  - the alone check on single counts, which the alone search repeats;
+  - a refusal one round later;
+  - the e2e cap's assignment, which the source check and the browser runs cover.
+- **Not done, by decision.** The service's reader checks the tables agree but does not
+  run the guard again on every start (2-15 s); the builder and the migration do, and
+  refuse otherwise.
+- **The e2e server's earlier rule.** "no middleware patch" now allows exactly one
+  assignment, the in-flight cap to production x browsers. Without it, 3 tests failed
+  under load with 6 `too_many_in_flight`. With it, 5 runs under the same load passed
+  99/99.
+- **Vitest budgets.** `findBy`/`waitFor` 3 s (`src/test/setup.ts`), test 15 s
+  (`vite.config.ts`). Under heavy load (load averages 20-120, another suite running) 5
+  of 30 runs failed with the defaults, a different test each time; with these, 0 of 20.
+- **Test time.** The Python suite takes about 58 minutes, up from about 15: the synthetic
+  books, whose generator nests levels, make the joint guard hide most of every table.
+
+## Before the push (2026-11-13)
+
+The user approved these decisions:
+- the e2e server's in-flight cap of 12 × Playwright workers, with production pinned at 12
+  (`tests/test_limits.py`, which does not import the e2e server);
+- the test speed-up deferred to a task of its own;
+- validation on real GitHub Actions through a draft PR.
+
+Two blockers were reported first:
+
+- **CI's `test` and `lock` jobs.** They allowed 30 minutes; the suite takes about an hour.
+  Both now allow 120 minutes, and nothing else in the workflow changed.
+- **The published evidence was not fully validated before an image existed.** The build
+  checked format, keys and identity, but the joint guard and the audit ran only where the
+  file was written.
+  - The image build now runs `python -m churnsense.demo.migrate --check`: the migration's
+    own validation of the baked copy, reader, joint guard fixpoint and audit, writing
+    nothing.
+  - The bundle check now requires the copy's sha256, `EVIDENCE_SHA256` from
+    `scripts/image_provenance.py`, which the image labels `io.churnsense.evidence.sha256`.
+
+The whole chain, and what the separate disclosure referee does and does not cover (sums
+of more than three hidden groups only by the guard's own search), are in
+`docs/DEPLOYMENT.md` §8.

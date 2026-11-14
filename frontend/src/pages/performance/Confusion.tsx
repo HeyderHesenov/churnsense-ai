@@ -9,9 +9,10 @@ import { Link } from '../../app/router';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { Tabs } from '../../components/ui/Tabs';
 import { cut, int } from '../../lib/format';
-import { CELLS, errorsAt, NOT_OPTIMAL, offerCost, UNAVAILABLE, withheld } from './copy';
+import { CELLS, errorsAt, NOT_OPTIMAL, offerCost, unavailableText } from './copy';
 import { f1Of, precisionOf, recallOf } from './performance';
 import styles from './Performance.module.css';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 
 interface Counts {
   threshold: number;
@@ -103,6 +104,7 @@ function Matrix({ counts, offer }: { counts: Counts; offer: string | null }) {
 }
 
 export function Confusion({ figures, model, index, onCut, view, onView }: Props) {
+  const sweepNote = useSweepNote();
   const test = figures.test;
   const curve = figures.validation;
   const point = curve?.points[index];
@@ -131,9 +133,7 @@ export function Confusion({ figures, model, index, onCut, view, onView }: Props)
     );
   } else if (!curve) {
     panel = (
-      <p className={styles.unavailable}>
-        {figures.withheld_reason ? withheld(figures.withheld_reason) : UNAVAILABLE}
-      </p>
+      <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>
     );
   } else if (!point) {
     panel = (

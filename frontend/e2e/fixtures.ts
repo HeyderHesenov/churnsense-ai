@@ -9,10 +9,13 @@
  * - the same request sent again by one document while the first is in flight;
  * - an outcome of a held-out (test or unverified) customer, a figure of a
  *   suppressed group, or a final-evaluation figure in any API response, or an
- *   IBM Telco customer ID in any response or in the final page.
+ *   IBM Telco customer ID in any response or in the final page;
+ * - on the public-demo server, a customer of its "dataset" (an ``E2E-`` ID) in
+ *   any response or in the final page: that server may know none.
  */
 import { expect, test as base, type Page, type Request, type Route } from '@playwright/test';
 import type { components } from '../src/api/schema';
+import { DATASET_PREFIX, PUBLIC_PROJECT } from './global-setup';
 
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
@@ -47,6 +50,7 @@ interface Body {
   url: string;
   type: string;
   text: string;
+  status?: number;
 }
 
 /** Splits one CSV line into its cells, honouring quotes ("" is a quote inside one). */
@@ -131,6 +135,19 @@ export function leaks({ url, type, text }: Body): string[] {
   return found;
 }
 
+/** The ``error`` code of an ``ErrorResponse`` body, or what the body was instead. */
+function refusal(text: string): string {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed !== null && typeof parsed === 'object' && 'error' in parsed) {
+      return String(parsed.error);
+    }
+  } catch {
+    // not JSON: reported as it is below
+  }
+  return text.slice(0, 80);
+}
+
 /** What ``page.route`` matches: a glob, a pattern or a test of the URL. */
 export type Match = string | RegExp | ((url: URL) => boolean);
 
@@ -142,6 +159,36 @@ export type Match = string | RegExp | ((url: URL) => boolean);
 export async function settled(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   await expect(page.locator('[role="status"] > [aria-hidden="true"]')).toHaveCount(0);
+}
+
+type Segments = components['schemas']['SegmentsResponse'];
+
+/** The suggested cross-tabs, in the order the patterns page offers them (src/pages/patterns/patterns.ts). */
+const SUGGESTED = ['Internet × payment', 'Price × tenure', 'Tech support × contract'] as const;
+
+/**
+ * Opens the patterns page on the first suggested view that reports a group's churn.
+ *
+ * The suppression rule may hide every cell of a view on a small synthetic book
+ * (the default Contract × tenure loses Two year to the cross-partition rule and
+ * the rest to small or complementary groups), so a test of a reported group must
+ * find one rather than assume the default shows it.
+ */
+export async function openReported(page: Page): Promise<Segments> {
+  const isSegments = (r: { url(): string }) => new URL(r.url()).pathname === '/api/segments';
+  const first = page.waitForResponse(isSegments);
+  await page.goto('/patterns');
+  let body = (await (await first).json()) as Segments;
+  await settled(page);
+  for (const label of SUGGESTED) {
+    if (body.cells.some((cell) => !cell.suppressed)) return body;
+    const next = page.waitForResponse(isSegments);
+    await page.getByRole('button', { name: label, exact: true }).click();
+    body = (await (await next).json()) as Segments;
+    await settled(page);
+  }
+  if (body.cells.some((cell) => !cell.suppressed)) return body;
+  throw new Error('no suggested view reports a group on this book');
 }
 
 /**
@@ -185,7 +232,7 @@ export async function hold(page: Page, url: Match): Promise<() => void> {
 
 export const test = base.extend<{ guard: Guard }>({
   guard: [
-    async ({ page, baseURL }, use) => {
+    async ({ page, baseURL }, use, testInfo) => {
       const origin = new URL(baseURL ?? '').origin;
       const problems: string[] = [];
       const allowedConsole: { text: RegExp; path: RegExp | null }[] = [];
@@ -275,6 +322,7 @@ export const test = base.extend<{ guard: Guard }>({
               url: response.url(),
               type: response.headers()['content-type'] ?? '',
               text,
+              status: response.status(),
             }),
             // A body is gone once the page has navigated past it.
             () => null,
@@ -288,11 +336,33 @@ export const test = base.extend<{ guard: Guard }>({
         allowCspViolation: (directive) => allowedCsp.push(directive),
       });
 
-      for (const body of await Promise.all(bodies)) if (body) problems.push(...leaks(body));
-      if (!page.isClosed() && datasetIds(await page.content()).length > 0) {
-        problems.push('the page shows an IBM Telco customer ID');
+      const publicDemo = testInfo.project.name === PUBLIC_PROJECT;
+      const refused = new Map<string, string>();
+      for (const body of await Promise.all(bodies)) {
+        if (!body) continue;
+        problems.push(...leaks(body));
+        if (body.status === 429) refused.set(body.url, refusal(body.text));
+        if (publicDemo && body.text.includes(DATASET_PREFIX)) {
+          problems.push(`${new URL(body.url).pathname}: a customer of the dataset`);
+        }
       }
-      expect(problems, 'what no page may do').toEqual([]);
+      if (!page.isClosed()) {
+        const content = await page.content();
+        if (datasetIds(content).length > 0)
+          problems.push('the page shows an IBM Telco customer ID');
+        if (publicDemo && content.includes(DATASET_PREFIX)) {
+          problems.push('the page shows a customer of the dataset');
+        }
+      }
+      // A refusal the test did not expect names whose limit it was: a budget's
+      // (rate_limited) or the in-flight cap's (too_many_in_flight).
+      const named = problems.map((problem) => {
+        for (const [url, code] of refused) {
+          if (problem.includes(url)) return `${problem} [429 ${code}]`;
+        }
+        return problem;
+      });
+      expect(named, 'what no page may do').toEqual([]);
     },
     { auto: true },
   ],

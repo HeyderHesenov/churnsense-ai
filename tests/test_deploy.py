@@ -9,6 +9,7 @@ Dockerfile, .dockerignore), which hold no data.
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import json
 import os
@@ -22,6 +23,7 @@ import yaml
 from scripts import verify_deploy_bundle as bundle
 
 from churnsense.config import load_config
+from churnsense.demo import customers as demo
 from tests.ledger_payloads import (
     IDENTITY,
     THRESHOLD,
@@ -55,8 +57,48 @@ def _with_dataset_pin(text: str, digest: str) -> str:
     return text.replace(pinned, digest)
 
 
-#: The operator's synthetic dataset file: outside the image, as on a host.
-OPERATOR_DATASET = b"customerID,tenure\nDEMO-0001,1\n"
+#: A synthetic dataset's bytes: only its hash is ever in a bundle, as the pin.
+PINNED_DATASET = b"customerID,tenure\nDEMO-0001,1\n"
+SPLIT_DIGEST = "5" * 64
+
+
+def _demo_data(root: Path, model_sha: str, data_sha: str, **evidence) -> None:
+    """The published evidence and the demo attributions, bound to a model and a dataset."""
+    identity = {
+        "model_sha256": model_sha,
+        "data_sha256": data_sha,
+        "split_digest": SPLIT_DIGEST,
+        "threshold": THRESHOLD,
+    }
+    body = (
+        dict.fromkeys(bundle.EVIDENCE_KEYS)
+        | {"format": bundle.EVIDENCE_FORMAT, "identity": identity}
+        | evidence
+    )
+    _write(root, bundle.EVIDENCE, json.dumps(body))
+    _write(root, bundle.DEMO_EXPLANATIONS, json.dumps(_attributions(model_sha)))
+
+
+@functools.cache
+def _generated() -> tuple[str, tuple[str, ...], tuple[dict, ...]]:
+    """The served demo book: its hash, its feature names and three of its customers."""
+    book = demo.demo_customers()
+    features = tuple(column for column in book.columns if column != "customerID")
+    rows = json.loads(book.loc[:, list(features)].head(3).to_json(orient="records"))
+    return demo.records_sha256(book), features, tuple(rows)
+
+
+def _attributions(model_sha: str, **changes) -> dict:
+    """The part of the demo attributions the check reads: of the generated book, by default."""
+    records, features, rows = _generated()
+    stated = {
+        "model_sha256": model_sha,
+        "partition": "synthetic",
+        "records_sha256": records,
+        "features": list(features),
+        "x": [dict(row) for row in rows],
+    }
+    return dict.fromkeys(bundle.DEMO_EXPLANATION_KEYS) | stated | changes
 
 
 def _ledger(**identity) -> str:
@@ -66,18 +108,25 @@ def _ledger(**identity) -> str:
 
 @pytest.fixture
 def image(tmp_path) -> Path:
-    """A complete, consistent synthetic image root (no dataset: it is mounted)."""
+    """A complete, consistent synthetic image root. No dataset: a public demo holds none."""
     root = tmp_path / "app"
     model = os.urandom(512)
-    model_sha, data_sha = _sha(model), _sha(OPERATOR_DATASET)
-    _write(tmp_path / "operator", "Telco-Customer-Churn.csv", OPERATOR_DATASET)
+    model_sha, data_sha = _sha(model), _sha(PINNED_DATASET)
     _write(root, bundle.MODEL, model)
     _write(
         root,
         bundle.META,
-        json.dumps({"model_sha256": model_sha, "threshold": THRESHOLD, "sklearn_version": SKLEARN}),
+        json.dumps(
+            {
+                "model_sha256": model_sha,
+                "data_sha256": data_sha,
+                "split_digest": SPLIT_DIGEST,
+                "threshold": THRESHOLD,
+                "sklearn_version": SKLEARN,
+            }
+        ),
     )
-    _write(root, bundle.SHAP_CACHE, json.dumps({"model_sha256": model_sha}))
+    _demo_data(root, model_sha, data_sha)
     _write(root, bundle.LEDGER, _ledger(model_sha256=model_sha, dataset_sha256=data_sha))
     _write(root, bundle.CONFIG, _with_dataset_pin((REPO / bundle.CONFIG).read_text(), data_sha))
     _write(
@@ -97,7 +146,6 @@ def image(tmp_path) -> Path:
     _write(root, "frontend/dist/index.html", "<!doctype html>")
     _write(root, "frontend/dist/assets/index-abc123.js", "")
     _write(root, "scripts/verify_deploy_bundle.py", "")
-    (root / "data" / "raw").mkdir(parents=True)  # the empty mount point
     return root
 
 
@@ -105,9 +153,43 @@ def _identity(root: Path) -> dict:
     return json.loads((root / bundle.LEDGER).read_text())["identity"]
 
 
+def _evidence_hash(root: Path) -> str:
+    path = root / bundle.EVIDENCE
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+
+
 def _problems(root: Path, **kwargs) -> list[str]:
     kwargs.setdefault("allow_example_domain", True)
+    kwargs.setdefault("evidence_sha256", _evidence_hash(root))
     return list(bundle.verify(root, in_image=True, **kwargs)[0])
+
+
+def test_the_image_check_requires_the_hash_of_the_evidence_it_bakes_in(image):
+    """The build names the evidence by its sha256 (the image's label), and refuses one it
+    is not told, or one that is not the file copied in."""
+    assert any("no EVIDENCE_SHA256" in p for p in _problems(image, evidence_sha256=""))
+    assert any("no EVIDENCE_SHA256" in p for p in _problems(image, evidence_sha256=None))
+    assert any("not the file" in p for p in _problems(image, evidence_sha256="0" * 64))
+    assert any("not a sha256" in p for p in _problems(image, evidence_sha256="abc"))
+    assert _problems(image) == []
+    validated = _evidence_hash(image)
+    (image / bundle.EVIDENCE).write_text((image / bundle.EVIDENCE).read_text() + " ")
+    assert any("not the file" in p for p in _problems(image, evidence_sha256=validated))
+
+
+def test_the_dockerfile_validates_the_evidence_before_the_image_exists():
+    """The baked evidence passes the verifier with its hash and the publication pipeline's
+    own check - reader, joint guard, audit - before the runtime user exists, and the image
+    is labelled with that hash."""
+    dockerfile = (REPO / "Dockerfile").read_text()
+    verify_at = dockerfile.index("RUN python scripts/verify_deploy_bundle.py --in-image")
+    check_at = dockerfile.index("&& python -m churnsense.demo.migrate --check")
+    user_at = dockerfile.index("useradd --system")
+    assert verify_at < check_at < user_at
+    assert "ARG EVIDENCE_SHA256=\n" in dockerfile
+    assert '--evidence-sha256 "${EVIDENCE_SHA256}"' in dockerfile
+    assert 'io.churnsense.evidence.sha256="${EVIDENCE_SHA256}"' in dockerfile
+    assert dockerfile.index("COPY artifacts/public_evidence.json") < verify_at
 
 
 def test_the_image_check_refuses_the_example_domain_unless_waived(image):
@@ -120,7 +202,8 @@ def test_a_complete_bundle_passes(image):
 
 
 @pytest.mark.parametrize(
-    "name", [bundle.MODEL, bundle.LEDGER, bundle.DEPLOY_CONFIG, bundle.SHAP_CACHE]
+    "name",
+    [bundle.MODEL, bundle.LEDGER, bundle.DEPLOY_CONFIG, bundle.EVIDENCE, bundle.DEMO_EXPLANATIONS],
 )
 def test_a_missing_asset_is_named(image, name):
     (image / name).unlink()
@@ -137,7 +220,7 @@ def test_a_model_the_release_does_not_name_is_refused(image):
     _write(image, bundle.MODEL, model)
     meta = json.loads((image / bundle.META).read_text())
     _write(image, bundle.META, json.dumps({**meta, "model_sha256": _sha(model)}))
-    _write(image, bundle.SHAP_CACHE, json.dumps({"model_sha256": _sha(model)}))
+    _demo_data(image, _sha(model), meta["data_sha256"])
     assert _problems(image) == ["the model is not the one the published release names"]
 
 
@@ -195,17 +278,238 @@ def test_the_dataset_pin_must_be_the_releases(image):
     assert any("not the one the published release names" in p for p in _problems(image))
 
 
-def test_the_operators_dataset_file_is_hashed_only_when_given(image, tmp_path):
-    given = tmp_path / "operator" / "Telco-Customer-Churn.csv"
-    assert _problems(image, dataset=given) == []
-    _write(tmp_path / "operator", "Telco-Customer-Churn.csv", b"customerID,tenure\nDEMO-0001,2\n")
-    assert any("does not hash to the pin" in p for p in _problems(image, dataset=given))
-    assert any("does not exist" in p for p in _problems(image, dataset=tmp_path / "absent.csv"))
+def test_the_check_takes_no_dataset_file(image, capsys):
+    """No dataset is deployed, so there is none to hand the check: the option is gone."""
+    with pytest.raises(SystemExit) as refused:
+        bundle.main(["--in-image", "--root", str(image), "--dataset", "/srv/x.csv"])
+    assert refused.value.code == 2
+    capsys.readouterr()
 
 
-def test_a_shap_cache_for_another_model_is_refused(image):
-    _write(image, bundle.SHAP_CACHE, json.dumps({"model_sha256": "0" * 64}))
+def _meta(image: Path) -> dict:
+    return json.loads((image / bundle.META).read_text())
+
+
+def test_demo_attributions_for_another_model_are_refused(image):
+    _write(
+        image,
+        bundle.DEMO_EXPLANATIONS,
+        json.dumps(
+            {"model_sha256": "0" * 64, "partition": "synthetic", "records_sha256": "a" * 64}
+        ),
+    )
     assert any("was not computed for this model" in p for p in _problems(image))
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"partition": "validation", "records_sha256": "a" * 64},
+        {"partition": "synthetic"},
+        {"partition": "synthetic", "records_sha256": "not a hash"},
+    ],
+)
+def test_attributions_that_are_not_of_generated_customers_are_refused(image, body):
+    """``make explain``'s cache under the demo file's name is still validation rows."""
+    _write(
+        image,
+        bundle.DEMO_EXPLANATIONS,
+        json.dumps({"model_sha256": _meta(image)["model_sha256"]} | body),
+    )
+    assert _problems(image) == [f"{bundle.DEMO_EXPLANATIONS} is not of generated demo customers"]
+
+
+def _demo_problems(image: Path, **changes) -> list[str]:
+    body = _attributions(_meta(image)["model_sha256"], **changes)
+    _write(image, bundle.DEMO_EXPLANATIONS, json.dumps(body))
+    return _problems(image)
+
+
+def _in_month(tenure: int) -> dict:
+    """A generated customer with this tenure, as the attributions would hold them."""
+    book = demo.demo_customers()
+    features = list(_generated()[1])
+    held = book.loc[book["tenure"] == tenure, features].head(1)
+    assert len(held) == 1
+    return json.loads(held.to_json(orient="records"))[0]
+
+
+def test_attributions_of_another_generated_book_are_refused(image):
+    """A well-formed hash is not enough: it must be the hash of the book the service lists."""
+    other = demo.records_sha256(demo.demo_customers(seed=demo.SEED + 1))
+    assert _demo_problems(image, records_sha256=other) == [
+        f"{bundle.DEMO_EXPLANATIONS} does not explain the demo customers the service generates"
+    ]
+
+
+def _one_changed(feature: str, value: object) -> list[dict]:
+    rows = [dict(row) for row in _generated()[2]]
+    assert rows[1][feature] != value
+    rows[1][feature] = value
+    return rows
+
+
+@pytest.mark.parametrize(
+    ("feature", "value"),
+    [("tenure", 73.0), ("MonthlyCharges", 0.01), ("Contract", "Three year")],
+)
+def test_a_row_that_is_no_generated_customers_is_refused(image, feature, value):
+    """Whatever the file says of itself: validation rows under a correct header are refused."""
+    assert _demo_problems(image, x=_one_changed(feature, value)) == [
+        f"{bundle.DEMO_EXPLANATIONS} draws a row that is no generated customer's"
+    ]
+
+
+def test_a_row_may_hold_nothing_beside_its_features(image):
+    """An extra field is where a record would ride along."""
+    rows = [dict(row) | {"note": "kept"} for row in _generated()[2]]
+    assert _demo_problems(image, x=rows) == [
+        f"{bundle.DEMO_EXPLANATIONS} draws a row that is no generated customer's"
+    ]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"x": []},
+        {"x": "rows"},
+        {"x": [["0", "Yes"]]},
+        {"x": [{}]},
+        {"features": []},
+        {"features": "tenure"},
+        {"features": [["tenure"]]},
+        {"features": ["tenure", "tenure"], "x": [{"tenure": 1.0}]},
+        {"features": ["not a column"], "x": [{"not a column": 1.0}]},
+        # One real value of a generated customer is not that customer's record.
+        {"features": ["tenure"], "x": [{"tenure": _generated()[2][0]["tenure"]}]},
+        # A customer in their first month: JSON's true must not pass for the number 1.
+        {"x": [_in_month(1) | {"tenure": True}]},
+        {"x": [dict(_generated()[2][0]) | {"tenure": None}]},
+        {"x": [dict(_generated()[2][0]) | {"Partner": ["Yes"]}]},
+    ],
+)
+def test_attributions_whose_rows_cannot_be_read_are_refused(image, changes):
+    assert _demo_problems(image, **changes) == [
+        f"{bundle.DEMO_EXPLANATIONS} draws a row that is no generated customer's"
+    ]
+
+
+def test_rows_are_matched_whole_never_feature_by_feature(image):
+    """Two customers' values mixed into one row are nobody's record."""
+    first, second = (dict(row) for row in _generated()[2][:2])
+    assert first["MonthlyCharges"] != second["MonthlyCharges"]
+    mixed = first | {"MonthlyCharges": second["MonthlyCharges"]}
+    assert _demo_problems(image, x=[mixed]) == [
+        f"{bundle.DEMO_EXPLANATIONS} draws a row that is no generated customer's"
+    ]
+
+
+@pytest.mark.parametrize("extra", ["meta", "customers", "x_validation"])
+def test_attributions_may_hold_nothing_beside_their_named_keys(image, extra):
+    """Whatever sits under another key is in the image, checked by nobody."""
+    assert _demo_problems(image, **{extra: [{"tenure": 1}]}) == [
+        f"{bundle.DEMO_EXPLANATIONS} is not the demo attributions' closed format"
+    ]
+
+
+def test_attributions_must_hold_every_named_key(image):
+    body = _attributions(_meta(image)["model_sha256"])
+    del body["values"]
+    _write(image, bundle.DEMO_EXPLANATIONS, json.dumps(body))
+    assert _problems(image) == [
+        f"{bundle.DEMO_EXPLANATIONS} is not the demo attributions' closed format"
+    ]
+
+
+def test_a_whole_number_is_the_number_however_json_spells_it(image):
+    """36 and 36.0 are one tenure: the builder writes floats, the generator draws integers."""
+    row = _in_month(1)
+    assert _demo_problems(image, x=[row | {"tenure": 1}]) == []
+    assert _demo_problems(image, x=[row | {"tenure": 1.0}]) == []
+
+
+def test_any_generated_customer_may_be_explained(image):
+    """Not just the first rows: the sample is drawn from the whole book."""
+    book = demo.demo_customers()
+    features = list(_generated()[1])
+    rows = json.loads(book.loc[:, features].sample(40, random_state=0).to_json(orient="records"))
+    assert _demo_problems(image, x=rows) == []
+
+
+@pytest.mark.parametrize("bound", ["model_sha256", "data_sha256", "split_digest", "threshold"])
+def test_evidence_of_another_model_dataset_split_or_threshold_is_refused(image, bound):
+    meta = _meta(image)
+    evidence = json.loads((image / bundle.EVIDENCE).read_text())
+    evidence["identity"][bound] = 0.123 if bound == "threshold" else "9" * 64
+    _write(image, bundle.EVIDENCE, json.dumps(evidence))
+    assert _problems(image) == [
+        f"{bundle.EVIDENCE} was not computed for this model, its dataset and its split"
+    ]
+    assert meta[bound] != evidence["identity"][bound]
+
+
+def test_evidence_of_a_dataset_other_than_the_pinned_one_is_refused(image):
+    """Bound to the model's metadata and to the pin: both must name one dataset."""
+    meta = _meta(image) | {"data_sha256": "7" * 64}
+    _write(image, bundle.META, json.dumps(meta))
+    _demo_data(image, meta["model_sha256"], meta["data_sha256"])
+    assert f"{bundle.EVIDENCE} is not of the dataset pinned in {bundle.CONFIG}" in _problems(image)
+
+
+_NOT_CLOSED = f"{bundle.EVIDENCE} is not the published evidence's closed format"
+_NOT_BOUND = f"{bundle.EVIDENCE} was not computed for this model, its dataset and its split"
+
+
+@pytest.mark.parametrize(
+    ("change", "problem"),
+    [
+        (lambda body: body.update(customers=[{"tenure": 1}]), _NOT_CLOSED),
+        (lambda body: body.update(note="kept"), _NOT_CLOSED),
+        (lambda body: body.pop("sweep_basis"), _NOT_CLOSED),
+        # The first format held the validation sweep at every 0.01 and a histogram of
+        # validation customers: it must not ride into an image, served or not.
+        (lambda body: body.update(format=1, histogram_observed=[]), _NOT_CLOSED),
+        (lambda body: body.update(format=1), _NOT_CLOSED),
+        (lambda body: body.update(format=True), _NOT_CLOSED),
+        (lambda body: body.update(format=2.0), _NOT_CLOSED),
+        (lambda body: body.update(identity=None), _NOT_BOUND),
+        (lambda body: body.update(identity=[]), _NOT_BOUND),
+    ],
+)
+def test_evidence_outside_the_closed_format_is_refused(image, change, problem):
+    body = json.loads((image / bundle.EVIDENCE).read_text())
+    change(body)
+    _write(image, bundle.EVIDENCE, json.dumps(body))
+    assert _problems(image) == [problem]
+
+
+@pytest.mark.parametrize(
+    "smuggled",
+    [
+        {"observed": {"customerID": "1234-ABCDE"}},
+        {"breakdowns": [{"cells": [{"row": "x", "tenure": 3, "MonthlyCharges": 29.85}]}]},
+        {"importance": {"ranking": [[{"Churn": 1}]]}},
+    ],
+)
+def test_evidence_that_holds_a_customer_column_is_refused(image, smuggled):
+    """A record tucked inside a permitted key is still a record: no column may be a key."""
+    meta = _meta(image)
+    _demo_data(image, meta["model_sha256"], meta["data_sha256"], **smuggled)
+    assert _problems(image) == [
+        f"{bundle.EVIDENCE} holds a customer record: it may hold aggregates only"
+    ]
+
+
+def test_the_checks_own_lists_are_the_services():
+    """The check re-declares two lists so it need not import the data stack: held equal here."""
+    from churnsense import evidence
+    from churnsense.data import schema
+
+    assert set(evidence._TOP_LEVEL) == bundle.EVIDENCE_KEYS
+    assert evidence.FORMAT == bundle.EVIDENCE_FORMAT
+    assert set(schema.RAW_COLUMNS) == bundle.RECORD_COLUMNS
+    assert Path(bundle.EVIDENCE).name == evidence.EVIDENCE_FILE
+    assert Path(bundle.DEMO_EXPLANATIONS).name == evidence.DEMO_EXPLANATIONS_FILE
 
 
 def test_a_lock_that_does_not_pin_the_training_sklearn_is_refused(image):
@@ -225,6 +529,12 @@ def test_a_lock_that_does_not_pin_the_training_sklearn_is_refused(image):
         "reports/final_evaluation.md",
         "data/interim/x.csv",
         "data/raw/Telco-Customer-Churn.csv",
+        "data/raw/.gitkeep",
+        "reports/Telco-Customer-Churn.csv",
+        "frontend/dist/assets/Telco-Customer-Churn.csv",
+        "artifacts/shap_global.json",
+        "src/churnsense/shap_global.json",
+        "frontend/dist/shap_global.json",
         "src/churnsense.egg-info/PKG-INFO",
         "artifacts/model.pkl",
         "src/churnsense/__pycache__/x.pyc",
@@ -239,6 +549,16 @@ def test_a_file_the_image_must_not_hold_is_named(image, name):
     _write(image, name, "x")
     problems = _problems(image)
     assert len(problems) == 1 and name in problems[0]
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["src/churnsense/notes.txt", "frontend/dist/assets/data.js", "reports/extra/book.csv"],
+)
+def test_the_pinned_dataset_under_any_name_is_refused(image, name):
+    """By content, not by name: the file the configuration pins is in no image."""
+    _write(image, name, PINNED_DATASET)
+    assert f"forbidden in the image: {name} is the pinned dataset" in _problems(image)
 
 
 def test_an_image_without_the_built_front_end_is_refused(image):
@@ -296,7 +616,19 @@ def test_the_command_fails_loudly_and_prints_no_contents(image, capsys):
 
 
 def test_the_command_passes_a_complete_bundle(image, capsys):
-    assert bundle.main(["--in-image", "--allow-example-domain", "--root", str(image)]) == 0
+    assert (
+        bundle.main(
+            [
+                "--in-image",
+                "--allow-example-domain",
+                "--root",
+                str(image),
+                "--evidence-sha256",
+                _evidence_hash(image),
+            ]
+        )
+        == 0
+    )
     out = capsys.readouterr()
     assert out.out == "deployment bundle ready\n" == bundle.PASSED + "\n"
     assert out.err == ""
@@ -315,13 +647,15 @@ def _repo_bundle(tmp_path: Path, image: Path) -> Path:
 def test_a_passing_run_prints_one_fixed_line_and_nothing_it_found(image, tmp_path, capsys, mode):
     """What the checks found - hash prefixes, hosts, proxy addresses - never reaches the output."""
     if mode == "image":
-        root, argv = image, ["--in-image"]
+        root, argv = image, ["--in-image", "--evidence-sha256", _evidence_hash(image)]
     else:
         root, argv = _repo_bundle(tmp_path, image), []
-    dataset = tmp_path / "operator" / "Telco-Customer-Churn.csv"
-    argv += ["--allow-example-domain", "--root", str(root), "--dataset", str(dataset)]
+    argv += ["--allow-example-domain", "--root", str(root)]
     problems, notes = bundle.verify(
-        root, in_image=mode == "image", allow_example_domain=True, dataset=dataset
+        root,
+        in_image=mode == "image",
+        allow_example_domain=True,
+        evidence_sha256=_evidence_hash(root) if mode == "image" else None,
     )
     assert list(problems) == []
     assert len(notes) >= 5, "the checks still record what they found, for a caller"
@@ -333,7 +667,7 @@ def test_a_passing_run_prints_one_fixed_line_and_nothing_it_found(image, tmp_pat
     found = [
         *notes,
         meta["model_sha256"][:12],
-        _sha(OPERATOR_DATASET)[:12],
+        _sha(PINNED_DATASET)[:12],
         *deploy["api"]["allowed_hosts"],
         *deploy["api"]["trusted_proxies"],
         "172.30.10.3",
@@ -365,7 +699,8 @@ def test_the_check_never_loads_a_model_or_the_data_stack(image):
     stack - joblib (unpickling) and scikit-learn - must stay unimported."""
     probe = (
         "import runpy, sys\n"
-        f"sys.argv = ['verify', '--in-image', '--allow-example-domain', '--root', {str(image)!r}]\n"
+        f"sys.argv = ['verify', '--in-image', '--allow-example-domain', '--root', {str(image)!r},"
+        f" '--evidence-sha256', {_evidence_hash(image)!r}]\n"
         "try:\n"
         f"    runpy.run_path({str(REPO / 'scripts' / 'verify_deploy_bundle.py')!r}, run_name='__main__')\n"
         "except SystemExit as exit_:\n"
@@ -381,11 +716,13 @@ def test_the_check_never_loads_a_model_or_the_data_stack(image):
 # --- the committed deployment files ---------------------------------------------------------
 
 
-def test_the_deploy_config_differs_from_the_development_one_in_its_two_keys_only():
+def test_the_deploy_config_differs_from_the_development_one_in_its_stated_keys_only():
     config = yaml.safe_load((REPO / bundle.CONFIG).read_text())
     deploy = yaml.safe_load((REPO / bundle.DEPLOY_CONFIG).read_text())
     assert bundle._without_deploy_keys(config) == bundle._without_deploy_keys(deploy)
     assert config["api"].get("trusted_proxies") is None, "the local default trusts no proxy"
+    assert config["deployment"] == {"mode": "local", "customer_records": "dataset"}
+    assert deploy["deployment"] == bundle.PUBLIC_DEPLOYMENT
 
 
 def test_the_deploy_config_loads_and_answers_only_its_host_and_proxy():
@@ -393,6 +730,41 @@ def test_the_deploy_config_loads_and_answers_only_its_host_and_proxy():
     assert cfg.api.allowed_hosts == ("demo.example.com", "127.0.0.1")
     assert cfg.api.trusted_proxies == ("172.30.10.2/32",)
     assert "localhost" not in cfg.api.allowed_hosts
+
+
+def test_the_deploy_config_is_a_public_demo_of_synthetic_records():
+    cfg = load_config(REPO / bundle.DEPLOY_CONFIG)
+    assert cfg.deployment.public and cfg.deployment.synthetic
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        None,
+        "deployment:\n  mode: local\n  customer_records: synthetic\n",
+        "deployment:\n  mode: local\n  customer_records: dataset\n",
+        "deployment:\n  mode: public_demo\n  customer_records: dataset\n",
+        "deployment:\n  mode: public_demo\n",
+        "deployment:\n  mode: public_demo\n  customer_records: synthetic\n  extra: 1\n",
+    ],
+)
+def test_a_deploy_config_that_could_list_dataset_customers_is_refused(image, section):
+    """Whatever is not exactly a public demo of synthetic records does not pass."""
+    text = (image / bundle.DEPLOY_CONFIG).read_text()
+    stated = "deployment:\n  mode: public_demo\n  customer_records: synthetic\n"
+    assert text.count(stated) == 1
+    _write(image, bundle.DEPLOY_CONFIG, text.replace(stated, section or ""))
+    assert any("must set deployment to mode public_demo" in p for p in _problems(image))
+
+
+def test_the_policy_is_not_read_from_the_proxies_or_the_hosts(image):
+    """A bundle that trusts a proxy and names a public host is still refused without the policy."""
+    text = (image / bundle.DEPLOY_CONFIG).read_text()
+    stated = "deployment:\n  mode: public_demo\n  customer_records: synthetic\n"
+    _write(image, bundle.DEPLOY_CONFIG, text.replace(stated, ""))
+    deploy = yaml.safe_load((image / bundle.DEPLOY_CONFIG).read_text())
+    assert deploy["api"]["trusted_proxies"] and deploy["api"]["allowed_hosts"]
+    assert any("public_demo" in p for p in _problems(image))
 
 
 def test_the_committed_wiring_and_dockerignore_agree(capsys):
@@ -642,55 +1014,111 @@ def test_a_stage_reference_is_not_an_external_image():
     assert bundle._from_images(text) == [f"node:22{PINNED}"]
 
 
-# --- P2-5: the dataset is mounted, never in the image or its context -----------------------
+# --- no dataset in the image, its context, or in reach of the container --------------------
 
 
-def test_the_dataset_never_enters_the_build_context_or_the_image():
+def test_no_dataset_and_no_dataset_row_enters_the_build_context_or_the_image():
     rules = [line.strip() for line in (REPO / ".dockerignore").read_text().splitlines()]
     included = [rule for rule in rules if rule.startswith("!")]
-    assert not any("data" in rule or "Telco" in rule for rule in included)
+    assert not any("data" in rule.split("/")[0] or "Telco" in rule for rule in included)
+    assert not any("shap_global" in rule for rule in included)
     dockerfile = (REPO / "Dockerfile").read_text()
     copies = [line for line in dockerfile.splitlines() if line.startswith(("COPY", "ADD"))]
     assert not any("data/" in line or "Telco" in line for line in copies)
-    assert bundle.DATASET not in bundle.DOCKER_CONTEXT
-    assert bundle.DATASET not in bundle.ASSETS
+    assert not any("shap_global" in line for line in copies)
+    for held in (*bundle.DOCKER_CONTEXT, *bundle.ASSETS):
+        assert "shap_global" not in held and not held.startswith("data")
+    assert "data" not in bundle.IMAGE_TOP_LEVEL
 
 
-def test_compose_mounts_only_the_dataset_file_read_only_without_creating_it():
-    compose = yaml.safe_load((REPO / "deploy/compose.yaml").read_text())
-    (mount,) = compose["services"]["app"]["volumes"]
-    assert mount == {
-        "type": "bind",
-        "source": mount["source"],
-        "target": "/app/data/raw/Telco-Customer-Churn.csv",
-        "read_only": True,
-        "bind": {"create_host_path": False},
-    }
-    assert mount["source"].startswith("${CHURNSENSE_DATASET:?")
+def test_the_image_makes_no_place_for_a_dataset():
+    """No ``data/raw`` mount point is created: there is nothing to mount there."""
+    dockerfile = (REPO / "Dockerfile").read_text()
+    assert "mkdir" not in dockerfile and "VOLUME" not in dockerfile
+
+
+def test_the_app_mounts_nothing_and_names_no_dataset():
+    text = (REPO / "deploy/compose.yaml").read_text()
+    app = yaml.safe_load(text)["services"]["app"]
+    for key in ("volumes", "volumes_from", "configs", "secrets", "devices", "env_file"):
+        assert key not in app, key
+    assert set(app["environment"]) == {"CHURNSENSE_CONFIG", "CHURNSENSE_LOG_LEVEL"}
+    assert "CHURNSENSE_DATASET" not in text and "Telco" not in text
+    assert app["read_only"] is True and all(str(t).startswith("/tmp") for t in app["tmpfs"])
+
+
+DATASET_MOUNT = {
+    "type": "bind",
+    "source": "/srv/churnsense/Telco-Customer-Churn.csv",
+    "target": "/app/data/raw/Telco-Customer-Churn.csv",
+    "read_only": True,
+    "bind": {"create_host_path": False},
+}
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("key", "value"),
     [
-        lambda m: m.update(read_only=False),
-        lambda m: m.update(bind={"create_host_path": True}),
-        lambda m: m.update(target="/app/data"),
-        lambda m: m.update(source="/srv"),
-        lambda m: m.update(type="volume"),
+        # the earlier layout's own mount: one file, read-only
+        ("volumes", [DATASET_MOUNT]),
+        ("volumes", ["/srv:/srv:ro"]),
+        ("volumes", ["caddy_data:/data"]),
+        ("volumes", [{"type": "volume", "source": "caddy_data", "target": "/app/data"}]),
+        ("volumes_from", ["caddy"]),
+        ("configs", ["dataset"]),
+        ("secrets", ["dataset"]),
+        ("devices", ["/dev/sda:/dev/sda"]),
+        # a host file read into the environment
+        ("env_file", ["/srv/churnsense/.env"]),
+        # another file's service, with whatever it mounts
+        ("extends", {"file": "other.yaml", "service": "app"}),
     ],
 )
-def test_a_wider_or_writable_dataset_mount_is_refused(tmp_path, change):
+def test_anything_the_app_would_mount_is_refused(tmp_path, key, value):
     def edit(compose):
-        change(compose["services"]["app"]["volumes"][0])
+        compose["services"]["app"][key] = value
 
-    assert any("dataset file" in p for p in _wiring(tmp_path, compose_edit=edit))
+    problems = _wiring(tmp_path, compose_edit=edit)
+    assert any(f"must not declare {key}" in p for p in problems), problems
 
 
-def test_a_second_app_volume_is_refused(tmp_path):
+def test_a_compose_file_that_includes_another_is_refused(tmp_path):
+    """What an included file declares is read by Compose and by no check."""
+
     def edit(compose):
-        compose["services"]["app"]["volumes"].append("/srv:/srv")
+        compose["include"] = ["extra.yaml"]
 
-    assert any("dataset file" in p for p in _wiring(tmp_path, compose_edit=edit))
+    assert _wiring(tmp_path, compose_edit=edit) == [
+        "deploy/compose.yaml must not include another file: nothing in it would be checked"
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "compose.override.yaml",
+        "compose.override.yml",
+        "docker-compose.override.yaml",
+        "docker-compose.override.yml",
+    ],
+)
+def test_an_override_file_beside_the_compose_file_is_refused(tmp_path, name):
+    """``docker compose up`` merges it without being asked: a mount there is a mount."""
+    _write(tmp_path, f"deploy/{name}", "services:\n  app:\n    volumes: ['/srv:/srv:ro']\n")
+    assert _wiring(tmp_path) == [
+        f"deploy/{name} would be merged into compose.yaml unchecked: remove it"
+    ]
+
+
+def test_the_committed_deploy_folder_holds_no_override():
+    assert not [p.name for p in (REPO / "deploy").iterdir() if "override" in p.name]
+
+
+def test_a_compose_file_that_names_the_dataset_variable_is_refused(tmp_path):
+    def edit(compose):
+        compose["services"]["app"]["environment"]["DATASET"] = "${CHURNSENSE_DATASET}"
+
+    assert any("CHURNSENSE_DATASET" in p for p in _wiring(tmp_path, compose_edit=edit))
 
 
 def test_without_its_dataset_the_service_is_not_ready(monkeypatch, tmp_path, dashboard_predictor):
@@ -748,6 +1176,27 @@ def test_the_image_says_unknown_provenance_unless_told():
 
 
 HEAD = "c8495555f9553c72dbaf9a8eae693e1e3ba3d148"
+
+
+def test_the_build_command_names_the_evidence_it_bakes_in(tmp_path, monkeypatch):
+    """Git ignores the evidence, so the revision cannot name it: the command passes the
+    file's sha256, which the image labels and the build checks against the copy."""
+    from scripts import image_provenance as prov
+
+    evidence = tmp_path / "public_evidence.json"
+    evidence.write_text('{"format": 4}')
+    digest = hashlib.sha256(evidence.read_bytes()).hexdigest()
+    assert prov.evidence_hash(evidence) == digest
+    assert prov.evidence_hash(tmp_path / "missing.json") == ""
+    command = prov.provenance(HEAD, "", digest).build_command()
+    assert f"EVIDENCE_SHA256={digest}" in command
+    assert command[-1] == "."
+    monkeypatch.setattr(prov, "ROOT", tmp_path)
+    monkeypatch.setattr(prov, "EVIDENCE", Path("public_evidence.json"))
+    monkeypatch.setattr(prov, "_git", lambda *args: HEAD if args[0] == "rev-parse" else "")
+    monkeypatch.setattr(prov, "context_paths", lambda _text: [])
+    (tmp_path / ".dockerignore").write_text("*\n")
+    assert prov.current().evidence_sha256 == digest
 
 
 def test_a_clean_tree_is_tagged_with_its_commit():

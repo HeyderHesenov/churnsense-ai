@@ -133,7 +133,9 @@ pre-calibration metrics while `model.joblib` held the *calibrated* pipeline —
 one set of numbers describing two different models. Found by reading the
 artifact, not from a failing test.
 
-Not cosmetic, on validation: precision 0.5095 → **0.6723**, recall 0.7888 → **0.5321**.
+Not cosmetic, on validation at 0.5: the uncalibrated candidate's precision 0.5095 and
+recall 0.7888 against the shipped calibrated model's **0.6723** and **0.5321** - two
+different models, so the candidate's figures say nothing about what serves.
 `class_weight="balanced"` inflates raw scores, so an uncalibrated 0.5 flags far
 more customers than a calibrated 0.5. Publishing the candidate's numbers would
 have overstated recall by 48 % relative. Fixed by scoring the shipped pipeline
@@ -282,8 +284,8 @@ needs experimental data this dataset does not contain.
 
 **Operationally: one global threshold leaves whole segments unscanned.**
 On validation the model flags **not one** two-year-contract customer and no customer
-without internet, and 35 churners sit between those two segments, invisible to any
-campaign driven by this score. The test partition has no such table: its customers
+without internet, so every churner in those two segments (22 without internet; the
+two-year count is suppressed) is invisible to any campaign driven by this score. The test partition has no such table: its customers
 are listed with their flags and scores, so a figure about a group of them would be
 read against known people (docs/MODEL_CARD.md has the reason, and says what older
 reports and Git history still hold). That is the optimiser behaving correctly —

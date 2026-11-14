@@ -128,6 +128,7 @@ export function explainResponse(explanations: Schemas['Explanation'][]): Explain
   return {
     model_sha256: 'a'.repeat(64),
     background_customers: 100,
+    background: 'training',
     permutations: 10,
     seed: 42,
     caveat: 'These are model attributions, not causal effects.',

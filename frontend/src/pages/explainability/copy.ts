@@ -54,7 +54,6 @@ export const CARDS = {
 /** What each method tile's figure is. */
 export const METHOD_NOTES = {
   base: 'mean served probability over the background',
-  background: 'training customers, the same on every page',
   orderings: 'antithetic permutation explainer',
   additivity: 'largest gap before rounding, base + contributions against the served probability',
 } as const;
@@ -95,10 +94,31 @@ export function incomparable(reason: Exclude<Comparability, 'ok'>): string {
 
 // --- the method strip ------------------------------------------------------------
 
+/**
+ * Whose customers the cached sample is, as the API's ``partition`` says: the
+ * dataset's validation partition, or - on a service that lists generated
+ * customers - those. The background is drawn from the matching population.
+ */
+function isSynthetic(global: GlobalExplanation): boolean {
+  return global.partition === 'synthetic';
+}
+
+export function explainedCustomers(global: GlobalExplanation): string {
+  return isSynthetic(global) ? 'synthetic demo customers' : `${global.partition} customers`;
+}
+
+export function backgroundCustomers(global: GlobalExplanation): string {
+  return isSynthetic(global) ? 'synthetic demo customers' : 'training customers';
+}
+
+/** The background tile's caption. */
+export function backgroundNote(global: GlobalExplanation): string {
+  return `${backgroundCustomers(global)}, the same on every page`;
+}
+
 export function explainedSub(global: GlobalExplanation): string {
-  return global.seed === null
-    ? `${global.partition} partition`
-    : `${global.partition} partition, seed ${global.seed}`;
+  const whose = isSynthetic(global) ? 'synthetic demo customers' : `${global.partition} partition`;
+  return global.seed === null ? whose : `${whose}, seed ${global.seed}`;
 }
 
 /** The largest additivity gap the cache recorded, before any rounding: "1.9e-15". */
@@ -197,5 +217,5 @@ export function totalChargesNote(r: number | null): string | null {
 // --- one customer ----------------------------------------------------------------
 
 export function ringNote(id: string, global: GlobalExplanation): string {
-  return `Ring: ${id}, explained on their own against the same ${int(global.n_background)} training customers. The dots are a cached sample of ${int(global.n_explained)} ${global.partition} customers; the ring is not one of them, even for a customer in the sample.`;
+  return `Ring: ${id}, explained on their own against the same ${int(global.n_background)} ${backgroundCustomers(global)}. The dots are a cached sample of ${int(global.n_explained)} ${explainedCustomers(global)}; the ring is not one of them, even for a customer in the sample.`;
 }

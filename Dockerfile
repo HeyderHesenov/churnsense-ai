@@ -11,8 +11,9 @@
 # 2026-11-10 (docs/DEPLOYMENT.md, section 3). scripts/verify_deploy_bundle.py
 # refuses an image reference without a digest.
 #
-# The sample dataset is NOT in the image (docs/DEPLOYMENT.md, section 6): the
-# operator mounts it read-only at run time.
+# No dataset is in the image, and none is mounted beside it (docs/DEPLOYMENT.md,
+# section 6): the public demo lists generated customers, and shows the dataset's
+# training and validation partitions only as published aggregates.
 
 # --- 1. the front end: the committed lockfile, the existing build ---------------------------
 FROM node:22.23.4-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS frontend
@@ -53,8 +54,10 @@ COPY src/ src/
 COPY configs/config.yaml configs/deploy.yaml configs/
 COPY governance/held_out_release.json governance/
 COPY reports/association_ranking.csv reports/model_comparison.csv reports/
-COPY artifacts/model.joblib artifacts/model_meta.json artifacts/shap_global.json artifacts/
-# data/raw/ stays empty: the mount point of the operator's read-only dataset file.
+# The model, the dataset's published aggregates and the attributions of generated
+# customers (`make demo-data`). Not shap_global.json: it holds validation rows.
+COPY artifacts/model.joblib artifacts/model_meta.json artifacts/
+COPY artifacts/public_evidence.json artifacts/demo_explanations.json artifacts/
 COPY --from=frontend /build/frontend/dist frontend/dist
 COPY scripts/verify_deploy_bundle.py scripts/
 
@@ -62,11 +65,17 @@ COPY scripts/verify_deploy_bundle.py scripts/
 # It refuses the example domain; only a local test build may waive that, with
 # --build-arg ALLOW_EXAMPLE_DOMAIN=1. Then compile the source, so a read-only
 # container never needs to write it.
+# The published evidence must be the file scripts/image_provenance.py hashed
+# (EVIDENCE_SHA256, labelled below), and one the publication pipeline leaves as it is:
+# the strict reader, the joint disclosure guard and the audit, without the dataset
+# (`python -m churnsense.demo.migrate --check`, which writes nothing). Else no image.
 ARG ALLOW_EXAMPLE_DOMAIN=
+ARG EVIDENCE_SHA256=
 RUN python scripts/verify_deploy_bundle.py --in-image --root /app \
         ${ALLOW_EXAMPLE_DOMAIN:+--allow-example-domain} \
+        --evidence-sha256 "${EVIDENCE_SHA256}" \
+    && python -m churnsense.demo.migrate --check \
     && python -m compileall -q src \
-    && mkdir -p data/raw \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin churnsense
 
 # Provenance: what this image was built from. scripts/image_provenance.py passes
@@ -76,7 +85,8 @@ ARG SOURCE_DIRTY=unknown
 LABEL org.opencontainers.image.title="ChurnSense AI portfolio demo" \
       org.opencontainers.image.source="https://github.com/HeyderHesenov/churnsense-ai" \
       org.opencontainers.image.revision="${SOURCE_REVISION}" \
-      io.churnsense.source.dirty="${SOURCE_DIRTY}"
+      io.churnsense.source.dirty="${SOURCE_DIRTY}" \
+      io.churnsense.evidence.sha256="${EVIDENCE_SHA256}"
 
 USER churnsense
 EXPOSE 8000

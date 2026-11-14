@@ -49,6 +49,12 @@ export function withheld(reason: string): string {
   return `Validation outcomes are withheld: ${reason}`;
 }
 
+/** Why a validation figure is not shown: outcomes withheld, no published sweep, or neither. */
+export function unavailableText(withheldReason: string | null, sweepNote: string | null): string {
+  if (withheldReason) return withheld(withheldReason);
+  return sweepNote ?? UNAVAILABLE;
+}
+
 export const UNAVAILABLE = 'Validation figures are not available for the served model.';
 
 export const MISMATCH =
@@ -146,6 +152,19 @@ export function calibrationSentence(calibration: Calibration): string {
     return `Calibration was tried and not kept: validation ECE on raw probabilities was ${score(after)} calibrated against ${score(before)} without.${clamp}`;
   }
   return `The served probabilities are not calibrated.${clamp}`;
+}
+
+export type ReliabilityBin = Pick<Bin, 'low' | 'high'>;
+
+/** What the calibration chart's bins are: tenths, or the intervals between the cuts a
+ * public demo publishes its sweep at (which are uneven, and wider). */
+export function calibrationSubtitle(bins: readonly ReliabilityBin[] | null): string {
+  const said = 'Observed churn against the mean stated probability, for validation customers';
+  if (!bins || bins.length === 0) return `${said}.`;
+  const tenths = bins.every((bin) => Math.abs(bin.high - bin.low - 0.1) < 1e-9);
+  return tenths
+    ? `${said} in tenths of probability.`
+    : `${said} between the cuts the sweep is published at.`;
 }
 
 /** The bins too small to draw, said where a sighted reader sees the chart. */

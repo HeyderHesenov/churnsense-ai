@@ -6,7 +6,7 @@
  */
 import type { Page } from '@playwright/test';
 import type { components } from '../src/api/schema';
-import { expect, settled, test } from './fixtures';
+import { expect, openReported, settled, test } from './fixtures';
 
 type Segments = components['schemas']['SegmentsResponse'];
 
@@ -95,7 +95,7 @@ test('a suppressed group’s churn appears nowhere: cell, sentence, focus line o
 });
 
 test('a pinned group opens the explorer on exactly its training customers', async ({ page }) => {
-  const body = await open(page);
+  const body = await openReported(page);
   // The first cell showing a rate: a reported group of a dimension the explorer filters.
   const shown = cells(page).filter({ hasText: '%' }).first();
   await shown.click();

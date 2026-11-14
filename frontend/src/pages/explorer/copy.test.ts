@@ -230,6 +230,7 @@ describe('an explanation', () => {
   const response: ExplainResponse = {
     model_sha256: 'a'.repeat(64),
     background_customers: 100,
+    background: 'training',
     permutations: 10,
     seed: 42,
     caveat: 'These are model attributions, not causal effects.',
@@ -276,6 +277,7 @@ describe('every sentence', () => {
       explanationNote({
         model_sha256: 'a'.repeat(64),
         background_customers: 100,
+        background: 'training',
         permutations: 10,
         seed: 42,
         caveat: '',

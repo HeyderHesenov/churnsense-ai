@@ -116,6 +116,28 @@ describe('Overview: the book at a glance', () => {
     expect(distribution.querySelectorAll('circle')).toHaveLength(0);
   });
 
+  it('claims no observed churn where the service publishes none, though nothing is withheld', async () => {
+    // A public demo: validation customers per 0.05 of score would cut its sweep finer (E8).
+    const book = overview();
+    showOverview('/', {
+      ...book,
+      histogram: book.histogram.map((bin) => ({ ...bin, observed: null, observed_mean: null })),
+    });
+    await loaded();
+    const distribution = screen.getByRole('region', {
+      name: 'Where the book sits on the probability scale',
+    });
+    expect(distribution).not.toHaveTextContent('observed churn in that bin');
+    expect(distribution).not.toHaveTextContent('stated equals observed');
+    expect(distribution.querySelectorAll('circle')).toHaveLength(0);
+    const labelled = [...distribution.querySelectorAll('[aria-label], [aria-valuetext]')];
+    for (const element of labelled) {
+      const text = `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('aria-valuetext') ?? ''}`;
+      expect(text).not.toContain('with the churn observed');
+      expect(text).not.toContain('withheld');
+    }
+  });
+
   it('draws a rate at what its customers were told, not at the bin’s middle', async () => {
     const book = overview();
     const at = (mean: number | null) => ({
@@ -844,7 +866,9 @@ describe('Overview: what the risk is associated with', () => {
     const payment = within(card).getByRole('tabpanel', { name: 'Payment' });
     expect(payment).toHaveTextContent('Credit card (auto)');
     expect(payment).toHaveTextContent('fewer than 20 customers');
-    expect(payment).toHaveTextContent('not shown here, so this table gives no smaller group away');
+    expect(payment).toHaveTextContent(
+      'not shown: too few churners or stayers, or the tables together would give a group of fewer than 20 away',
+    );
 
     await userEvent.click(within(card).getByRole('tab', { name: 'Price' }));
     expect(within(card).getByRole('tabpanel', { name: 'Price' })).toHaveTextContent('Under $35');
@@ -908,7 +932,7 @@ describe('Overview: what the risk is associated with', () => {
     expect(card).not.toHaveTextContent('Payment method');
     expect(card).toHaveTextContent('Contract ranks first on its own but fourth in the model');
     await userEvent.click(within(card).getByRole('button', { name: 'On its own' }));
-    expect(card).toHaveTextContent('Contract typeV 0.419');
-    expect(card).toHaveTextContent('Tenure|r| 0.353');
+    expect(card).toHaveTextContent('Contract typeV 0.42');
+    expect(card).toHaveTextContent('Tenure|r| 0.35');
   });
 });

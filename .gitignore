@@ -42,6 +42,12 @@ artifacts/*
 reports/figures/*
 !reports/figures/.gitkeep
 
+# --- Validation sweep reports: written by `make train`, kept out of git (E8, 2026-11-12) ---
+# They state the validation sweep at every 0.01 and segment cells of a few customers.
+# Earlier commits still hold them: see docs/DEPLOYMENT.md, section 20.
+reports/threshold_sweep.csv
+reports/model_comparison.md
+
 # --- OS ---
 .DS_Store
 

@@ -25,6 +25,7 @@ runs Docker - copy the printed command (docs/DEPLOYMENT.md, section 8).
 
 from __future__ import annotations
 
+import hashlib
 import shlex
 import subprocess
 import sys
@@ -41,6 +42,9 @@ CONTEXT = "."
 class Provenance:
     revision: str
     dirty: bool
+    #: The sha256 of ``artifacts/public_evidence.json``: git ignores the file, so the
+    #: revision cannot name it; the image labels this instead, and the build checks it.
+    evidence_sha256: str = ""
 
     @property
     def tag(self) -> str:
@@ -61,6 +65,8 @@ class Provenance:
             f"SOURCE_REVISION={self.revision}",
             "--build-arg",
             f"SOURCE_DIRTY={'true' if self.dirty else 'false'}",
+            "--build-arg",
+            f"EVIDENCE_SHA256={self.evidence_sha256}",
             *extra,
             CONTEXT,
         ]
@@ -76,14 +82,16 @@ def context_paths(dockerignore: str) -> list[str]:
     return sorted({*included, "Dockerfile", ".dockerignore"})
 
 
-def provenance(head: str, porcelain: str) -> Provenance:
+def provenance(head: str, porcelain: str, evidence_sha256: str = "") -> Provenance:
     """``head`` from ``git rev-parse HEAD``; ``porcelain`` from ``git status --porcelain``
     limited to the context paths. Any line at all - modified, staged, deleted or
     untracked - makes the build dirty."""
     revision = head.strip()
     if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
         raise ValueError("HEAD is not a full commit id")
-    return Provenance(revision=revision, dirty=bool(porcelain.strip()))
+    return Provenance(
+        revision=revision, dirty=bool(porcelain.strip()), evidence_sha256=evidence_sha256
+    )
 
 
 def _git(*args: str) -> str:
@@ -96,7 +104,16 @@ def current() -> Provenance:
     paths = context_paths((ROOT / ".dockerignore").read_text(encoding="utf-8"))
     head = _git("rev-parse", "HEAD")
     porcelain = _git("status", "--porcelain", "--untracked-files=all", "--", *paths)
-    return provenance(head, porcelain)
+    return provenance(head, porcelain, evidence_hash(ROOT / EVIDENCE))
+
+
+#: The published evidence the image bakes in.
+EVIDENCE = Path("artifacts") / "public_evidence.json"
+
+
+def evidence_hash(path: Path) -> str:
+    """The file's sha256, or ``""`` when there is none: the build then refuses."""
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
 
 
 def main(argv: list[str] | None = None) -> int:
