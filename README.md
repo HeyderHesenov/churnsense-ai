@@ -379,12 +379,14 @@ distinction. The public demo shows the shipped column only.
 
 ## Evaluation
 
-These counts and rates come from a `make evaluate` run on 2026-10-09 for the artifact whose
-`model.joblib` has SHA-256 `02b2466d…47a9`, the file the current `make train` reproduces byte for
-byte. That run predates the current disclosure policy and the partition's official release
-(`SECURITY.md`, "The held-out release"), which is not yet made. Its report remains in the
-repository and in Git history with figures this policy no longer publishes; this README no
-longer links to it, and that exposure is an open governance issue, not a resolved one.
+These counts and rates are the partition's official release (`SECURITY.md`, "The held-out
+release"): its ledger, `governance/held_out_release.json`, records the state `published` and
+an `evaluated_at` date of 2026-11-09, for the artifact whose `model.joblib` has SHA-256
+`02b2466d…47a9`, the file the current `make train` reproduces byte for byte. They are the figures a `make evaluate` run on
+2026-10-09 first measured for the same artifact. That earlier run predates both the current
+disclosure policy and the release. Its report remains in the repository and in Git history
+with figures this policy no longer publishes; this README no longer links to it, and that
+exposure is an open governance issue, not a resolved one.
 
 **Test partition: 1,409 customers, 374 churned (26.5 %). Threshold 0.36, fixed
 on validation before this partition was read.**

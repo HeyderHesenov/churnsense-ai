@@ -850,11 +850,23 @@ the development log no longer quotes hidden cells.
 
 **What is still published and cannot be withdrawn.** None of the following is resolved:
 
-- **The immutable release reports.** `reports/final_evaluation.md` and
+- **The validation sweep in the immutable release reports.** `reports/final_evaluation.md` and
   `reports/held_out_release.md` are part of the published release record and are never
-  edited. Their validation sweep at 0.10 to 0.80 holds two intervals below the rule (above),
-  their exact retained values give the monthly charges summed over those intervals, and they
-  name `reports/model_comparison.md` as where the validation figures came from.
+  edited. Their validation sweep at 0.10 to 0.80 holds two intervals below the rule (above:
+  0.70 to 0.80 and 0.80 up, with 11 and 12 stayers), their exact retained values give the
+  monthly charges summed over those intervals, and they name `reports/model_comparison.md`
+  as where the validation figures came from.
+- **A test-partition segment in the 2026-10-09 report.** A separate residual, not one of
+  the sweep's intervals: `reports/final_evaluation.md:74` ("Performance by segment at
+  threshold 0.36") states the *test* partition's Contract "Two year" customers directly -
+  336 customers, 9 churners, and no customer of the segment flagged. A group of fewer than
+  20 churners, published as it stands rather than solved for from other figures. It has been
+  on `main` since commit `7515d62` (2026-10-09): this branch did not create it, and it cannot
+  withdraw it - the report is immutable, and the line stays in every commit since. The demo
+  reads these test counts as known to every outsider (`legacy_disclosures.TEST_SEGMENTS`),
+  which is why one- and two-year contracts' training churn is hidden: that keeps them from
+  completing a subtraction on validation. It protects the other partitions; it does not undo
+  this disclosure.
 - **Every earlier commit.** Deleting or editing a file removes it from the tree from that
   commit on. Every earlier commit still holds the full sweep, the old segment table, the
   design artboards' arrays, the README's and the EDA report's one- and two-year contract
