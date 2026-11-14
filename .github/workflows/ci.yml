@@ -65,7 +65,8 @@ jobs:
       # any of its data.
       - name: Test
         # No -q here: pyproject's addopts already has one, and -qq hides the summary.
-        run: pytest --cov=churnsense --cov-report=term-missing
+        # -rs prints every skipped test with its reason, so a skip is read, not counted.
+        run: pytest -rs --cov=churnsense --cov-report=term-missing
 
       - name: Smoke-test the training pipeline end to end
         run: |
@@ -156,6 +157,9 @@ jobs:
         run: .venv/bin/python -m pip check
 
       - name: Test
+        # Every skipped test with its reason, as in the job above.
+        env:
+          PYTEST_ADDOPTS: -rs
         run: make test
 
       - name: Install the runtime lock alone and write its SBOM
