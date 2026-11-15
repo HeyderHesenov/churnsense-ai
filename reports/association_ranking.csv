@@ -1,20 +1,20 @@
 feature,measure,strength,direction
-Contract,Cramer's V,0.41889026665374857,n/a (categorical)
-OnlineSecurity,Cramer's V,0.3530949066669639,n/a (categorical)
-tenure,point-biserial |r|,0.35266955977237374,higher -> less churn
-TechSupport,Cramer's V,0.34540912216531217,n/a (categorical)
-InternetService,Cramer's V,0.32765824615934624,n/a (categorical)
-PaymentMethod,Cramer's V,0.30656598591939005,n/a (categorical)
-OnlineBackup,Cramer's V,0.29637073735029296,n/a (categorical)
-DeviceProtection,Cramer's V,0.2793179642564664,n/a (categorical)
-StreamingMovies,Cramer's V,0.23019293143005679,n/a (categorical)
-StreamingTV,Cramer's V,0.22882256980941845,n/a (categorical)
-TotalCharges,point-biserial |r|,0.2019738141510351,higher -> less churn
-MonthlyCharges,point-biserial |r|,0.19570582886615773,higher -> more churn
-PaperlessBilling,Cramer's V,0.1910474841967811,n/a (categorical)
-Dependents,Cramer's V,0.1746699149224673,n/a (categorical)
-Partner,Cramer's V,0.15935422035857616,n/a (categorical)
-SeniorCitizen,Cramer's V,0.1421854419850582,n/a (categorical)
-MultipleLines,Cramer's V,0.03662729447130787,n/a (categorical)
+Contract,Cramer's V,0.42,n/a (categorical)
+OnlineSecurity,Cramer's V,0.35,n/a (categorical)
+tenure,point-biserial |r|,0.35,higher -> less churn
+TechSupport,Cramer's V,0.35,n/a (categorical)
+InternetService,Cramer's V,0.33,n/a (categorical)
+PaymentMethod,Cramer's V,0.31,n/a (categorical)
+OnlineBackup,Cramer's V,0.3,n/a (categorical)
+DeviceProtection,Cramer's V,0.28,n/a (categorical)
+StreamingMovies,Cramer's V,0.23,n/a (categorical)
+StreamingTV,Cramer's V,0.23,n/a (categorical)
+TotalCharges,point-biserial |r|,0.2,higher -> less churn
+MonthlyCharges,point-biserial |r|,0.2,higher -> more churn
+PaperlessBilling,Cramer's V,0.19,n/a (categorical)
+Dependents,Cramer's V,0.17,n/a (categorical)
+Partner,Cramer's V,0.16,n/a (categorical)
+SeniorCitizen,Cramer's V,0.14,n/a (categorical)
+MultipleLines,Cramer's V,0.04,n/a (categorical)
 PhoneService,Cramer's V,0.0,n/a (categorical)
 gender,Cramer's V,0.0,n/a (categorical)

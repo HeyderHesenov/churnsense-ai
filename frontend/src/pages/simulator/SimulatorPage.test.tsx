@@ -890,6 +890,28 @@ describe('nothing worked out in the page', () => {
     expect(marks.get('0.40')).toBe('selected');
   });
 
+  it('tables every cut of a sweep published at a few cuts only', async () => {
+    // A public demo publishes the sweep only where twenty of each lie between two cuts (E8).
+    const fine = sweepFor(DEFAULTS);
+    const points = [0, 24, 28, 35, 50].flatMap((i) => (fine.points[i] ? [fine.points[i]] : []));
+    const [, , low, high] = points.map((p) => p.threshold);
+    const coarse = {
+      ...fine,
+      points,
+      recommended: { ...fine.recommended, threshold: high ?? 0 },
+      peak: { ...fine.peak, threshold: low ?? 0 },
+      band: { ...fine.band, low: low ?? 0, high: high ?? 0 },
+    };
+    await showSimulator('/simulator', [sweepApi(() => coarse)]);
+    await figuresFor();
+    const table = screen.getByRole('table', { name: 'Simulated net benefit by cut' });
+    const cuts = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => within(row).getAllByRole('cell')[0]?.textContent);
+    expect(cuts).toEqual(['0.00', '0.24', '0.28', '0.35', '0.50']);
+  });
+
   it('states the band from the floor the response gives', async () => {
     // Not the peak less one offer: only a page that reads ``band.floor`` shows it.
     await showSimulator('/simulator', [

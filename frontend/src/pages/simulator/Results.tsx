@@ -85,6 +85,8 @@ interface ResultsProps {
   sweep: Sweep | undefined;
   selected: Selection | null;
   error: Error | null;
+  /** The service's reason when it publishes no sweep at all. */
+  sweepNote?: string | null;
   onRetry: () => void;
 }
 
@@ -96,7 +98,7 @@ const WITHHELD =
   'The simulator works on the observed outcomes of validation customers, and validation ' +
   'outcomes are withheld while the partitions cannot be verified against the served model.';
 
-export function Results({ status, sweep, selected, error, onRetry }: ResultsProps) {
+export function Results({ status, sweep, selected, error, sweepNote, onRetry }: ResultsProps) {
   const point = sweep && selected ? sweep.points[selected.index] : undefined;
   const shown = point !== undefined && status !== 'failed' && status !== 'withheld';
   const note = statusNote(status, shown);
@@ -126,7 +128,7 @@ export function Results({ status, sweep, selected, error, onRetry }: ResultsProp
   );
 
   function body(): ReactNode {
-    if (status === 'withheld') return <p className={styles.withheld}>{WITHHELD}</p>;
+    if (status === 'withheld') return <p className={styles.withheld}>{sweepNote ?? WITHHELD}</p>;
     if (status === 'failed') return <Failure error={error} onRetry={onRetry} />;
     if (!sweep) {
       return status === 'unsent' ? null : <Skeleton label="Loading the sweep" rows={4} />;

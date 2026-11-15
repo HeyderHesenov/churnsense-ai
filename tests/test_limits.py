@@ -360,3 +360,12 @@ def test_the_cap_is_well_below_the_servers_concurrency_limit():
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
     limit = int(dockerfile.split('"--limit-concurrency", "')[1].split('"')[0])
     assert limit >= middleware.MAX_CLIENT_REQUESTS * 4, "one client must not hold a quarter"
+
+
+def test_production_allows_each_client_twelve_requests_in_flight():
+    """The production cap, pinned on its own: only the browser-test server
+    (``scripts/e2e_server.py``, never imported here) gives its one shared address a cap per
+    browser, and that only in its own process."""
+    from churnsense.api import middleware
+
+    assert middleware.MAX_CLIENT_REQUESTS == 12

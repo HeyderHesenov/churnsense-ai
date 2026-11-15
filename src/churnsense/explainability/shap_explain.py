@@ -409,12 +409,15 @@ def explanation_cache(
     *,
     seed: int,
     permutations: int = PERMUTATIONS,
+    partition: str = "validation",
 ) -> dict[str, Any]:
     """What ``make explain`` caches: the ranking, and the matrix the dashboard draws.
 
     One row of contributions per explained customer, the values they were
     computed for, and how closely base + contributions reproduce the served
     probability - so the page can state that check instead of assuming it.
+    ``partition`` names whose customers ``explained`` are: the validation
+    sample, or a public demo's generated ones (``churnsense.demo.build``).
     """
     values = _shap_values(model, explained, background, seed=seed, permutations=permutations)
     base_value = float(values.attrs["base_value"])
@@ -429,7 +432,7 @@ def explanation_cache(
         "n_background": len(background),
         "permutations": permutations,
         "seed": seed,
-        "partition": "validation",
+        "partition": partition,
         "caveat": CAVEAT,
         "importance": importance_from(values).to_dict(orient="records"),
         "base_value": base_value,

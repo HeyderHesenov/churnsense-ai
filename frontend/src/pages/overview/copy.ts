@@ -4,7 +4,7 @@
  * "not monotonic" only when the peak is inside the range, "within one offer's
  * cost" only when it is. Formatting only: nothing here computes a statistic.
  */
-import type { Overview } from '../../api/queries';
+import type { DataSource, Overview } from '../../api/queries';
 import type { Schemas } from '../../api/client';
 import { bandTop as top } from '../../lib/bands';
 import { cut, int, money, pct } from '../../lib/format';
@@ -35,6 +35,17 @@ export function scaleDescription(
       : `${band.name} to ${percent(top(band))}%`,
   );
   return `Probability scale: ${ranges.join(', ')}; flagged at ${cut(threshold)} and above`;
+}
+
+/**
+ * The queue's link to everyone flagged. The queue leaves out customers recorded as
+ * churned and the explorer does not, which is worth saying only where an outcome is
+ * recorded: a generated customer has none.
+ */
+export function allFlaggedLink(flagged: number, synthetic: boolean): string {
+  return synthetic
+    ? `See all ${int(flagged)} flagged in the explorer`
+    : `See all ${int(flagged)} flagged, churned included, in the explorer`;
 }
 
 /** A ratio of rates: "17×", "3.2×". */
@@ -159,4 +170,14 @@ export function assumptionsNote(assumptions: Schemas['BusinessAssumptions']): st
     `${assumptions.expected_horizon_months} months, margin ${pct(assumptions.gross_margin, 0)}. ` +
     'Not measured: the data holds no campaign outcomes.'
   );
+}
+
+/**
+ * Whose customers the page counts, for its footer: the dataset's rows, or -
+ * where the service lists generated customers - the name the service gives them.
+ */
+export function footerSource(source: DataSource | null | undefined, customers: number): string {
+  return source?.customer_records === 'synthetic'
+    ? `${source.title} · ${int(customers)} generated customers`
+    : `IBM Telco Customer Churn · ${int(customers)} rows`;
 }

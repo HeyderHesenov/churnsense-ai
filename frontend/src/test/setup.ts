@@ -1,11 +1,17 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, expect, vi } from 'vitest';
 import { settleQueries } from './render';
 import { server } from './server';
 import { installMatchMedia, resetViewport } from './viewport';
 
 installMatchMedia();
+// A findBy or waitFor gives up after this long. Testing Library's default, one second, is
+// spent by a lazily loaded page and a mocked response alone when the machine is busy (43
+// workers start at once, or another suite runs beside this one): 5 of 30 runs then failed
+// a test somewhere, each time a different one, none of them wrong. A real failure still
+// fails, three seconds later.
+configure({ asyncUtilTimeout: 3000 });
 // jsdom does not scroll: the shell scrolls to the top on every page change,
 // and the overview brings its queue into view.
 window.scrollTo = () => undefined;

@@ -263,7 +263,7 @@ function Importance({ book }: { book: Overview }) {
       : association.slice(0, 5).map((r) => ({
           feature: r.feature,
           value: r.strength,
-          text: `${MEASURE[r.measure] ?? r.measure} ${r.strength.toFixed(3)}`,
+          text: `${MEASURE[r.measure] ?? r.measure} ${r.strength.toFixed(2)}`,
         }));
   const largest = Math.max(0, ...rows.map((r) => r.value));
   const basis = book.importance_basis;

@@ -45,5 +45,10 @@ export default defineConfig({
     // Scoped, as in the build: two modules' `.hideSm` must not meet in a test either.
     css: { modules: { classNameStrategy: 'scoped' } },
     include: ['src/**/*.test.{ts,tsx}'],
+    // A test that waits on a lazily loaded page and mocked responses can take past the
+    // default 5 s when the machine is busy (load averages past 30 with another suite
+    // running beside this one): 2 of 20 such runs failed that way and no other. A test
+    // that hangs still fails, later.
+    testTimeout: 15_000,
   },
 });

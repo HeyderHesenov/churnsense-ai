@@ -144,32 +144,40 @@ reads that file any more. This is an open governance issue, not a resolved one.
 
 ### Performance by segment (validation partition, threshold 0.36)
 
-From `make train` (`reports/model_comparison.md`), with 95 % Wilson intervals.
+From `make train` (`reports/model_comparison.md`, written locally and not tracked since
+2026-11-12), with 95 % Wilson intervals. A row marked *suppressed* keeps its size and flag
+rate only: on one side of the threshold that segment, or the segments of its dimension hidden
+with it, holds fewer than 20 churners or 20 stayers, so its outcome figures are withheld here
+as the public demo withholds them (`src/churnsense/score_disclosure.py`). That is
+minimum-cohort suppression; it is not differential privacy and does not make anyone
+anonymous.
 `gender` is not a model input; it is reported because excluding a column does
 not show the groups are treated alike.
 
 | Segment | n | Churn rate | Flag rate | Recall (95 % CI) | Precision (95 % CI) | ROC-AUC within |
 |---|---|---|---|---|---|---|
-| Month-to-month | 776 | 41.8 % | 56.7 % | 0.796 (0.75–0.84) | 0.586 (0.54–0.63) | 0.765 |
-| One year | 308 | 12.0 % | 2.6 % | 0.054 (0.01–0.18) | 0.250 (0.07–0.59) | 0.670 |
-| Two year | 325 | 4.0 % | **0.0 %** | 0.000 (0.00–0.23) | — | 0.785 |
+| Month-to-month | 776 | *suppressed* | 56.7 % | *suppressed* | *suppressed* | *suppressed* |
+| One year | 308 | *suppressed* | 2.6 % | *suppressed* | *suppressed* | *suppressed* |
+| Two year | 325 | *suppressed* | **0.0 %** | *suppressed* | *suppressed* | *suppressed* |
 | Fibre optic | 640 | 41.4 % | 57.2 % | 0.834 (0.78–0.87) | 0.604 (0.55–0.65) | 0.797 |
 | DSL | 463 | 18.8 % | 17.7 % | 0.448 (0.35–0.55) | 0.476 (0.37–0.58) | 0.793 |
 | No internet | 306 | 7.2 % | **0.0 %** | 0.000 (0.00–0.15) | — | 0.753 |
-| Not senior | 1,180 | 23.6 % | 26.8 % | 0.655 (0.60–0.71) | 0.576 (0.52–0.63) | 0.840 |
-| Senior citizen | 229 | 41.9 % | 57.6 % | 0.812 (0.72–0.88) | 0.591 (0.51–0.67) | 0.788 |
+| Not senior | 1,180 | *suppressed* | 26.8 % | *suppressed* | *suppressed* | *suppressed* |
+| Senior citizen | 229 | *suppressed* | 57.6 % | *suppressed* | *suppressed* | *suppressed* |
 | Female | 715 | 25.3 % | 32.4 % | 0.735 (0.67–0.79) | 0.573 (0.51–0.64) | 0.856 |
 | Male | 694 | 27.8 % | 31.1 % | 0.658 (0.59–0.72) | 0.588 (0.52–0.65) | 0.819 |
 
 An aggregate recall hides a segment the model serves badly, and here it hides a
-serious one: on validation, 35 churners sit in the two unflagged segments. Within those segments the model still ranks customers
-(ROC-AUC 0.785 and 0.753): what leaves them unscanned is the operating point,
-not an inability to rank them. The threshold is the highest one within one
+serious one: on validation the model flags no customer with a two-year contract and
+none without internet, so every churner in those two segments goes unflagged - 22
+without internet, and a number withheld above for two-year contracts. Without internet
+the model still ranks customers (ROC-AUC 0.753): what leaves them unscanned is the
+operating point, not an inability to rank them. The threshold is the highest one within one
 offer's cost of the best simulated net benefit across the whole book, and
 because low-base-rate segments yield few true positives per offer, that rule
 spends nothing on them. It follows the simulated economics, and it gives those
 segments no coverage at all; whether that is acceptable is a policy question,
-not a statistical one. With 13 and 22 churners the intervals are wide, and a
+not a statistical one. With that few churners the intervals are wide, and a
 segment's ROC-AUC on that few positives is a rough indication, not a
 measurement to act on alone.
 
@@ -179,7 +187,7 @@ still there; the global cut sits above their scores.
 **Per-segment thresholds are one policy option, not a fix.** They would decide
 who receives a commercial offer partly by segment membership, which is
 differential treatment and raises governance, business and legal questions;
-and each would be tuned on its own segment's churners — 13 and 22 here — so it
+and each would be tuned on its own segment's few churners (22 without internet) so it
 would be estimated far less precisely than the global threshold. Adopting them,
 or accepting the current coverage explicitly, is a decision for the business
 owner, and it needs enough subgroup data, an uncertainty analysis and an
@@ -195,7 +203,8 @@ application does not implement per-segment thresholds.
 target measures **0.0000** on this dataset — no detectable association — and it
 is a protected attribute. Excluding it costs nothing measurable — putting it
 back changes cross-validated PR-AUC by −0.0010 against a fold-to-fold standard
-deviation of 0.0244 (ablation in `reports/model_comparison.md`) — and removes
+deviation of 0.0244 (ablation in `reports/model_comparison.md`, which `make train`
+writes locally) — and removes
 a category of risk.
 
 That the two arguments agreed here was lucky. **Had gender carried real signal,
@@ -212,9 +221,10 @@ show whether that gap is real; it is reported, not explained away.
 
 **Attributes retained that warrant scrutiny.** `SeniorCitizen`, `Partner` and
 `Dependents` are demographic and correlate with protected characteristics. A
-descriptive check exists for `SeniorCitizen`: senior citizens are flagged at
-57.6 % against 26.8 %, in line with their observed churn rate (41.9 % vs
-23.6 %), and precision is the same in both groups (0.59 vs 0.58). A difference
+descriptive check exists for `SeniorCitizen`: on validation senior citizens are
+flagged at 57.6 % against 26.8 %, in line with their churn on the training partition
+(40.8 % vs 23.7 %). Their validation outcomes on each side of the threshold are
+suppressed (table above), so precision per group is not stated here. A difference
 in flag rate that tracks a difference in churn is not by itself evidence of
 unfair treatment, but neither does it settle the question. **A disparate-impact
 audit is not in this project.** Before any deployment, the questions to answer
@@ -331,6 +341,30 @@ re-checked estimate, not an independent one, and it is presented that way.
   partitions only for the dataset and split the model was trained on.
 - The final report records the artifact's SHA-256, and evaluation refuses an
   artifact whose split or dataset no longer matches the one it was trained on.
+- Since 2026-11-11 the public demo lists **generated demo customers only**
+  (`deployment.customer_records: synthetic`). They are in no partition, have no
+  outcome, and are never part of training, validation, calibration or the
+  held-out release: every figure in this card is of the dataset, and none is of
+  them. The demo shows the dataset as aggregates of its training and validation
+  partitions (`make demo-data`), and its explanations are measured against a
+  background of generated customers, so a base value read there differs from the
+  one stated here. Since 2026-11-13 it shows the validation sweep, the calibration
+  bins and the operating point only at five cuts - 0, 0.30, 0.36, 0.50 and 0.53 -
+  with at least 20 churners and 20 stayers between any two, read together with the
+  thresholds the release reports state the sweep at (0.10 to 0.80), so neither
+  source splits the other's intervals into a smaller group. The figures it states at
+  0.30, 0.36 and 0.50 are the ones stated here (peak 0.30, $26,579; 0.36, $26,547).
+  Segments and risk bands that would break the same rule are hidden, here as there;
+  training breakdowns show a group only with 20 churners and 20 stayers, and never
+  one- or two-year contracts' churn (with the test report's churners per contract and
+  the dataset's public totals, a two-year count would give validation's by
+  subtraction). The model, its threshold and the release are unchanged.
+- **One ROC-AUC per partition.** `model_meta.json` records the validation ROC-AUC
+  that `make train` measured (0.837536); the published evidence measures the same
+  model on the same 1,409 customers through the service's scoring path (0.837538).
+  The probabilities agree to 5e-15, but isotonic calibration ties hundreds of them,
+  and noise of that size breaks one tie differently. The public demo serves the
+  evidence's value on every page; the recorded one stays in the artifact.
 - Reproducibility checks compare the model file's hash and the validation
   outputs instead of re-scoring test: the same bytes cannot score differently.
 - The model-selection rule was corrected (see `docs/PROJECT_WALKTHROUGH.md`

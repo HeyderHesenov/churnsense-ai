@@ -164,8 +164,10 @@ scale and every interaction listed there.
 - **Bands and flag** come from the API; the UI never re-derives them.
 - **Threshold recommendation** uses the repository's rule (ties within one
   offer's cost break toward the highest threshold); with default assumptions
-  it must reproduce 0.36, and the sensitivity table must reproduce
-  0.88 / 0.50 / 0.36 / 0.23 / 0.22 for 10–50 % success.
+  it must reproduce 0.36, and on the full 0.01 validation grid (`make train`'s local
+  report) the sensitivity table must reproduce 0.88 / 0.50 / 0.36 / 0.23 / 0.22 for
+  10–50 % success. *(Added 2026-11-13: a public demo applies the rule among its published
+  cuts only, so its sensitivity moves in coarser steps.)*
 - **SHAP additivity:** base + Σ contributions = probability (≤ 1e-9) for
   every explanation the API returns.
 - **Withheld outcomes:** no response from any endpoint contains a test-row

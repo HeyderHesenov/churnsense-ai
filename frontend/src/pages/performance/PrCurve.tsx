@@ -13,7 +13,7 @@ import { ChartFrame } from '../../components/charts/ChartFrame';
 import { ChartTooltip, TipLine } from '../../components/charts/ChartTooltip';
 import { Card, CardHeader, Tag } from '../../components/ui/Surface';
 import { cut, int } from '../../lib/format';
-import { PR_HINT, prLabel, UNAVAILABLE, withheld } from './copy';
+import { PR_HINT, prLabel, unavailableText } from './copy';
 import {
   contour,
   f1Of,
@@ -29,6 +29,7 @@ import {
   tabledCuts,
 } from './performance';
 import styles from './Performance.module.css';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 
 const TICKS = [0, 0.2, 0.4, 0.6, 0.8, 1];
 const CONTOURS = [0.5, 0.6, 0.7];
@@ -47,6 +48,7 @@ function fractions(event: MouseEvent<HTMLDivElement>): [number, number] {
 }
 
 export function PrCurve({ figures, index, onPick }: Props) {
+  const sweepNote = useSweepNote();
   const [hover, setHover] = useState<number>(-1);
   const curve = figures.validation;
 
@@ -62,9 +64,7 @@ export function PrCurve({ figures, index, onPick }: Props) {
     return (
       <Card titleId="pr-title" className={styles.card}>
         {header}
-        <p className={styles.unavailable}>
-          {figures.withheld_reason ? withheld(figures.withheld_reason) : UNAVAILABLE}
-        </p>
+        <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>
       </Card>
     );
   }

@@ -20,8 +20,11 @@ type RiskBand = NonNullable<ModelInfo['risk_bands']>[number];
 export function lede(
   total: number | null | undefined,
   withheld: string | null | undefined,
+  synthetic = false,
 ): string {
   const count = total === undefined ? '… ' : total === null ? '' : `${int(total)} `;
+  // Generated customers have no outcome to show or withhold: the note above says so.
+  if (synthetic) return `All ${count}synthetic demo customers with their served probability.`;
   const rows = `All ${count}rows with their served probability.`;
   if (withheld === undefined) return rows;
   return withheld
@@ -33,7 +36,10 @@ export function lede(
 export function observedTile(
   summary: Summary,
   withheld: string | null,
+  synthetic = false,
 ): { value: string; sub: string } {
+  // Nothing was observed of a generated customer: the tile never shows a rate for them.
+  if (synthetic) return { value: '—', sub: 'synthetic customers have no outcome' };
   if (withheld) return { value: 'Withheld', sub: 'outcomes not shown' };
   if (summary.customers === 0) return { value: '—', sub: 'nobody in the selection' };
   const observed = summary.observed;

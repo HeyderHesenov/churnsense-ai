@@ -53,3 +53,11 @@ class ModelNotAvailableError(ChurnSenseError):
 
 class ReleaseRefused(ChurnSenseError):
     """The held-out partition's release cannot be made, or the ledger cannot be trusted."""
+
+
+class DemoDataError(ChurnSenseError):
+    """The public demo's data cannot be built, or what was published for it cannot be trusted.
+
+    Never answered with the dataset's own rows instead: the API maps it to
+    HTTP 503 ``demo_data_unavailable``.
+    """

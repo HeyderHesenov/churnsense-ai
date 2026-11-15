@@ -14,6 +14,7 @@ import { onNavigate, writeDrafts } from '../../app/router';
 import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { Button, ButtonLink } from '../../components/ui/Button';
+import { DataSourceNote, useSynthetic } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { exportLabel, lede } from './copy';
@@ -41,6 +42,7 @@ const WHOLE_BOOK = explorerFilter(FILTER_DEFAULTS);
 export default function ExplorerPage() {
   const [state, set] = useParams(EXPLORER_PARAMS);
   const info = useModelInfo();
+  const synthetic = useSynthetic();
   const book = useSelection(WHOLE_BOOK);
   const idle = idleReason(state);
   const listing = useCustomers(listingQuery(state));
@@ -153,8 +155,9 @@ export default function ExplorerPage() {
           title="Every customer, scored and filterable"
           size="md"
         >
-          {lede(book.isError ? null : book.data?.total, withheld)}
+          {lede(book.isError ? null : book.data?.total, withheld, synthetic)}
         </PageHeader>
+        <DataSourceNote parts={['customers', 'figures']} />
         <Presets state={state} set={set} />
         <Filters state={state} set={set} threshold={info.data?.threshold} />
         <Summary

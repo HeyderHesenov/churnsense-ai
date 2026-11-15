@@ -7,6 +7,7 @@
 import type { Cell, Segments } from '../../api/queries';
 import { Link } from '../../app/router';
 import { icons } from '../../components/icons';
+import { useSynthetic } from '../../components/ui/DataSourceNote';
 import { explorerText, focusText, showing } from './copy';
 import { explore, sameGroup, type View } from './patterns';
 import styles from './Patterns.module.css';
@@ -25,7 +26,10 @@ export function FocusLine({ view, data, active, pinned, next }: Props) {
   // Pointing at the pinned group itself still reads as the pin: the line does
   // not change, so the explorer link below it stays where the pointer is going.
   const isPinned = pinned !== null && (active === null || sameGroup(active, pinned));
-  const opens = pinned === null ? null : explore(view, pinned);
+  // The explorer lists the group's own training customers; a service that lists
+  // generated customers has none of them to open, so there is no link and no promise of one.
+  const synthetic = useSynthetic();
+  const opens = pinned === null || synthetic ? null : explore(view, pinned);
   return (
     <div className={styles.focus}>
       <p className={styles.focusLine} aria-hidden="true">

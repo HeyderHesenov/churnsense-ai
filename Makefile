@@ -19,7 +19,7 @@ APP_PORT ?= 8501
 API_PORT ?= 8000
 
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-runtime check-python lock sbom data eda train explain dev evaluate all test lint format audit app api frontend-install frontend frontend-test e2e clean
+.PHONY: help setup setup-runtime check-python lock sbom data eda train explain demo-data dev evaluate all test lint format audit app api frontend-install frontend frontend-test e2e clean
 
 help:  ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -91,6 +91,13 @@ train:  ## Select (CV), calibrate and set the threshold (validation); write arti
 
 explain:  ## Compute and cache global SHAP values and their figure
 	$(PY) -m churnsense.explainability.shap_explain
+
+# What the public demo serves from, written beside the model: the dataset's
+# training and validation aggregates (small groups hidden) and attributions of
+# generated customers. Reads what the service reads at every start; fits
+# nothing and never reads the test partition's outcomes.
+demo-data:  ## Publish the dataset's aggregates and the demo attributions for the public demo
+	$(PY) -m churnsense.demo.build
 
 # The routine loop. Nothing in it reads the test partition, so it can be run
 # as often as development needs.

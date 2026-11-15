@@ -19,8 +19,7 @@ import {
   SCORE_NOTE,
   NOT_PUBLISHED,
   TEST_SCOPE,
-  UNAVAILABLE,
-  withheld,
+  unavailableText,
 } from './copy';
 import {
   f1Of,
@@ -32,6 +31,7 @@ import {
 } from './performance';
 import { Coded } from './Provenance';
 import styles from './Performance.module.css';
+import { useSweepNote } from '../../components/ui/DataSourceNote';
 
 /** One partition's figures, as the scorecard reads them. */
 interface Column {
@@ -159,6 +159,7 @@ const GROUPS: { key: keyof typeof SCORE_GROUPS; rows: Row[] }[] = [
 ];
 
 export function Scorecard({ figures }: { figures: Performance }) {
+  const sweepNote = useSweepNote();
   const measured = figures.validation_evaluation;
   const test = figures.test;
   const validation: Column | null = measured && {
@@ -201,9 +202,7 @@ export function Scorecard({ figures }: { figures: Performance }) {
                 <span className={styles.colSub}>
                   {validation
                     ? `${int(validation.metrics.n)} customers`
-                    : figures.withheld_reason
-                      ? withheld(figures.withheld_reason)
-                      : UNAVAILABLE}
+                    : unavailableText(figures.withheld_reason, sweepNote)}
                 </span>
               </th>
               {recorded && (

@@ -6,13 +6,13 @@
 import { useOverview, useModelInfo } from '../../api/queries';
 import { useParams } from '../../app/params';
 import { MAIN_ID } from '../../components/shell/Shell';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { isBandName } from '../../lib/bands';
-import { int } from '../../lib/format';
 import { ErrorState, Skeleton } from '../../components/ui/States';
 import { OverviewHeader } from './OverviewHeader';
 import { Associations } from './Associations';
-import { riskiestBands } from './copy';
+import { footerSource, riskiestBands } from './copy';
 import { CampaignCard } from './Campaign';
 import { Distribution } from './Distribution';
 import { QUEUE_PARAMS } from './queue';
@@ -51,6 +51,7 @@ export default function OverviewPage() {
           </ErrorState>
         ) : (
           <>
+            <DataSourceNote parts={['customers', 'figures', 'evidence']} />
             <Summary
               book={book.data}
               info={info.data}
@@ -81,8 +82,8 @@ export default function OverviewPage() {
             <RetentionQueue book={book.data} state={queue} set={setQueue} />
             <footer className={styles.footer}>
               <span>
-                IBM Telco Customer Churn · {int(book.data.customers)} rows · attributions are signed
-                SHAP, pp · orange raises, blue lowers
+                {footerSource(info.data?.data_source, book.data.customers)} · attributions are
+                signed SHAP, pp · orange raises, blue lowers
               </span>
               <span>Every figure on this page was produced by running the code.</span>
             </footer>

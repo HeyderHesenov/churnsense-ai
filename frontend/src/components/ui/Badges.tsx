@@ -36,10 +36,23 @@ const PARTITION: Record<Partition, string> = {
   validation: 'val',
   test: 'test',
   unknown: 'unverified',
+  synthetic: 'synthetic',
 };
+/** A generated customer has no outcome to withhold: the pill says what they are instead. */
+export const SYNTHETIC_OUTCOME = 'Synthetic · no outcome';
 
-/** "Churned · train": a known outcome, or a dashed "Withheld" where none may be shown. */
+/**
+ * "Churned · train": a known outcome, or a dashed "Withheld" where none may be
+ * shown. A generated demo customer reads "Synthetic · no outcome" on every row.
+ */
 export function OutcomePill({ outcome, partition }: { outcome: Outcome; partition: Partition }) {
+  if (partition === 'synthetic') {
+    return (
+      <span className={styles.outcome} data-outcome="withheld" data-partition="synthetic">
+        {SYNTHETIC_OUTCOME}
+      </span>
+    );
+  }
   return (
     <span className={styles.outcome} data-outcome={outcome}>
       {OUTCOME[outcome]} · {PARTITION[partition]}

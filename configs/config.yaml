@@ -87,6 +87,19 @@ business:
   expected_horizon_months: 12         # window over which retained revenue is counted
   gross_margin: 0.65                  # margin fraction of revenue; avoids treating revenue as profit
 
+# Where the service runs, and whose customers it lists. Two stated choices,
+# read from nothing else (src/churnsense/config.py, Deployment):
+#   mode:             local | public_demo
+#   customer_records: dataset   - the dataset's own customers, scored (needs the
+#                                 dataset beside the service; loopback only)
+#                     synthetic - generated demo customers and the dataset's
+#                                 published aggregates (`make demo-data`); the
+#                                 dataset is never opened
+# A public demo with customer_records: dataset does not load.
+deployment:
+  mode: local
+  customer_records: dataset
+
 api:
   max_batch_rows: 10000
   max_upload_bytes: 5242880           # 5 MiB

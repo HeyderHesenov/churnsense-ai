@@ -20,6 +20,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from churnsense.data import schema as columns
+from churnsense.evaluation.disclosure import MIN_CELL
 
 # Mirrors churnsense.data.schema.ALLOWED_CATEGORIES; tests/test_api.py asserts
 # the two stay identical.
@@ -178,6 +179,8 @@ class ModelInfoResponse(BaseModel):
     upload_contract: UploadContract | None = None
     provenance: Provenance | None = None
     test_evaluation: HoldoutSummary | None = None
+    #: Whose customers the pages list; null when no book could be built.
+    data_source: DataSource | None = None
 
 
 class ErrorResponse(BaseModel):
@@ -246,6 +249,58 @@ class Provenance(BaseModel):
     data_sha256: str | None
     split_digest: str | None
     withheld_reason: str | None
+
+
+#: What a page that lists generated customers says of them, in the service's own
+#: words: a page prints these, so the label cannot drift from what is served.
+SYNTHETIC_TITLE = "Synthetic demo customers"
+SYNTHETIC_NOTICE = (
+    "Every customer listed here was generated for this demo. None is a row of the "
+    "IBM Telco sample, and none has an observed outcome."
+)
+SYNTHETIC_FIGURES_NOTE = (
+    "Illustrative: these counts, charges and revenue at risk are of the synthetic demo "
+    "customers, scored by the served model. They are not measured results."
+)
+EVIDENCE_NOTE = (
+    "Observed churn rates, patterns and validation figures are aggregates of the IBM Telco "
+    "sample's training and validation partitions. No row of that dataset is served. "
+    f"Figures that split validation customers by score are given only at cuts with at least "
+    f"{MIN_CELL} churners and {MIN_CELL} stayers between any two of them; the peak and the "
+    "recommendation are read among those cuts."
+)
+DATASET_TITLE = "IBM Telco sample"
+
+
+class DataSource(BaseModel):
+    """Whose customers the pages list, and what to say of them where they appear."""
+
+    customer_records: Literal["dataset", "synthetic"]
+    #: Customers in the book being listed.
+    customers: int
+    title: str
+    #: Shown wherever customers are listed; null when they are the dataset's own.
+    notice: str | None = None
+    #: Shown beside every count, charge and revenue figure of generated customers.
+    figures_note: str | None = None
+    #: Where the observed figures come from, when not from the customers listed.
+    evidence_note: str | None = None
+    #: Why no validation sweep is published, when none is; printed where the sweep would be.
+    sweep_note: str | None = None
+
+    @classmethod
+    def of(cls, synthetic: bool, customers: int, sweep_note: str | None = None) -> DataSource:
+        if not synthetic:
+            return cls(customer_records="dataset", customers=customers, title=DATASET_TITLE)
+        return cls(
+            customer_records="synthetic",
+            customers=customers,
+            title=SYNTHETIC_TITLE,
+            notice=SYNTHETIC_NOTICE,
+            figures_note=SYNTHETIC_FIGURES_NOTE,
+            evidence_note=EVIDENCE_NOTE,
+            sweep_note=sweep_note,
+        )
 
 
 class RiskBand(BaseModel):

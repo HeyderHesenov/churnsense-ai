@@ -11,6 +11,7 @@ import { ErrorState } from '../../components/ui/States';
 import { StatTile } from '../../components/ui/Surface';
 import { bandTop } from '../../lib/bands';
 import { cut, int, money, pct, probability } from '../../lib/format';
+import { useSynthetic } from '../../components/ui/DataSourceNote';
 import { flaggedLabel, observedTile, selectionStatus } from './copy';
 import type { IdleReason } from './explorer';
 import styles from './Explorer.module.css';
@@ -93,7 +94,7 @@ function Tiles({
   threshold: number | undefined;
   withheld: string | null;
 }) {
-  const observed = observedTile(summary, withheld);
+  const observed = observedTile(summary, withheld, useSynthetic());
   return (
     <>
       <StatTile

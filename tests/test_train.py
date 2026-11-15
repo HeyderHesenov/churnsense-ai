@@ -750,18 +750,26 @@ def test_fit_time_alone_does_not_change_the_tracked_reports(
     assert rendered(slower, "slower") == first
 
 
-def test_the_tracked_comparison_reports_come_from_one_run():
-    """The committed CSV and markdown table are one run through one renderer.
+def _tracked_comparison() -> pd.DataFrame:
+    # The default parser can move the 17th significant digit; read what was written.
+    return pd.read_csv(tracked_report("model_comparison.csv"), float_precision="round_trip")
 
-    `make train` writes both. A hand edit to either, or a renderer change
-    committed without re-running, makes them disagree.
+
+def test_the_tracked_comparison_table_has_the_reported_columns():
+    """The committed CSV, in every checkout: the columns the report and the API read."""
+    assert list(_tracked_comparison().columns) == REPORTED_COLUMNS
+
+
+def test_the_comparison_reports_come_from_one_run():
+    """The CSV and the markdown table are one run through one renderer.
+
+    `make train` writes both; the markdown is kept out of git since E8, so this runs
+    where it was written. A hand edit to either, or a renderer change not followed by a
+    re-run, makes them disagree.
     """
     from churnsense.evaluation.report import _markdown_table
 
-    # The default parser can move the 17th significant digit; read what was written.
-    tracked = pd.read_csv(tracked_report("model_comparison.csv"), float_precision="round_trip")
-    assert list(tracked.columns) == REPORTED_COLUMNS
-    table = _markdown_table(tracked.set_axis(REPORTED_HEADERS, axis=1))
+    table = _markdown_table(_tracked_comparison().set_axis(REPORTED_HEADERS, axis=1))
     assert table in tracked_report("model_comparison.md").read_text()
 
 

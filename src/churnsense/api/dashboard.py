@@ -12,11 +12,20 @@ Three rules hold on every route here:
   ``churnsense.book``, which withholds them;
 * no rate is returned for fewer than 20 customers;
 * every error has the ``ErrorResponse`` shape and names no file or path.
+
+Two kinds of figure, kept apart: what the *book* holds (its customers, their
+scores and charges - read from ``Dashboard.book``) and what was *observed* of
+the dataset (rates, breakdowns, the validation sweep - read from
+``Dashboard.evidence``). With the dataset beside the service they describe the
+same customers. In a public demo the book is generated customers and the
+evidence is the published aggregates (``churnsense.evidence``): no route here
+can reach a dataset row, because none is in the process.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -53,7 +62,12 @@ from churnsense.api.uploads import read_upload
 from churnsense.config import Business, Config, load_config
 from churnsense.data import schema
 from churnsense.evaluation import disclosure, release
-from churnsense.evaluation.threshold import DISCLAIMER, ThresholdScenario, scenario_at
+from churnsense.evaluation.threshold import (
+    DISCLAIMER,
+    SweepBasis,
+    ThresholdScenario,
+    scenario_at,
+)
 from churnsense.exceptions import DataError
 from churnsense.explainability.shap_explain import (
     ADDITIVITY_TOLERANCE,
@@ -64,11 +78,11 @@ from churnsense.explainability.shap_explain import (
     NumericDependence,
     dependence,
     load_cached_explanations,
-    read_cache,
 )
 from churnsense.exports import csv_bytes
 from churnsense.models.predict import Predictor, ignored_columns
 from churnsense.models.registry import DISPLAY_NAMES
+from churnsense.score_disclosure import AT_HALF
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +105,13 @@ class OutcomesWithheldError(Unavailable):
             "outcomes_withheld",
             f"Historical outcomes are withheld: {reason or 'the partitions are unverified.'}",
         )
+
+
+class SweepWithheldError(Unavailable):
+    """Outcomes are known, but no thresholds keep the published rule: no sweep is shown."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("sweep_withheld", reason)
 
 
 def _invalid(location: str, message: str) -> RequestValidationError:
@@ -125,8 +146,15 @@ def _cell(cell: insights.Cell) -> out.ReportedCell | out.SuppressedCell:
 
 
 def _breakdown(d: Dashboard, rows: str, columns: str | None = None) -> insights.Breakdown | None:
-    """``insights.breakdown``, once per dashboard: protecting a table is the costly part."""
-    return d.memo(f"breakdown:{rows}:{columns}", lambda: insights.breakdown(d.book, rows, columns))
+    """A breakdown of the dataset's training partition, from the dashboard's evidence."""
+    return d.evidence.breakdown(rows, columns)
+
+
+def _bands(d: Dashboard) -> list[insights.BandSummary]:
+    """The book's customers per risk band, each with what was observed of that band."""
+    return d.memo(
+        "bands", lambda: insights.band_summaries(d.book, d.config, d.evidence.band_observed())
+    )
 
 
 def _scenario(s: ThresholdScenario) -> out.Scenario:
@@ -172,14 +200,14 @@ def _association(d: Dashboard) -> list[out.Association] | None:
 
 
 def _importance(d: Dashboard) -> tuple[list[out.Importance], out.ImportanceBasis] | None:
-    """The cached importance ranking and the customers it was computed on, or ``None``."""
-    cached = read_cache(d.shap_cache, d.model.meta.get("model_sha256", ""))
-    if cached is None:
+    """The validation sample's importance ranking and the customers it was computed on, or ``None``."""
+    found = d.evidence.importance()
+    if found is None:
         return None
     try:
-        ranking = [out.Importance(**r) for r in cached["importance"]]
-        basis = out.ImportanceBasis(partition=cached["partition"], customers=cached["n_explained"])
-    except (KeyError, TypeError, ValidationError):
+        ranking = [out.Importance(**r) for r in found.ranking]
+        basis = out.ImportanceBasis(partition=found.partition, customers=found.customers)
+    except (TypeError, ValidationError):
         logger.warning("the SHAP cache's importance ranking is malformed; ignoring it")
         return None
     return ranking, basis
@@ -242,8 +270,11 @@ def _segment_tab(d: Dashboard, key: str) -> out.SegmentTab | None:
     if split is None:
         return None
     reported = [c for c in split.row_totals if c.rate is not None]
-    top = max(reported, key=lambda c: c.rate, default=None)
-    low = min(reported, key=lambda c: c.rate, default=None)
+    # A spread and a peak compare levels: with fewer than two shown there is nothing to
+    # compare, and a hidden level must not be read as the lowest or highest one.
+    compared = len(reported) >= 2
+    top = max(reported, key=lambda c: c.rate, default=None) if compared else None
+    low = min(reported, key=lambda c: c.rate, default=None) if compared else None
     return out.SegmentTab(
         key=key,
         partition_customers=split.partition_customers,
@@ -263,7 +294,7 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
     explain`` shows without a restart.
     """
     cfg = d.config
-    lifecycle = d.memo("lifecycle", lambda: insights.lifecycle(d.book))
+    lifecycle = d.evidence.lifecycle()
     tabs = d.memo(
         "segment_tabs",
         lambda: [tab for key in insights.OVERVIEW_SEGMENTS if (tab := _segment_tab(d, key))],
@@ -304,11 +335,14 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
             "unknown_charges", lambda: insights.unknown_monthly_charges(d.book)
         ),
         threshold=d.model.threshold,
-        observed=d.memo("observed", lambda: insights.observed_overall(d.book)),
+        observed=d.evidence.observed(),
         high_or_critical=d.memo("high", lambda: insights.high_or_critical(d.book, cfg)),
         flagged=d.memo("flagged", lambda: insights.flagged_share(d.book)),
-        bands=d.memo("bands", lambda: insights.band_summaries(d.book, cfg)),
-        histogram=d.memo("histogram", lambda: insights.probability_histogram(d.book, cfg)),
+        bands=_bands(d),
+        histogram=d.memo(
+            "histogram",
+            lambda: insights.probability_histogram(d.book, cfg, d.evidence.histogram_observed()),
+        ),
         segments=tabs,
         lifecycle=None
         if lifecycle is None
@@ -323,7 +357,7 @@ def overview(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.OverviewRes
         importance_basis=importance_basis,
         association=association,
         campaign=campaign,
-        withheld_reason=d.book.withheld,
+        withheld_reason=d.evidence.withheld,
     )
 
 
@@ -453,10 +487,12 @@ def export_customers(
     """
     matches = insights.ordered(insights.select(d.frame, selection), sort, direction == "desc")
     body = csv_bytes(insights.export_frame(matches, d.model.feature_columns))
+    # The file says what it holds: a public demo's export is generated customers.
+    name = "churnsense_demo_customers.csv" if d.synthetic else "churnsense_customers.csv"
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="churnsense_customers.csv"'},
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
 
 
@@ -526,9 +562,11 @@ def explain(
 ) -> out.ExplainResponse:
     """Every feature's signed contribution to the served probability.
 
-    Measured against the same 100 training customers, with the same seed and
-    number of orderings, on every page. These attribute the model's output;
-    they say nothing about why a customer stays or leaves.
+    Measured against the same 100 customers, with the same seed and number of
+    orderings, on every page: training customers, or - where the book is a
+    public demo's generated one - generated customers, as ``background`` says.
+    These attribute the model's output; they say nothing about why a customer
+    stays or leaves.
     """
     with explanation_slot():
         if request.customer_ids is not None:
@@ -555,6 +593,7 @@ def explain(
         permutations=PERMUTATIONS,
         seed=d.config.random_seed,
         background_customers=len(d.background) if d.background is not None else 0,
+        background=d.background_kind,
         explanations=explanations,
         caveat=CAVEAT,
     )
@@ -588,7 +627,11 @@ def _dependence_out(
     responses=_ERRORS,
 )
 def global_explanation(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.GlobalExplanation:
-    """``make explain``'s attributions for a validation sample, as the explainability page draws them."""
+    """The cached attributions of a sample of the book's customers, as the explainability page draws them.
+
+    ``partition`` says whose: the dataset's validation sample (``make explain``),
+    or a public demo's generated customers (``make demo-data``).
+    """
     sha = d.model.meta.get("model_sha256", "")
     not_cached = Unavailable(
         "explanations_not_cached",
@@ -628,7 +671,7 @@ def global_explanation(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.G
             for summary in dependence(cached["features"], cached["values"], cached["x"])
         ],
         dependence_min_customers=DEPENDENCE_MIN_CUSTOMERS,
-        total_charges_r=insights.collinearity(d.book),
+        total_charges_r=d.evidence.collinearity(),
         caveat=CAVEAT,
     )
 
@@ -653,11 +696,11 @@ def segments(
         raise _invalid("cols", "rows and cols must be different dimensions")
     split = _breakdown(d, rows, cols)
     if split is None:
-        raise OutcomesWithheldError(d.book.withheld)
+        raise OutcomesWithheldError(d.evidence.withheld)
     return out.SegmentsResponse(
         rows=split.rows,
         columns=split.columns,
-        book_customers=len(d.book.frame),
+        book_customers=d.evidence.dataset_customers,
         partition_customers=split.partition_customers,
         partition_churned=split.partition_churned,
         min_customers=insights.MIN_CELL,
@@ -705,7 +748,9 @@ def threshold_sweep(
     )
     economics = d.economics(business)
     if economics is None:
-        raise OutcomesWithheldError(d.book.withheld)
+        if d.evidence.withheld is None and d.evidence.sweep_withheld is not None:
+            raise SweepWithheldError(d.evidence.sweep_withheld)
+        raise OutcomesWithheldError(d.evidence.withheld)
     return out.SweepResponse(
         assumptions=_assumptions(business),
         customers=economics.customers,
@@ -733,6 +778,94 @@ def _at_half(metrics: dict | None) -> out.AtHalf | None:
     return out.AtHalf(
         precision=metrics["precision"], recall=metrics["recall"], brier=metrics["brier"]
     )
+
+
+def _calibration(d: Dashboard) -> out.Calibration:
+    """Calibration before and after, at 0.5. A public demo states the after only where 0.5 is
+    a cut of its published sweep, read off that sweep, and never the before: the candidate's
+    own scores would split validation customers along edges of their own."""
+    meta = d.model.meta
+    uncalibrated = _at_half(meta.get("candidate_validation_metrics"))
+    calibrated = _at_half(meta.get("validation_metrics"))
+    if d.synthetic:
+        uncalibrated = None
+        calibrated = _published_at_half(d.evidence.sweep_basis(), calibrated)
+    return out.Calibration(
+        method=meta.get("calibration_method"),
+        epsilon=meta.get("probability_epsilon"),
+        uncalibrated=uncalibrated,
+        calibrated=calibrated,
+        uncalibrated_ece=meta.get("uncalibrated_ece"),
+        calibrated_ece=meta.get("calibrated_ece"),
+    )
+
+
+def _published_at_half(basis: SweepBasis | None, recorded: out.AtHalf | None) -> out.AtHalf | None:
+    if basis is None or recorded is None:
+        return None
+    at = [i for i, t in enumerate(basis.thresholds) if math.isclose(t, AT_HALF, abs_tol=1e-9)]
+    if not at:
+        return None
+    tp, fp = basis.true_positives[at[0]], basis.false_positives[at[0]]
+    return out.AtHalf(
+        precision=tp / (tp + fp) if tp + fp else 0.0,
+        recall=tp / basis.churners if basis.churners else 0.0,
+        brier=recorded.brier,
+    )
+
+
+#: Validation figures over the whole partition: no count at any cut follows from them.
+WHOLE_PARTITION_SCALARS = ("roc_auc", "average_precision", "brier")
+
+
+def validation_metrics_served(
+    recorded: dict[str, Any],
+    basis: SweepBasis | None,
+    synthetic: bool,
+    measured: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The model's validation record, as ``/model-info`` states it.
+
+    It is a count at a cut of its own (0.5). With the dataset's own book it is served as
+    recorded. A public demo states counts only at a cut of its published sweep, read off
+    that sweep; where the record's cut is not one, only the whole-partition scalars.
+
+    In a public demo the scalars are the published evidence's (``measured``), the ones
+    ``/api/performance`` serves, so one partition has one ROC-AUC. Training recorded its own
+    from the same model and customers; isotonic calibration ties hundreds of scores, and
+    rounding noise of about 1e-15 between the two scoring paths breaks one tie differently,
+    which moves ROC-AUC in the sixth decimal (docs/MODEL_CARD.md).
+    """
+    if not synthetic:
+        return recorded
+    source = recorded if measured is None else measured
+    scalars = {key: source[key] for key in WHOLE_PARTITION_SCALARS if key in source}
+    cut = recorded.get("threshold")
+    at = [
+        i
+        for i, t in enumerate(basis.thresholds if basis is not None else ())
+        if isinstance(cut, int | float) and math.isclose(t, cut, abs_tol=1e-9)
+    ]
+    if basis is None or not at:
+        return scalars
+    i = at[0]
+    tp, fp, fn = basis.true_positives[i], basis.false_positives[i], basis.false_negatives[i]
+    n = basis.customers
+    precision = tp / (tp + fp) if tp + fp else 0.0
+    recall = tp / (tp + fn) if tp + fn else 0.0
+    return {
+        "threshold": basis.thresholds[i],
+        "n": n,
+        "positives": tp + fn,
+        "tn": n - tp - fp - fn,
+        "fp": fp,
+        "fn": fn,
+        "tp": tp,
+        "accuracy": (n - fp - fn) / n,
+        "precision": precision,
+        "recall": recall,
+        "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
+    } | scalars
 
 
 def _leader_gap(comparison: pd.DataFrame | None, leader_name: str) -> float | None:
@@ -785,43 +918,37 @@ def performance(d: Annotated[Dashboard, Depends(get_dashboard)]) -> out.Performa
             out.Candidate(**row)
             for row in comparison[list(out.Candidate.model_fields)].to_dict(orient="records")
         ],
-        calibration=out.Calibration(
-            method=meta.get("calibration_method"),
-            epsilon=meta.get("probability_epsilon"),
-            uncalibrated=_at_half(meta.get("candidate_validation_metrics")),
-            calibrated=_at_half(meta.get("validation_metrics")),
-            uncalibrated_ece=meta.get("uncalibrated_ece"),
-            calibrated_ece=meta.get("calibrated_ece"),
-        ),
-        bands=d.memo("bands", lambda: insights.band_summaries(d.book, d.config)),
+        calibration=_calibration(d),
+        bands=_bands(d),
         validation=None if economics is None else _curve(economics),
-        validation_evaluation=d.memo(
-            "validation_evaluation",
-            lambda: insights.validation_evaluation(
-                d.book, d.model.threshold, schema.VALIDATION_SEGMENTS
-            ),
-        ),
+        validation_evaluation=d.evidence.validation_evaluation(),
         test=record,
         test_reason=None
         if record is not None
         else TEST_WITHHELD_REASON
         if withheld
         else "No test evaluation is recorded for this model.",
-        withheld_reason=d.book.withheld,
+        withheld_reason=d.evidence.withheld,
     )
 
 
 # --- batch scoring ------------------------------------------------------------------------------
 
 
-def _notes(frame: pd.DataFrame, ignored: list[str]) -> list[str]:
-    """What the page says about the upload's extra columns: known ones, then unknown ones."""
+def _notes(frame: pd.DataFrame, ignored: list[str], compares: bool) -> list[str]:
+    """What the page says about the upload's extra columns: known ones, then unknown ones.
+
+    ``compares`` is whether this service compares an upload's labels at all: one
+    without its dataset, or a public demo, does not, and must not say it does.
+    """
     notes = []
     if "gender" in frame.columns:
         notes.append("gender is ignored: excluded from the model as a protected attribute")
     if schema.TARGET in frame.columns:
         notes.append(
             "Churn is never used to score; it is kept only to compare against the predictions"
+            if compares
+            else "Churn is never used to score, and here it is not compared with the predictions"
         )
     if ignored:
         shown = ", ".join(c[:40] for c in ignored[:6])
@@ -851,6 +978,16 @@ def _held_out(frame: pd.DataFrame, inputs: pd.DataFrame, d: Dashboard) -> pd.Ser
     by_id = frame[schema.ID_COLUMN].astype(str).str.strip().str.upper().isin(ids)
     return by_id | by_input
 
+
+#: Why an upload's own labels are neither compared nor shown.
+NO_LABELS_DATASET = (
+    "The dataset is not available, so customers from the held-out test partition "
+    "could not be told apart. Labels are not compared or shown."
+)
+NO_LABELS_DEMO = (
+    "This demo holds no dataset, so customers from the held-out test partition "
+    "could not be told apart. Labels are not compared or shown."
+)
 
 #: Why a rate over enough labelled rows has no value: nothing in its denominator.
 _UNDEFINED_RATES = {
@@ -930,11 +1067,12 @@ def _score_upload(
     # Without the book no row can be told apart from a test customer, so no
     # label is compared or echoed back at all (see the label condition below).
     held_out = pd.Series(False, index=frame.index)
-    if has_label and d is None:
-        labels_reason = (
-            "The dataset is not available, so customers from the held-out test partition "
-            "could not be told apart. Labels are not compared or shown."
-        )
+    # A public demo holds generated customers only: like a service without its
+    # book, it cannot tell a held-out customer apart, so it compares no label -
+    # and nothing in its answer depends on who was uploaded.
+    compares = d is not None and not d.synthetic
+    if has_label and not compares:
+        labels_reason = NO_LABELS_DEMO if d is not None else NO_LABELS_DATASET
     elif has_label and d is not None:
         held_out = _held_out(frame, inputs, d)
         labels = _label_check(frame, scored["flagged"], held_out)
@@ -946,7 +1084,7 @@ def _score_upload(
             row=int(index),
             customer_id=(str(frame.at[index, schema.ID_COLUMN]) or None) if has_id else None,
             label=int(frame.at[index, schema.TARGET])
-            if has_label and d is not None and not held_out.at[index]
+            if has_label and compares and not held_out.at[index]
             else None,
             features={c: _py(v) for c, v in inputs.loc[index].items()},
             churn_probability=float(s.churn_probability),
@@ -973,6 +1111,6 @@ def _score_upload(
             labels=labels,
             labels_reason=labels_reason,
         ),
-        notes=_notes(frame, ignored),
+        notes=_notes(frame, ignored, compares),
         csv=_scored_csv(frame, inputs, scored),
     )

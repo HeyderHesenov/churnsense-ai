@@ -114,18 +114,19 @@ export function nearestCut(points: readonly Cut[], fx: number, fy: number): numb
   return best;
 }
 
-/** Every 0.05, and every cut the chart marks, for its table. */
-export function tabledCuts(points: readonly Cut[], marked: readonly number[]): Cut[] {
-  return points.filter(
-    (point, i) => Math.round(point.threshold * 100) % 5 === 0 || marked.includes(i),
-  );
-}
+export { tabledCuts } from '../../lib/cuts';
 
 // --- reliability --------------------------------------------------------------------
 
-/** A reliability bin's range: "0.3–0.4". */
-export function binLabel(bin: Bin): string {
-  return `${bin.low.toFixed(1)}–${bin.high.toFixed(1)}`;
+function onATenth(value: number): boolean {
+  return Math.abs(value * 10 - Math.round(value * 10)) < 1e-9;
+}
+
+/** A reliability bin's range: "0.3–0.4" for tenths, "0.24–0.28" between uneven cuts. */
+export function binLabel(bin: Pick<Bin, 'low' | 'high'>): string {
+  const tenths = onATenth(bin.low) && onATenth(bin.high);
+  const edge = (value: number) => (tenths ? value.toFixed(1) : cut(value));
+  return `${edge(bin.low)}–${edge(bin.high)}`;
 }
 
 export const REL = { width: 360, height: 360, left: 54, right: 350, top: 12, bottom: 308 };

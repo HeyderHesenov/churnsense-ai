@@ -55,6 +55,10 @@ def _csv(path: Path, columns: tuple[str, ...], numbers: tuple[str, ...]) -> pd.D
     return frame
 
 
+#: Decimals an association strength is served with (``churnsense.eda.STRENGTH_DECIMALS``).
+STRENGTH_DECIMALS = 2
+
+
 def association_ranking(reports_dir: Path) -> pd.DataFrame | None:
     """``make eda``'s ranking: Cramer's V or |point-biserial r| per feature, training partition."""
     frame = _csv(reports_dir / ASSOCIATION_FILE, _ASSOCIATION_COLUMNS, _ASSOCIATION_NUMBERS)
@@ -62,7 +66,12 @@ def association_ranking(reports_dir: Path) -> pd.DataFrame | None:
         return None
     if not frame["strength"].between(0, 1).all():
         raise DataError(f"{ASSOCIATION_FILE} holds a strength outside [0, 1]")
-    return frame.sort_values("strength", ascending=False, kind="mergesort").reset_index(drop=True)
+    # Ordered as written (``make eda`` orders on the exact values), then at most two decimals:
+    # an exact strength beside the published counts can be inverted into a withheld one.
+    ordered = frame.sort_values("strength", ascending=False, kind="mergesort")
+    return ordered.assign(strength=ordered["strength"].round(STRENGTH_DECIMALS)).reset_index(
+        drop=True
+    )
 
 
 def model_comparison(reports_dir: Path) -> pd.DataFrame | None:

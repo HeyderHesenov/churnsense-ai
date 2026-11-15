@@ -20,6 +20,8 @@ from churnsense.evaluation.threshold import (
     assign_risk_bands,
     recommend_threshold,
     recommend_threshold_from,
+    sweep_basis,
+    sweep_from_basis,
     sweep_thresholds,
 )
 from tests.conftest import tracked_report
@@ -307,3 +309,37 @@ def test_the_recommendation_moves_with_the_success_rate_as_published(cfg: Config
         measured[rate] = recommend_threshold_from(sweep, business).threshold
     assert [round(measured[r], 2) for r in sorted(measured)] == [0.88, 0.50, 0.36, 0.23, 0.22]
     assert measured == pytest.approx(published)
+
+
+# --- the sweep from totals ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "business",
+    [
+        BUSINESS,
+        replace(BUSINESS, retention_offer_cost=12.5, offer_success_rate=0.23, gross_margin=0.41),
+    ],
+)
+@pytest.mark.parametrize("grid", [None, [0.0, 0.36, 0.5, 1.0]])
+def test_the_sweep_from_totals_is_the_sweep_from_customers(business, grid):
+    """One table, two ways: the report prices customers, the dashboard prices totals.
+
+    ``sweep_thresholds`` is what the model card's figures were computed with;
+    ``sweep_from_basis`` is what every page shows. Counts must be equal, and money
+    equal to rounding (the same sum taken in another order).
+    """
+    rng = np.random.default_rng(7)
+    proba = rng.random(600).round(2)  # two decimals: scores tie with the grid's cuts
+    y = (rng.random(600) < proba).astype(int)
+    charges = rng.uniform(18.0, 120.0, 600).round(2)
+
+    direct = sweep_thresholds(y, proba, charges, business, thresholds=grid)
+    rebuilt = sweep_from_basis(sweep_basis(y, proba, charges, thresholds=grid), business)
+
+    counts = ["flagged", "true_positives", "false_positives", "false_negatives"]
+    # Not vacuous: the counts move along the grid, and scores sit exactly on cuts.
+    assert direct["true_positives"].iloc[0] > direct["true_positives"].iloc[-1] > 0
+    assert np.isin(proba, direct["threshold"].to_numpy()[1:-1]).any()
+    pd.testing.assert_frame_equal(rebuilt[counts], direct[counts], check_exact=True)
+    pd.testing.assert_frame_equal(rebuilt, direct, check_exact=False, rtol=1e-12, atol=1e-9)

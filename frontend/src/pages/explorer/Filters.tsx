@@ -11,6 +11,7 @@ import { Select } from '../../components/ui/Field';
 import { Segmented, ToggleChip, type Option } from '../../components/ui/Toggle';
 import { BAND_NAMES } from '../../lib/bands';
 import { cleanCustomerId, MAX_CUSTOMER_ID } from '../../lib/customerId';
+import { useSynthetic } from '../../components/ui/DataSourceNote';
 import { PARTITION_OPTIONS } from '../../lib/labels';
 import { cx } from '../../lib/style';
 import { useSettledDraft } from '../../app/useSettledDraft';
@@ -57,6 +58,7 @@ export function Filters({ state, set, threshold }: FiltersProps) {
   const tenureId = useId();
   const invalidId = useId();
   const invalid = tenureInvalid(state);
+  const synthetic = useSynthetic();
   const toggleBand = (band: (typeof BAND_NAMES)[number]) =>
     set({
       bands: state.bands.includes(band)
@@ -148,13 +150,16 @@ export function Filters({ state, set, threshold }: FiltersProps) {
         />
       </div>
 
-      <Select
-        label="Partition"
-        layout="stacked"
-        value={state.part ?? 'all'}
-        options={PARTITION_OPTIONS}
-        onChange={(v) => set({ part: v === 'all' ? null : v, page: 1 })}
-      />
+      {/* Generated customers are in no partition of the dataset: there is nothing to choose. */}
+      {!synthetic && (
+        <Select
+          label="Partition"
+          layout="stacked"
+          value={state.part ?? 'all'}
+          options={PARTITION_OPTIONS}
+          onChange={(v) => set({ part: v === 'all' ? null : v, page: 1 })}
+        />
+      )}
 
       {/* Marked, not disabled, with nothing to reset: pressing it must not drop the focus. */}
       <Button

@@ -29,6 +29,7 @@ import { icons } from '../../components/icons';
 import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button } from '../../components/ui/Button';
+import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { ErrorState } from '../../components/ui/States';
@@ -320,6 +321,7 @@ export default function CustomerPage() {
         <PageHeader eyebrow="Single customer · explainability" title="What moved this estimate">
           {LEDE}
         </PageHeader>
+        <DataSourceNote parts={['customers']} />
         <p role="status" className={unsaved ? styles.unsaved : 'sr'}>
           {unsaved ? 'The browser did not save the file.' : ''}
         </p>

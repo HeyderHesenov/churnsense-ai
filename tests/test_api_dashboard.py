@@ -588,10 +588,14 @@ def test_a_cross_tab_reports_every_combination_and_suppresses_small_cells(
                 "column": cell["column"],
                 "suppressed": True,
                 "n": cell["n"],
-                "reason": "too_few" if cell["n"] < 20 else "complementary",
+                "reason": cell["reason"],
             }
+            assert (cell["reason"] == "too_few") == (cell["n"] < 20)
+            assert cell["reason"] in {"too_few", "cross_partition", "withheld"}
+            if cell["row"] == "Two year" and cell["n"]:
+                assert cell["reason"] in {"too_few", "cross_partition"}
         else:
-            assert cell["n"] >= 20 and 0 <= cell["rate"] <= 1
+            assert 20 <= cell["churned"] <= cell["n"] - 20 and 0 <= cell["rate"] <= 1
     rates = [c["rate"] for c in body["ranked"]]
     assert rates == sorted(rates, reverse=True) and len(rates) <= 7
 
@@ -675,7 +679,8 @@ def test_a_cross_tabs_margins_are_the_one_way_breakdowns_the_overview_shows(serv
 
 
 def test_a_reported_cells_interval_is_its_wilson_interval(served):
-    body = _ok(served.get("/api/segments", params={"rows": "Contract", "cols": "PaymentMethod"}))
+    # The small book shows few groups of twenty of each outcome; these margins are among them.
+    body = _ok(served.get("/api/segments", params={"rows": "PaperlessBilling", "cols": "Partner"}))
     reported = [c for c in [*body["cells"], *body["row_totals"]] if not c["suppressed"]]
     assert reported
     for cell in reported:
@@ -707,7 +712,28 @@ def _explorer_filter(dimension: str, level: str) -> dict[str, object]:
 _LISTED = ("Contract", "tenure", "InternetService", "PaymentMethod")
 
 
-def test_a_reported_group_counts_the_customers_the_explorer_lists_for_it(served):
+@pytest.fixture
+def served_large(served, environment, public_frame, public_predictor) -> Iterator[TestClient]:
+    """The dataset-backed service on the larger synthetic book: enough customers that groups
+    of twenty churners and twenty stayers exist to compare. Restores ``served`` after the
+    test - function-scoped, so no later test in the module reads the larger book."""
+    from churnsense.api import state
+    from tests.conftest import PUBLIC_SHA256
+
+    _artifacts, reports = environment
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(state, "ARTIFACTS_DIR", public_predictor.source)
+        patch.setattr(state, "REPORTS_DIR", reports)
+        patch.setattr(
+            state, "BOOK_LOADER", lambda model: score_book(public_frame, PUBLIC_SHA256, model)
+        )
+        state.reset()
+        yield served
+    state.reset()
+
+
+def test_a_reported_group_counts_the_customers_the_explorer_lists_for_it(served_large):
+    served = served_large
     compared = 0
     views = [(rows, None) for rows in _LISTED] + list(itertools.combinations(_LISTED, 2))
     for rows, cols in views:
@@ -1578,9 +1604,15 @@ def test_a_label_check_counts_only_the_rows_it_compares(served, raw_frame, ids, 
     15 compared and 10 held out are still too few for a rate."""
     held_out = raw_frame[raw_frame[schema.ID_COLUMN].isin(ids["test"])].head(10)
     upload = pd.concat([_labelled_churners(raw_frame, ids, model, 15), held_out])
-    labels = _ok(_upload(served, upload))["summary"]["labels"]
+    body = _ok(_upload(served, upload))
+    labels = body["summary"]["labels"]
     assert (labels["labelled"], labels["excluded_test"]) == (15, 10)
     assert labels["precision"] is None and labels["recall"] is None
+    # Beside its dataset the service does compare, and its note about the column says so.
+    assert (
+        "Churn is never used to score; it is kept only to compare against the predictions"
+        in body["notes"]
+    )
 
 
 def _compared_customers(raw_frame, ids, model, *, flagged: bool, churned: bool) -> pd.DataFrame:
@@ -2578,3 +2610,34 @@ def test_a_missing_dataset_is_not_reloaded_or_logged_on_every_request(served, mo
         served.get("/api/overview")
     assert len(calls) == 1
     assert caplog.text.count("dataset unavailable") == 1
+
+
+def _tab_with(monkeypatch, shown: list[tuple[str, int, int | None]]):
+    """``_segment_tab`` of a Contract breakdown whose levels are (name, customers, churned)."""
+    from churnsense.api import dashboard
+
+    cells = [
+        insights.Cell(name, None, n, None, None, None, "cross_partition")
+        if c is None
+        else insights.Cell(name, None, n, c, c / n, 1.0, None, *wilson_interval(c, n))
+        for name, n, c in shown
+    ]
+    split = insights.Breakdown("Contract", None, 3000, 900, 0.3, cells, [], cells, [])
+    monkeypatch.setattr(dashboard, "_breakdown", lambda _d, _key: split)
+    return dashboard._segment_tab(None, "Contract")
+
+
+def test_a_tab_with_one_shown_level_states_no_spread_and_no_peak(monkeypatch):
+    """With only Month-to-month shown there is nothing to compare: not a 1.0x spread."""
+    tab = _tab_with(
+        monkeypatch,
+        [("Month-to-month", 1500, 600), ("One year", 700, None), ("Two year", 800, None)],
+    )
+    assert tab.spread is None and tab.peak is None
+
+
+def test_a_tab_with_two_shown_levels_compares_them(monkeypatch):
+    tab = _tab_with(
+        monkeypatch, [("Month-to-month", 1500, 600), ("One year", 700, 70), ("Two year", 800, None)]
+    )
+    assert tab.spread == pytest.approx(0.4 / 0.1) and tab.peak == "Month-to-month"

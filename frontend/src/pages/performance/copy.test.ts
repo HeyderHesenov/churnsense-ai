@@ -146,3 +146,21 @@ describe('the words', () => {
     }
   });
 });
+
+describe('the calibration chart’s subtitle', () => {
+  const bins = (edges: number[]) =>
+    edges.slice(1).map((high, i): copy.ReliabilityBin => ({ low: edges[i] ?? 0, high }));
+
+  it('says tenths only where the bins are tenths', () => {
+    expect(copy.calibrationSubtitle(bins([0, 0.1, 0.2, 0.30000000000000004, 0.4]))).toContain(
+      'in tenths of probability',
+    );
+    const uneven = copy.calibrationSubtitle(bins([0, 0.24, 0.28, 0.35000000000000003, 0.5, 1]));
+    expect(uneven).not.toContain('tenths');
+    expect(uneven).toContain('between the cuts the sweep is published at');
+  });
+
+  it('claims no binning when there are no bins', () => {
+    expect(copy.calibrationSubtitle(null)).not.toMatch(/tenths|cuts/);
+  });
+});

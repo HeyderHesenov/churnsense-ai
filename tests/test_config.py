@@ -210,3 +210,98 @@ def test_rate_limits_default_per_budget(cfg: Config):
     assert dict(partial.rate_limits)["batch"] == dict(DEFAULT_RATE_LIMITS)["batch"]
     assert [name for name, _ in cfg.api.rate_limits] == [name for name, _ in DEFAULT_RATE_LIMITS]
     hash(cfg.api)  # a frozen config stays hashable
+
+
+# --- deployment: where the service runs and whose customers it lists ---------------------
+
+
+def _config_with(tmp_path: Path, section: str | None) -> Path:
+    """The committed configuration with its deployment section replaced (or removed)."""
+    import yaml
+
+    from churnsense.config import DEFAULT_CONFIG_PATH
+
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    del raw["deployment"]
+    text = yaml.safe_dump(raw) + (section or "")
+    path = tmp_path / "config.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_the_committed_configuration_is_local_and_lists_the_dataset(cfg: Config):
+    assert (cfg.deployment.mode, cfg.deployment.customer_records) == ("local", "dataset")
+    assert not cfg.deployment.public and not cfg.deployment.synthetic
+
+
+def test_a_configuration_without_the_section_is_local(tmp_path: Path):
+    """A config written before the setting existed still loads, and is not a public demo."""
+    from churnsense.config import Deployment
+
+    assert load_config(_config_with(tmp_path, None)).deployment == Deployment()
+    assert load_config(_config_with(tmp_path, "deployment:\n")).deployment == Deployment()
+
+
+@pytest.mark.parametrize(
+    ("mode", "records"),
+    [("local", "dataset"), ("local", "synthetic"), ("public_demo", "synthetic")],
+)
+def test_the_stated_deployments_load(tmp_path: Path, mode: str, records: str):
+    section = f"deployment:\n  mode: {mode}\n  customer_records: {records}\n"
+    deployment = load_config(_config_with(tmp_path, section)).deployment
+    assert (deployment.mode, deployment.customer_records) == (mode, records)
+    assert deployment.synthetic is (records == "synthetic")
+    assert deployment.public is (mode == "public_demo")
+
+
+def test_a_public_demo_of_the_datasets_rows_does_not_load(tmp_path: Path):
+    section = "deployment:\n  mode: public_demo\n  customer_records: dataset\n"
+    with pytest.raises(ConfigError, match="synthetic customer records only"):
+        load_config(_config_with(tmp_path, section))
+
+
+def test_a_public_demo_must_state_its_records(tmp_path: Path):
+    """Left out, the records default to the dataset's - which a public demo may not list."""
+    with pytest.raises(ConfigError, match="synthetic customer records only"):
+        load_config(_config_with(tmp_path, "deployment:\n  mode: public_demo\n"))
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        "deployment:\n  mode: public\n",
+        "deployment:\n  mode: PUBLIC_DEMO\n  customer_records: synthetic\n",
+        "deployment:\n  customer_records: real\n",
+        "deployment:\n  customer_records: yes\n",
+        "deployment:\n  mode: [local]\n",
+        "deployment:\n  mode: local\n  dataset: true\n",
+        "deployment: public_demo\n",
+        # Not text either: nothing to iterate over, and still a configuration error.
+        "deployment: 5\n",
+        "deployment: true\n",
+        "deployment: [public_demo, synthetic]\n",
+    ],
+)
+def test_an_unknown_deployment_does_not_load(tmp_path: Path, section: str):
+    with pytest.raises(ConfigError, match="deployment"):
+        load_config(_config_with(tmp_path, section))
+
+
+def test_the_policy_reads_nothing_of_the_network_settings(tmp_path: Path):
+    """Proxies and hosts do not decide whose rows are listed: only the stated policy does."""
+    import yaml
+
+    from churnsense.config import DEFAULT_CONFIG_PATH
+
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw["api"]["trusted_proxies"] = ["172.30.10.2"]
+    raw["api"]["allowed_hosts"] = ["churn.example.org", "127.0.0.1"]
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    loaded = load_config(path)
+    assert loaded.api.trusted_proxies and loaded.deployment.customer_records == "dataset"
+    raw["api"]["trusted_proxies"] = []
+    raw["deployment"] = {"mode": "public_demo", "customer_records": "synthetic"}
+    other = tmp_path / "public.yaml"  # load_config is cached by path
+    other.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    assert load_config(other).deployment.synthetic

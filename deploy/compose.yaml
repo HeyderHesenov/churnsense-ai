@@ -5,11 +5,11 @@
 # Only Caddy publishes ports. The app joins a single internal network that
 # holds nothing but the two services, has no route out, and gives Caddy a fixed
 # address - the one address configs/deploy.yaml trusts (api.trusted_proxies).
-# The sample dataset is not in the image: the operator provides it read-only
-# (CHURNSENSE_DATASET, an absolute path to the verified file; docs/DEPLOYMENT.md, section 6).
+# No dataset is in the image and none is mounted: the app lists generated
+# customers and serves the dataset's published aggregates (docs/DEPLOYMENT.md,
+# section 6). The app container reaches no host path at all.
 # Run from this directory:
-#   CHURNSENSE_IMAGE=churnsense-ai:<tag> CHURNSENSE_DATASET=/srv/churnsense/Telco-Customer-Churn.csv \
-#     docker compose up -d
+#   CHURNSENSE_IMAGE=churnsense-ai:<tag> docker compose up -d
 
 name: churnsense
 
@@ -23,15 +23,9 @@ services:
       proxy:
         ipv4_address: 172.30.10.3
     # No `ports:` - the app is reachable only from the proxy network.
-    # The dataset: one file, read-only, never created on the host if missing
-    # (then readiness stays 503 and Caddy never starts).
-    volumes:
-      - type: bind
-        source: ${CHURNSENSE_DATASET:?set CHURNSENSE_DATASET to the absolute path of the verified dataset file}
-        target: /app/data/raw/Telco-Customer-Churn.csv
-        read_only: true
-        bind:
-          create_host_path: false
+    # No `volumes:` - nothing of the host is in reach. The public demo lists
+    # generated customers and holds no dataset; scripts/verify_deploy_bundle.py
+    # refuses any volume here.
     read_only: true
     # Uploads over 1 MB are spooled here while they arrive: --limit-concurrency
     # (64) x the 5 MiB upload limit, plus the numba/matplotlib caches. Memory-backed,

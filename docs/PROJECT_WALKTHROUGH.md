@@ -165,10 +165,14 @@ from a failing test.
 
 It was not cosmetic:
 
-| At threshold 0.50 | Candidate | Shipped |
+| At threshold 0.50, validation | Candidate (uncalibrated) | Shipped (calibrated) |
 |---|---|---|
 | Precision | 0.5095 | **0.6723** |
 | Recall | 0.7888 | **0.5321** |
+
+Two different models: the candidate's column does not describe what serves. The shipped
+model is a five-fold isotonic calibration, refitted fold by fold, so its 0.5 is not a
+re-labelled candidate 0.5 and the two flag different customers.
 
 `class_weight="balanced"` inflates raw scores, so an uncalibrated 0.5 flags far
 more customers than a calibrated 0.5. Publishing the candidate's numbers would
@@ -259,9 +263,11 @@ produced that number, so it is gone.)
 The threshold is chosen by `make train` with the model that ships, so the
 artifact leaves training with its operating point. It used to be chosen inside
 `make evaluate`, which meant the routine command for "set the threshold" also
-scored the test partition. The comparison report also shows how far the choice
-moves with the assumed offer success rate: 0.88 at 10 %, 0.36 at 30 %, 0.22 at
-50 %. The model estimates churn *risk*; how much an offer changes it is an
+scored the test partition. The comparison report (local, written by `make train`) also shows how
+far the choice moves with the assumed offer success rate, on the full 0.01 validation
+grid: 0.88 at 10 %, 0.36 at 30 %, 0.22 at 50 %. Those are where the recommendation
+lands on that grid, not figures at those thresholds; the public demo applies the same
+rule among the five cuts it publishes, so it moves in coarser steps. The model estimates churn *risk*; how much an offer changes it is an
 assumption, and the table makes that visible.
 
 The dashboard shades the band, because a chosen point that is visibly not the
@@ -309,7 +315,7 @@ Three details that matter:
 
 | Feature | Univariate rank (EDA) | SHAP rank |
 |---|---|---|
-| Contract type | **1** (Cramér's V 0.410) | 4 (8.7 %) |
+| Contract type | **1** (Cramér's V 0.42) | 4 (8.7 %) |
 | Tenure | 2 | **1** (18.4 %) |
 
 Contract is the strongest single signal but overlaps heavily with tenure, so

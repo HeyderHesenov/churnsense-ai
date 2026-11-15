@@ -26,6 +26,12 @@ statement of the rule; the code below is its only implementation.
 The final evaluation (``make evaluate CONFIRM=yes``) is the one place a figure
 is computed from the test labels. Rebuilding the stratified split here reads
 every label, as training does, only to put each row where training put it.
+
+A public demo lists none of these customers. ``synthetic_book`` builds its
+book from generated ones (``churnsense.demo.customers``): each is in the
+``"synthetic"`` partition, has no outcome at all - so it reads ``"withheld"``,
+by the same rule - and is ``"active"``, because a generated customer is a
+current one by construction. Nothing observed is ever counted over them.
 """
 
 from __future__ import annotations
@@ -38,7 +44,7 @@ import pandas as pd
 
 from churnsense import analysis as an
 from churnsense.data import schema
-from churnsense.data.loader import features_and_target, load_clean
+from churnsense.data.loader import clean_frame, features_and_target, load_clean
 from churnsense.data.split import DataSplits, check_split, make_splits
 from churnsense.exceptions import DataError
 
@@ -49,6 +55,8 @@ logger = logging.getLogger(__name__)
 
 #: Partitions whose historical outcome may be shown.
 SHOWN_PARTITIONS: tuple[str, ...] = ("train", "validation")
+#: The partition of a generated demo customer: in no partition of any dataset.
+SYNTHETIC = "synthetic"
 
 #: The per-row outcome labels. Fixed strings: a client must never have to read
 #: meaning into a null.
@@ -160,6 +168,39 @@ def score_book(customers: pd.DataFrame, data_sha256: str | None, model: Predicto
     return Book(frame, shown[schema.TARGET], train_index, withheld)
 
 
+def synthetic_book(customers: pd.DataFrame, model: Predictor) -> Book:
+    """A book of generated customers, scored by ``model``; no outcome exists for any of them.
+
+    ``customers`` is the generator's frame, checked against the column contract
+    exactly as an upload is. Scored through the same ``Predictor`` as everything
+    else, so a number on a page is the number ``POST /predict`` returns. There
+    is no training partition here: the book says so with an empty ``train_index``.
+    """
+    if schema.TARGET in customers.columns:
+        raise DataError("a generated customer has no outcome: the frame must not carry one")
+    cleaned, _ = clean_frame(
+        customers,
+        required_columns=[schema.ID_COLUMN, *model.feature_columns],
+        deduplicate=False,
+        derive_total_charges=False,
+    )
+    if not cleaned[schema.ID_COLUMN].is_unique:
+        raise DataError("generated customers must each have their own ID")
+    frame = pd.concat(
+        [
+            cleaned.assign(
+                tenure_bucket=an.tenure_bucket(cleaned["tenure"]),
+                charge_band=an.charge_band(cleaned["MonthlyCharges"]),
+            ),
+            model.predict_frame(cleaned),
+            pd.Series(SYNTHETIC, index=cleaned.index, dtype="object", name="partition"),
+        ],
+        axis=1,
+    )
+    nothing = pd.Series([], index=pd.Index([], name=schema.ID_COLUMN), dtype="int8")
+    return Book(frame, nothing.rename(schema.TARGET), pd.Index([]), None)
+
+
 def _verified_split(
     customers: pd.DataFrame, data_sha256: str | None, model: Predictor
 ) -> tuple[DataSplits | None, str | None]:
@@ -234,9 +275,13 @@ def status_codes(frame: pd.DataFrame, shown: pd.Series) -> pd.Series:
     """Each row's status as ``"active"``, ``"churned"`` or ``"unknown"``.
 
     Read from ``outcome_codes``, so it depends only on what may be shown: every test
-    customer is ``"unknown"``, whatever became of them.
+    customer is ``"unknown"``, whatever became of them. A generated customer is
+    ``"active"``: they are a current customer by construction, with no past to withhold.
     """
-    return outcome_codes(frame, shown).map(STATUS_CODES).rename("status")
+    status = outcome_codes(frame, shown).map(STATUS_CODES)
+    if "partition" in frame.columns:
+        status = status.mask(frame["partition"] == SYNTHETIC, ACTIVE)
+    return status.rename("status")
 
 
 def training_features(book: Book, columns: list[str]) -> pd.DataFrame | None:

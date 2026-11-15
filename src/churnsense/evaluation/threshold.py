@@ -145,6 +145,114 @@ def sweep_thresholds(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class SweepBasis:
+    """All a sweep needs of the customers it is over, as totals per threshold.
+
+    The counts at each cut, and the summed monthly charges of the churners
+    flagged at it. No customer is in it, so it can be published where the
+    customers themselves cannot (``churnsense.evidence``); every sweep figure
+    under any assumptions follows from it (``sweep_from_basis``).
+    """
+
+    customers: int
+    thresholds: tuple[float, ...]
+    true_positives: tuple[int, ...]
+    false_positives: tuple[int, ...]
+    false_negatives: tuple[int, ...]
+    #: Monthly charges summed over the true positives at each threshold.
+    flagged_churner_charges: tuple[float, ...]
+
+    @property
+    def churners(self) -> int:
+        return self.true_positives[0] + self.false_negatives[0]
+
+
+def sweep_basis(
+    y_true: ArrayLike,
+    y_proba: ArrayLike,
+    monthly_charges: ArrayLike,
+    thresholds: ArrayLike | None = None,
+) -> SweepBasis:
+    """The totals ``sweep_thresholds`` is built from, over the same grid."""
+    y, p, charges = _validate(y_true, y_proba, monthly_charges)
+    grid = np.linspace(0.0, 1.0, 101) if thresholds is None else np.asarray(thresholds, float)
+    flags = p[None, :] >= grid[:, None]
+    positives = y.astype(bool)[None, :]
+    tp_mask = flags & positives
+    return SweepBasis(
+        customers=len(y),
+        thresholds=tuple(float(t) for t in grid),
+        true_positives=tuple(int(v) for v in tp_mask.sum(axis=1)),
+        false_positives=tuple(int(v) for v in (flags & ~positives).sum(axis=1)),
+        false_negatives=tuple(int(v) for v in (~flags & positives).sum(axis=1)),
+        flagged_churner_charges=tuple(float(v) for v in (tp_mask * charges[None, :]).sum(axis=1)),
+    )
+
+
+def sweep_from_basis(basis: SweepBasis, business: Business) -> pd.DataFrame:
+    """``sweep_thresholds``' table, from the totals alone.
+
+    The same columns and the same counts. A retained value is the same sum
+    taken in another order (the charges are added before they are priced), so
+    it agrees with ``sweep_thresholds`` to floating-point rounding.
+    """
+    tp = np.asarray(basis.true_positives)
+    fp = np.asarray(basis.false_positives)
+    fn = np.asarray(basis.false_negatives)
+    flagged = tp + fp
+    with np.errstate(divide="ignore", invalid="ignore"):
+        precision = np.where(flagged > 0, tp / np.maximum(flagged, 1), 0.0)
+        recall = np.where((tp + fn) > 0, tp / np.maximum(tp + fn, 1), 0.0)
+        f1 = np.where(
+            (precision + recall) > 0,
+            2 * precision * recall / np.maximum(precision + recall, 1e-12),
+            0.0,
+        )
+    value = business.customer_value(np.asarray(basis.flagged_churner_charges, dtype=float))
+    retained_value = value * business.offer_success_rate
+    intervention_cost = flagged * business.retention_offer_cost
+    return pd.DataFrame(
+        {
+            "threshold": np.asarray(basis.thresholds, dtype=float),
+            "flagged": flagged,
+            "flagged_share": flagged / basis.customers,
+            "true_positives": tp,
+            "false_positives": fp,
+            "false_negatives": fn,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+            "intervention_cost": intervention_cost,
+            "retained_value": retained_value,
+            "net_benefit": retained_value - intervention_cost,
+        }
+    )
+
+
+def sensitivity_from_basis(
+    basis: SweepBasis,
+    business: Business,
+    success_rates: tuple[float, ...] = (0.1, 0.2, 0.3, 0.4, 0.5),
+) -> pd.DataFrame:
+    """``threshold_sensitivity``'s table, from the totals alone."""
+    rows = []
+    for rate in success_rates:
+        assumed = replace(business, offer_success_rate=rate)
+        point = recommend_threshold_from(sweep_from_basis(basis, assumed), assumed)
+        rows.append(
+            {
+                "offer_success_rate": rate,
+                "threshold": point.threshold,
+                "flagged": point.flagged,
+                "precision": point.precision,
+                "recall": point.recall,
+                "net_benefit": point.net_benefit,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def recommend_threshold(
     y_true: ArrayLike,
     y_proba: ArrayLike,

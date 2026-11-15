@@ -5,6 +5,17 @@ process lifetime. Neither is ever replaced by a placeholder: a missing model is
 a 503 ``model_unavailable`` and a missing dataset a 503 ``dataset_unavailable``,
 because a figure invented to fill a page is worse than an honest outage.
 
+Which book is built is the configuration's stated choice
+(``deployment.customer_records``), and the two never mix:
+
+* ``dataset`` - the dataset's own customers, scored (``churnsense.book.load_book``),
+  with every observed figure computed from them;
+* ``synthetic`` - generated demo customers (``churnsense.demo.customers``), with
+  every observed figure read from the published aggregates
+  (``churnsense.evidence``). The dataset is never opened on this path, and when
+  the demo data cannot be built the answer is 503 ``demo_data_unavailable`` -
+  never the other book.
+
 The locations are module-level so tests can point the service at temporary
 directories. They are never taken from a request: unpickling is equivalent to
 code execution, so the path must not be caller-controlled.
@@ -27,15 +38,24 @@ import pandas as pd
 from fastapi import HTTPException
 
 from churnsense import insights
-from churnsense.book import Book, load_book, training_features
-from churnsense.config import Business, Config
+from churnsense.book import SYNTHETIC, Book, load_book, synthetic_book, training_features
+from churnsense.config import Business, Config, Deployment
 from churnsense.data import schema
-from churnsense.exceptions import ChurnSenseError, ModelNotAvailableError
+from churnsense.demo.customers import demo_customers, records_sha256
+from churnsense.evidence import (
+    DEMO_EXPLANATIONS_FILE,
+    EVIDENCE_FILE,
+    Evidence,
+    LiveEvidence,
+    load_published,
+)
+from churnsense.exceptions import ChurnSenseError, DemoDataError, ModelNotAvailableError
 from churnsense.explainability.shap_explain import (
     PERMUTATIONS,
     CustomerExplanation,
     background_sample,
     explain_customer,
+    load_cached_explanations,
 )
 from churnsense.models.predict import Predictor, load_predictor
 
@@ -48,6 +68,12 @@ REPORTS_DIR: Path | None = None
 #: How the book is built from the served model. Replaced in tests, which must
 #: never read the real dataset.
 BOOK_LOADER: Callable[[Predictor], Book] = load_book
+#: Where the service runs and whose rows it lists; ``None`` means the configured one.
+DEPLOYMENT: Deployment | None = None
+#: The dataset file a public demo must not find beside it; ``None`` means the configured one.
+RAW_DATA_FILE: Path | None = None
+#: How a public demo's customers are generated. Replaced in tests.
+DEMO_GENERATOR: Callable[[], pd.DataFrame] = demo_customers
 
 #: Explanations kept per process: a page of the retention queue is eight, and
 #: one customer is often explained again from another page.
@@ -107,6 +133,13 @@ class DatasetUnavailableError(Unavailable):
         )
 
 
+class DemoDataUnavailableError(Unavailable):
+    """The public demo's own data could not be built. Nothing stands in for it."""
+
+    def __init__(self) -> None:
+        super().__init__("demo_data_unavailable", "The demo data is not available.")
+
+
 @dataclass(eq=False)
 class Dashboard:
     """The served model, its book, and the computations pages share."""
@@ -114,7 +147,12 @@ class Dashboard:
     model: Predictor
     book: Book
     reports_dir: Path
+    #: The cached attributions the explainability page draws: of the book's own customers.
     shap_cache: Path
+    #: What was observed of the dataset; computed from ``book`` unless given.
+    evidence: Evidence | None = None
+    #: Whose rows ``book`` holds: the ``dataset``'s, or ``synthetic`` demo customers'.
+    records: str = "dataset"
     #: The book plus each row's outcome code and monthly revenue at risk.
     frame: pd.DataFrame = field(init=False)
     #: The 100 training customers every explanation is measured against.
@@ -133,14 +171,33 @@ class Dashboard:
     def __post_init__(self) -> None:
         self.frame = insights.with_outcomes(self.book)
         self._positions = dict(zip(self.frame[schema.ID_COLUMN], self.frame.index, strict=True))
-        train = training_features(self.book, self.model.feature_columns)
+        if self.evidence is None:
+            self.evidence = LiveEvidence(self.book, self.model, self.shap_cache)
+        columns = self.model.feature_columns
+        # A book of generated customers has no training partition: an explanation
+        # is then measured against the demo customers themselves, and says so.
+        population = (
+            self.book.frame[columns] if self.synthetic else training_features(self.book, columns)
+        )
         self.background = (
-            None if train is None else background_sample(train, self.model.config.random_seed)
+            None
+            if population is None
+            else background_sample(population, self.model.config.random_seed)
         )
 
     @property
     def config(self) -> Config:
         return self.model.config
+
+    @property
+    def synthetic(self) -> bool:
+        """Whether the customers listed are generated ones."""
+        return self.records == "synthetic"
+
+    @property
+    def background_kind(self) -> str:
+        """Who an explanation is measured against: ``training`` or ``synthetic`` customers."""
+        return SYNTHETIC if self.synthetic else "training"
 
     def memo(self, key: str, compute: Callable[[], Any]) -> Any:
         """``compute()``, once per dashboard: the book never changes while it is served."""
@@ -162,7 +219,7 @@ class Dashboard:
             if business in self._economics:
                 self._economics.move_to_end(business)
                 return self._economics[business]
-        result = insights.economics(self.book, business)
+        result = self.evidence.economics(business)
         with self._lock:
             self._economics[business] = result
             while len(self._economics) > ECONOMICS_CACHE_SIZE:
@@ -265,60 +322,142 @@ def batch_slot() -> Iterator[None]:
 
 
 _dashboard_lock = threading.Lock()
-#: The model and loader the current dashboard was built for, and the dashboard.
-_built: tuple[Predictor, Callable[[Predictor], Book], Dashboard] | None = None
-#: The model, loader and time of the last failed build, so it is not retried
+#: The model and source the current dashboard was built for, and the dashboard.
+_built: tuple[Predictor, object, Dashboard] | None = None
+#: The model, source and time of the last failed build, so it is not retried
 #: (and logged) on every request.
-_failed: tuple[Predictor, Callable[[Predictor], Book], float] | None = None
+_failed: tuple[Predictor, object, float, Unavailable] | None = None
+
+
+def deployment_of(model: Predictor) -> Deployment:
+    """Where ``model`` is served and whose rows are listed: the configured choice."""
+    return DEPLOYMENT if DEPLOYMENT is not None else model.config.deployment
+
+
+def _source(model: Predictor) -> object:
+    """What the book is built from: the dataset's loader, or the demo generator.
+
+    The deployment is part of it, so a service switched from one to the other
+    builds anew and can never answer from the other one's book.
+    """
+    deployment = deployment_of(model)
+    return (deployment, DEMO_GENERATOR) if deployment.synthetic else BOOK_LOADER
 
 
 def get_dashboard() -> Dashboard:
     """The dashboard for the served model, built on first use; 503 if it cannot be."""
     model = require_predictor()
-    return _dashboard_for(model, BOOK_LOADER)
+    return _dashboard_for(model, _source(model))
 
 
 def optional_dashboard() -> Dashboard | None:
-    """``get_dashboard()``, or ``None`` when the model or the dataset is missing."""
+    """``get_dashboard()``, or ``None`` when the model or the book's data is missing."""
     try:
         return get_dashboard()
     except HTTPException:
         return None
 
 
-def _dashboard_for(model: Predictor, loader: Callable[[Predictor], Book]) -> Dashboard:
-    """One dashboard per model and loader object: a reloaded model or a test's
-    loader gets a fresh book, never one built for another."""
+def _dashboard_for(model: Predictor, source: object) -> Dashboard:
+    """One dashboard per model and source: a reloaded model, a test's loader or
+    another deployment gets a fresh book, never one built for another."""
     global _built, _failed
     with _dashboard_lock:
-        if _built is not None and _built[0] is model and _built[1] is loader:
+        if _built is not None and _built[0] is model and _built[1] == source:
             return _built[2]
         if (
             _failed is not None
             and _failed[0] is model
-            and _failed[1] is loader
+            and _failed[1] == source
             and time.monotonic() - _failed[2] < RETRY_AFTER_FAILURE_SECONDS
         ):
-            raise DatasetUnavailableError
+            raise type(_failed[3])()
         try:
-            dashboard = _build(model, loader)
-        except DatasetUnavailableError:
-            _failed = (model, loader, time.monotonic())
+            dashboard = _build(model, source)
+        except (DatasetUnavailableError, DemoDataUnavailableError) as exc:
+            _failed = (model, source, time.monotonic(), exc)
             raise
-        _built, _failed = (model, loader, dashboard), None
+        _built, _failed = (model, source, dashboard), None
         return dashboard
 
 
-def _build(model: Predictor, loader: Callable[[Predictor], Book]) -> Dashboard:
+def _build(model: Predictor, source: object) -> Dashboard:
+    reports = REPORTS_DIR if REPORTS_DIR is not None else model.config.paths.reports_dir
+    if isinstance(source, tuple):
+        return _build_demo(model, source[0], source[1], reports)
     try:
-        book = loader(model)
+        book = source(model)
     except ChurnSenseError as exc:
         logger.error("dataset unavailable: %s", exc)
         raise DatasetUnavailableError from exc
-    reports = REPORTS_DIR if REPORTS_DIR is not None else model.config.paths.reports_dir
     return Dashboard(
         model=model, book=book, reports_dir=reports, shap_cache=model.source / "shap_global.json"
     )
+
+
+def _build_demo(
+    model: Predictor, deployment: Deployment, generate: Callable[[], pd.DataFrame], reports: Path
+) -> Dashboard:
+    """The public demo's dashboard: generated customers and published evidence, or nothing.
+
+    Every way this can fail ends in ``DemoDataUnavailableError``. The dataset's
+    loader is not called here, and no failure falls back to it.
+    """
+    try:
+        raw_file = RAW_DATA_FILE if RAW_DATA_FILE is not None else model.config.raw_data_file
+        if deployment.public and raw_file.exists():
+            raise DemoDataError(
+                "a public demo was started beside a dataset file; it lists generated "
+                "customers only and must not have the dataset in reach"
+            )
+        generated = generate()
+        book = synthetic_book(generated, model)
+        explanations = model.source / DEMO_EXPLANATIONS_FILE
+        _check_explanations(explanations, model, book, records_sha256(generated))
+        evidence = load_published(model.source / EVIDENCE_FILE, model)
+        # Built here, not after: preparing the book can fail too, and must end the same way.
+        return Dashboard(
+            model=model,
+            book=book,
+            reports_dir=reports,
+            shap_cache=explanations,
+            evidence=evidence,
+            records="synthetic",
+        )
+    except ChurnSenseError as exc:
+        logger.error("demo data unavailable: %s", exc)
+        raise DemoDataUnavailableError from exc
+    except Exception as exc:
+        # Whatever a generator or a damaged file can raise: the answer is the same.
+        logger.exception("demo data unavailable")
+        raise DemoDataUnavailableError from exc
+
+
+def _check_explanations(path: Path, model: Predictor, book: Book, records: str) -> None:
+    """The cached attributions are of this model and of exactly the customers being listed.
+
+    The file names the book it explains by hash; and, whatever it says of
+    itself, every row it would draw must be one of the generated customers - a
+    cache of any other rows (the dataset's validation sample, say) is refused.
+    """
+    cached = load_cached_explanations(path, model.meta.get("model_sha256", ""))
+    if cached is None:
+        raise DemoDataError("no usable attributions are cached for the demo customers")
+    if cached.get("partition") != SYNTHETIC or cached.get("records_sha256") != records:
+        raise DemoDataError("the cached attributions are not of the demo customers being listed")
+    features = cached["features"]
+    if set(features) != set(model.feature_columns):
+        raise DemoDataError("the cached attributions are of other features than the model's")
+    listed = {
+        tuple(
+            str(value) if feature in schema.ALLOWED_CATEGORIES else float(value)
+            for feature, value in zip(features, row, strict=True)
+        )
+        for row in book.frame[features].itertuples(index=False, name=None)
+    }
+    for row in cached["x"]:
+        if tuple(row[feature] for feature in features) not in listed:
+            raise DemoDataError("the cached attributions draw a row that is no demo customer's")
 
 
 def warm_up() -> None:
@@ -330,7 +469,7 @@ def warm_up() -> None:
     try:
         get_dashboard()
     except HTTPException:
-        pass  # already logged where it failed: the model or the dataset
+        pass  # already logged where it failed: the model, the dataset or the demo data
     except Exception:
         logger.exception("the dashboard could not be built at startup")
 
@@ -340,7 +479,8 @@ def readiness() -> dict[str, bool]:
 
     Nothing is loaded, read or scored here: a model that failed to load and a
     book that failed to build stay unready until a request (or a restart)
-    loads them, so a health checker polling this costs nothing.
+    loads them, so a health checker polling this costs nothing. ``dataset``
+    reports the book, whichever customers it was built from.
     """
     model = get_predictor.cache_info().currsize > 0
     dataset = False
@@ -349,7 +489,7 @@ def readiness() -> dict[str, bool]:
         # One reference read, no lock: a rebuild holds the lock for seconds, and
         # a health check must not wait on it.
         built = _built
-        dataset = built is not None and built[0] is served and built[1] is BOOK_LOADER
+        dataset = built is not None and built[0] is served and built[1] == _source(served)
     return {"model": model, "dataset": dataset}
 
 
