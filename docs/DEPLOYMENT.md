@@ -27,8 +27,9 @@ closed first:
    overstate what is deployed, but that expectation is not measured. **Neither the
    current image nor the VPS's real RAM use is measured**; the VPS size in §2 is an
    estimate until §16 is repeated.
-2. **The real domain is not set** (§5): `demo.example.com` is a placeholder the bundle
-   check refuses.
+2. **The domain is set, but not live** (§5): `configs/deploy.yaml` and
+   `deploy/Caddyfile` name `churnsense.brimbyway.com`. Its DNS does not point at a server
+   yet, and no certificate has been issued for it.
 3. **The stack has been run locally only, without a certificate.** On 2026-11-12 the
    current image (`churnsense-ai:d6687995d4b3-dirty`, a local validation build with the
    uncommitted E8 change) was built and started with Compose: the app reported healthy,
