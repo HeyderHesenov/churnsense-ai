@@ -267,7 +267,11 @@ def test_the_dockerfile_validates_the_evidence_before_the_image_exists():
 
 def test_the_image_check_refuses_the_example_domain_unless_waived(image):
     text = (image / bundle.DEPLOY_CONFIG).read_text()
-    assert "churnsense.brimbyway.com" in text
+    config = yaml.safe_load(text)
+    assert config["api"]["allowed_hosts"] == [
+        "churnsense.brimbyway.com",
+        "127.0.0.1",
+    ]
     _write(
         image, bundle.DEPLOY_CONFIG, text.replace("churnsense.brimbyway.com", "demo.example.com")
     )
