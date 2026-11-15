@@ -13,7 +13,10 @@ Two modes (docs/DEPLOYMENT.md):
     Inside the image build, on what was copied. Checks the assets, the
     configuration, the built front end, the source modules, and that the image
     holds nothing it must not (a ``.env``, a ``.git``, ``audit-reports/``,
-    tests, the held-out report...).
+    tests, the held-out report...). It also checks the Python interpreter it
+    runs on, the image's own: no package installer is left in it - pip is not
+    importable, has no metadata, no package or ``dist-info`` in a site
+    directory, no command on ``PATH`` and no wheel bundled with ``ensurepip``.
 
 Both refuse a documentation domain (``demo.example.com``) in the deploy config;
 ``--allow-example-domain`` waives that one check, for a local test build only
@@ -58,11 +61,16 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.metadata
+import importlib.util
 import ipaddress
 import json
+import os
 import re
 import sys
-from collections.abc import Iterator
+import sysconfig
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -764,6 +772,76 @@ def check_image(root: Path, problems: Problems, notes: list[str]) -> None:
     notes.append(f"image layout: {count} files checked")
 
 
+# --- the interpreter: no package installer -------------------------------------------------
+
+#: The installer the image needs for its build only: it installs the hash-locked lock
+#: and checks it, and leaves in the same layer (the Dockerfile, docs/DEPLOYMENT.md §8).
+INSTALLER = "pip"
+
+
+@dataclass(frozen=True)
+class Interpreter:
+    """Where a Python interpreter finds packages and commands."""
+
+    #: ``sys.path``: every place an import can come from.
+    search_path: tuple[str, ...]
+    #: The site directories packages are installed into (``purelib``, ``platlib``).
+    site_dirs: tuple[str, ...]
+    #: The directories on ``PATH``.
+    command_dirs: tuple[str, ...]
+    #: The standard library, where ``ensurepip`` keeps the wheels it bundles.
+    stdlib: str
+    #: ``(major, minor)``: the version suffix of the installer's own command.
+    version: tuple[int, int]
+    find_spec: Callable[[str], object]
+
+
+def running_interpreter() -> Interpreter:
+    """The interpreter running this check: in the build, the image's own Python."""
+    paths = sysconfig.get_paths()
+    return Interpreter(
+        search_path=tuple(sys.path),
+        site_dirs=(paths["purelib"], paths["platlib"]),
+        command_dirs=tuple(os.environ.get("PATH", "").split(os.pathsep)),
+        stdlib=paths["stdlib"],
+        version=(sys.version_info.major, sys.version_info.minor),
+        find_spec=importlib.util.find_spec,
+    )
+
+
+def check_no_installer(interpreter: Interpreter, problems: Problems, notes: list[str]) -> None:
+    """Nothing of the installer is left: no import, no metadata, no files, no command."""
+    found = len(problems)
+    if interpreter.find_spec(INSTALLER) is not None:
+        problems.add(f"{INSTALLER} can still be imported in the image")
+    search = [entry for entry in interpreter.search_path if entry]
+    for dist in importlib.metadata.distributions(name=INSTALLER, path=search):
+        problems.add(
+            f"{INSTALLER} {dist.version} is installed (distribution metadata"
+            f" under {dist.locate_file('')})"
+        )
+    for folder in dict.fromkeys(entry for entry in (*interpreter.site_dirs, *search) if entry):
+        base = Path(folder)
+        if os.path.lexists(base / INSTALLER):
+            problems.add(f"the {INSTALLER} package is in the image: {base / INSTALLER}")
+        if base.is_dir():
+            for pattern in (f"{INSTALLER}-*.dist-info", f"{INSTALLER}-*.egg-info"):
+                for left in sorted(base.glob(pattern)):
+                    problems.add(f"{INSTALLER}'s metadata is in the image: {left}")
+    major, minor = interpreter.version
+    commands = (INSTALLER, f"{INSTALLER}{major}", f"{INSTALLER}{major}.{minor}")
+    for folder in dict.fromkeys(entry for entry in interpreter.command_dirs if entry):
+        for name in commands:
+            if os.path.lexists(Path(folder) / name):  # a dangling link counts too
+                problems.add(f"a {INSTALLER} command is on PATH: {Path(folder) / name}")
+    bundled = Path(interpreter.stdlib) / "ensurepip" / "_bundled"
+    if bundled.is_dir():
+        for wheel in sorted(bundled.glob(f"{INSTALLER}-*.whl")):
+            problems.add(f"ensurepip still bundles a {INSTALLER} wheel: {wheel}")
+    if len(problems) == found:
+        notes.append("no package installer in the image")
+
+
 # --- entry point ---------------------------------------------------------------------------
 
 
@@ -809,6 +887,7 @@ def verify(
         check_domain(deploy, problems)
     if in_image:
         check_image(root, problems, notes)
+        check_no_installer(running_interpreter(), problems, notes)
     else:
         check_images(root, problems, notes)
         check_dockerignore(root, problems)
