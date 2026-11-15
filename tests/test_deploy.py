@@ -786,7 +786,9 @@ def test_the_runtime_layer_installs_checks_and_removes_pip_in_one_run():
     assert len(installs) == 1, installs
     run = runs[installs[0]]
     steps = [
-        "RUN pip install --require-hashes -r requirements.txt",
+        # The RUN opens with the zlib1g pin; the test below holds that part, and that it
+        # comes before this install.
+        "&& pip install --require-hashes -r requirements.txt",
         "&& pip check",
         "&& python -m pip uninstall -y pip",
         "&& rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12",
@@ -800,6 +802,47 @@ def test_the_runtime_layer_installs_checks_and_removes_pip_in_one_run():
     assert not [r for r in others if "pip uninstall" in r], "the removal is not its own layer"
     later = runs[installs[0] + 1 :]
     assert not [r for r in later if re.search(r"(^|[\s&;|])(pip3?|python -m pip)\s", r[4:])]
+
+
+#: The one Debian package taken above the base image, and the exact version it goes to.
+ZLIB1G = "1:1.3.dfsg+really1.3.1-1+deb13u1"
+
+
+def test_the_runtime_layer_pins_zlib1g_and_upgrades_nothing_else():
+    """zlib1g goes to exactly one version, checked by dpkg, in the RUN that installs the lock
+    and before it; apt may upgrade nothing else and remove nothing, and its lists and cache
+    leave in the same layer."""
+    instructions = _instructions((REPO / "Dockerfile").read_text())
+    runs = [i for i in instructions if i.startswith("RUN ")]
+    with_apt = [i for i, run in enumerate(runs) if "apt-get" in run]
+    installs = [i for i, run in enumerate(runs) if "pip install" in run]
+    assert with_apt == installs and len(installs) == 1, (with_apt, installs)
+    run = runs[installs[0]]
+    steps = [
+        "RUN apt-get update",
+        "&& DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends"
+        f" --only-upgrade --no-remove zlib1g={ZLIB1G}",
+        "&& dpkg-query -W zlib1g",
+        "&& test \"$(dpkg-query -W -f='${Version}' zlib1g)\" = " + f'"{ZLIB1G}"',
+        "&& apt-get clean",
+        "&& rm -rf /var/lib/apt/lists/*",
+        "&& pip install --require-hashes -r requirements.txt",
+        "&& pip check",
+    ]
+    at = [run.find(step) for step in steps]
+    assert -1 not in at, dict(zip(steps, at, strict=True))
+    assert at == sorted(at), "update, pin, check the version, clean - then the lock"
+    assert run.startswith(steps[0] + " &&")
+    # One exact version of one package: no wildcard, no "latest", nothing else named.
+    install = run[at[1] : at[2]].split("apt-get install", 1)[1]
+    assert re.findall(r"(\S+)=(\S+)", install) == [("zlib1g", ZLIB1G)], install
+    assert not re.search(r"[*?]|latest", install.split("zlib1g=", 1)[1])
+    # apt-get only updates its lists, installs that one version and cleans: never
+    # upgrade, dist-upgrade or full-upgrade, and no other front end to apt.
+    whole = " ".join(instructions)
+    commands = re.findall(r"\bapt-get\s+(?:-\S+\s+)*([a-z][\w-]*)", whole)
+    assert commands == ["update", "install", "clean"], commands
+    assert not re.search(r"\baptitude\b|(^|[\s&;|])apt\s", whole)
 
 
 def _repo_bundle(tmp_path: Path, image: Path) -> Path:
@@ -893,15 +936,32 @@ def test_the_check_never_loads_a_model_or_the_data_stack(image, _clean_interpret
 def test_the_script_run_as_the_build_runs_it_judges_its_own_interpreter(image):
     """``python scripts/verify_deploy_bundle.py --in-image ...`` in a fresh process, as the
     Dockerfile runs it: the ``__main__`` entry point, with nothing patched. The answer depends
-    on that interpreter alone - this one is read first (the real description, unpatched) to
-    know whether it has pip - and the image itself is complete, so pip is the only problem
-    there can be: refused when pip is there, passed when it is not."""
-    expected, _notes = bundle.Problems(), []
-    bundle.check_no_installer(RUNNING_INTERPRETER(), expected, _notes)
+    on that interpreter alone, and the image itself is complete, so pip is the only problem
+    there can be: refused when pip is there, passed when it is not.
+
+    What that interpreter holds is read first, unpatched, in a process started the same way:
+    the same executable and environment, and the script's own directory first on
+    ``sys.path``, which is what ``python <script>`` puts there. Not this process: started as
+    the ``pytest`` command, its ``sys.path`` begins with that command's directory instead
+    (in a virtual environment, the one that holds ``pip``), which the build never has."""
     script = REPO / "scripts" / "verify_deploy_bundle.py"
+    env = {**os.environ, "PYTHONPATH": str(REPO / "src")}
+    probe = (
+        "import json, sys\n"
+        f"sys.path[0] = {str(script.parent)!r}\n"
+        "import verify_deploy_bundle as bundle\n"
+        "problems = bundle.Problems()\n"
+        "bundle.check_no_installer(bundle.running_interpreter(), problems, [])\n"
+        "print(json.dumps({'first': sys.path[0], 'problems': list(problems)}))\n"
+    )
+    read = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, env=env, check=True
+    )
+    probed = json.loads(read.stdout)
+    assert probed["first"] == str(script.parent), probed["first"]
+    expected = probed["problems"]
     argv = ["--in-image", "--allow-example-domain", "--root", str(image)]
     argv += ["--evidence-sha256", _evidence_hash(image)]
-    env = {**os.environ, "PYTHONPATH": str(REPO / "src")}
     result = subprocess.run(
         [sys.executable, str(script), *argv], capture_output=True, text=True, env=env
     )

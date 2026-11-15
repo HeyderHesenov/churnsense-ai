@@ -143,6 +143,29 @@ How the digests were obtained:
 To update an image: resolve the new tag's index digest the same way, check both
 platforms, change the reference and this table together, and rebuild.
 
+**One Debian package above the base image.** The runtime base keeps the digest above.
+Its `zlib1g` (`1:1.3.dfsg+really1.3.1-1+b1`) had three findings in the 2026-11-15
+baseline scans that list `1:1.3.dfsg+really1.3.1-1+deb13u1` as the fixed version (§8,
+"Image scans"), so the build takes exactly that version:
+
+- **Where:** at the start of the `RUN` that installs the runtime lock, before pip, so
+  no layer is added and the pip removal is not split.
+- **How:** `apt-get update`, then one `apt-get install` of `zlib1g` at that version
+  with `--only-upgrade` (nothing new is installed), `--no-remove` (apt may remove
+  nothing) and `--no-install-recommends`. There is no `apt-get upgrade`: no other
+  package changes.
+- **Checked:** `dpkg-query` then reads the installed version, and the build stops
+  unless it is exactly `1:1.3.dfsg+really1.3.1-1+deb13u1`. A version Debian no longer
+  offers stops the build too; there is no fallback to another one.
+- **Cleaned:** `apt-get clean` and the removal of `/var/lib/apt/lists/*` run in the
+  same `RUN`, so neither the package lists nor the downloaded `.deb` stay in the image.
+- The build therefore needs Debian's archive at that point. `tests/test_deploy.py`
+  holds the version, the flags, the order and the clean-up.
+
+A local validation image built with the pin was scanned on 2026-11-15: neither scanner
+reports the three findings for it any more (§8, "Image scans"). An image built from the
+committed change has not been built or scanned yet.
+
 ## 4. DNS
 
 - Point an `A` record for your domain at the host's IPv4 address.
@@ -456,10 +479,82 @@ what it reads:
   pip 25.0.1 and the advisories above, from the base layer.
 
 This project does not claim that every layer of the image is free of known
-vulnerabilities. That would take an all-layers scan with a clean result, which pip's
-base layer rules out for now. Neither scan has been run against an image of this
-`Dockerfile` yet. Removing the base layer's copy would take a base image built without
-pip.
+vulnerabilities. That would take an all-layers scan with a clean result that can be
+trusted, which pip's base layer rules out for now. The one all-layers scan run so far
+did not report pip at all, for a reason not established ("Image scans", below).
+Removing the base layer's copy would take a base image built without pip.
+
+### Image scans
+
+**What was scanned.** Two images, both on 2026-11-15 and both linux/arm64:
+
+- **Baseline:** `churnsense-ai:f21ef138fbde`, built from commit `f21ef13` (config
+  `sha256:c72be29f…`), before the `zlib1g` pin (§3).
+- **Validation:** `churnsense-ai:f21ef138fbde-dirty` (index `sha256:d1ede13e…`, config
+  `sha256:37d35ede…`): commit `f21ef13` plus the uncommitted pin, so it is labelled
+  `io.churnsense.source.dirty=true`, and built with `ALLOW_EXAMPLE_DOMAIN=1`. It is a local
+  validation build, not a release image and not one to deploy (§8: deploy only clean
+  tags). An image built from the committed change has not been built or scanned yet.
+
+The counts are package-CVE pairs, not distinct CVEs: one CVE in four packages is four.
+
+| Image | Scanner and scope | Critical | High | Medium | Low | Negligible | Unknown | Total | Distinct High CVEs |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline | Trivy 0.76.2, final filesystem | 0 | 49 | 90 | 65 | — | 5 | 209 | 13 |
+| Baseline | Grype 0.121.3, squashed (final filesystem) | 0 | 61 | 68 | 17 | 50 | 16 | 212 | 19 |
+| Baseline | Grype 0.121.3, all layers | 0 | 61 | 68 | 17 | 50 | 16 | 212 | 19 |
+| Validation | Trivy 0.76.2, final filesystem | 0 | 47 | 89 | 65 | — | 5 | 206 | 11 |
+| Validation | Grype 0.121.3, squashed (final filesystem) | 0 | 59 | 67 | 17 | 50 | 16 | 209 | 17 |
+
+- **Databases:** trivy-db v2 updated 2026-11-15T07:02:44Z; Grype v6.1.10 built
+  2026-11-15T06:19:39Z. Neither was refreshed between the baseline and validation scans.
+- **Not run:** an all-layers scan of the validation image.
+- **Severities:** the two scanners rank some CVEs differently, each from its own
+  sources. Both rankings are quoted as given. The findings that remain, and how they are
+  handled, are in `SECURITY.md` ("Dependency audits").
+
+**Smoke of the validation image.** The service ran from the validation image with
+`docker run` and `--network none`, so this was not the Compose deployment: Caddy, TLS and
+the public network were not part of it.
+
+- The container: non-root (`churnsense`), read-only root filesystem, every capability
+  dropped, `no-new-privileges`, no mounts and no published port. It became healthy.
+- The smoke checks: 45 of 45 real assertions passed, none failed or was skipped. Its
+  eight information entries are not counted as tests.
+- `/health` reported the model loaded; `/ready` reported the model, the generated
+  customers and the front end ready.
+- The listing held 2000 generated customers, and the three real IBM customer IDs it
+  asks for answered 404.
+- One prediction returned `0.8029793735676088` (risk band Critical, threshold 0.36), the
+  same as on the baseline image.
+- One explanation added up to its prediction within `1.11e-15`. The global explanation
+  is computed on generated customers (`synthetic`).
+
+**pip.**
+
+- Neither scanner found pip in the final filesystem of either image. The build's
+  bundle check (§7) says the same, and so does a check run inside each built image: no
+  `pip` module, no metadata, no command and no wheel bundled with `ensurepip`.
+- Grype's all-layers scan (`--scope all-layers`), run on the baseline image only, did
+  not report pip 25.0.1 either. It returned exactly the squashed result. Why is not
+  established.
+- That is not evidence that the base layer is free of pip. The layer reading above shows
+  it is there.
+
+**zlib1g.** The baseline scans list three findings against `zlib1g`
+`1:1.3.dfsg+really1.3.1-1+b1`, with `1:1.3.dfsg+really1.3.1-1+deb13u1` as the fixed
+version: CVE-2026-85091, CVE-2026-27171 and CVE-2026-76844. They are the reason for the
+pin in §3.
+
+- The validation image holds `1:1.3.dfsg+really1.3.1-1+deb13u1`, as `dpkg-query` in the
+  image and Trivy's package list show. Neither scanner reports any of the three for it.
+- Nothing else changed between the two scans. No finding was added and none changed
+  severity. In Trivy's package list and in `dpkg-query`'s, `zlib1g` is the only package
+  whose version differs.
+- CVE-2026-76844's published description concerns webpack-dev-middleware, not zlib.
+  Both scanners still map it to `zlib1g` through Debian's data. This was not
+  investigated further.
+- This removes those three findings only. The other OS findings remain (`SECURITY.md`).
 
 ### The published evidence: from the builder to a running container
 

@@ -48,8 +48,19 @@ WORKDIR /app
 # layer: the package, its commands and ensurepip's bundled wheel. The final
 # filesystem holds no pip (the bundle check below refuses an image that does);
 # the base image's own layer still holds pip's bytes (docs/DEPLOYMENT.md, section 8).
+# Before it, zlib1g - the one Debian package taken above the base image - goes to
+# exactly this version (docs/DEPLOYMENT.md, section 3): no other package is upgraded,
+# nothing may be removed, the build stops on any other version, and apt's lists and
+# cache leave in this same layer.
 COPY requirements.txt ./
-RUN pip install --require-hashes -r requirements.txt \
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        --only-upgrade --no-remove zlib1g=1:1.3.dfsg+really1.3.1-1+deb13u1 \
+    && dpkg-query -W zlib1g \
+    && test "$(dpkg-query -W -f='${Version}' zlib1g)" = "1:1.3.dfsg+really1.3.1-1+deb13u1" \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --require-hashes -r requirements.txt \
     && pip check \
     && python -m pip uninstall -y pip \
     && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12 \

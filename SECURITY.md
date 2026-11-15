@@ -71,11 +71,101 @@ version is available.
 pip only to install the runtime lock, so the same `RUN` that installs it removes pip
 afterwards: the package, its commands and the wheel `ensurepip` bundles. The bundle
 check refuses an image whose Python still has any of them. pip's bytes stay in the
-base image's own layer, which a later layer cannot change. A scan of the final
-filesystem should therefore find no pip, while a scan of every layer can still report
-it. No claim is made that every layer is free of known vulnerabilities.
+base image's own layer, which a later layer cannot change. The 2026-11-15 scans (Trivy
+and Grype) of the baseline image built from `f21ef13` and of the validation image with
+the `zlib1g` pin found no pip in either final filesystem. Grype's scan of every layer,
+run on the baseline image only, did not report it either, for a reason not established;
+that is not taken as evidence that the base layer is free of it. No claim is made that
+every layer is free of known vulnerabilities.
 CVE-2025-8869 does not apply on Python 3.12, which implements PEP 706. Details:
-`docs/DEPLOYMENT.md`, section 8, "pip in the base image".
+`docs/DEPLOYMENT.md`, section 8, "pip in the base image" and "Image scans".
+
+### Runtime image: what the scans left
+
+The table is what the 2026-11-15 scans of the validation image still report. That image
+is `churnsense-ai:f21ef138fbde-dirty`: commit `f21ef13` with the `zlib1g` pin, a local
+build that is dirty and not a release (`docs/DEPLOYMENT.md`, section 8, "Image scans").
+
+- The baseline image built from `f21ef13` has the same findings, with the same
+  severities and states, plus the three `zlib1g` ones below.
+- In package-CVE pairs, the validation image has 47 High findings in Trivy (11 distinct
+  CVEs) and 59 in Grype (17 distinct CVEs). Neither scanner reports a Critical one.
+- An image built from the committed change has not been scanned yet.
+
+**The status words are each scanner's own, and they do not mean the same thing.**
+
+- Grype records a fix state, such as `fixed`, `not-fixed` or `wont-fix`. Trivy records
+  a status, such as `fixed`, `affected` or `fix_deferred`.
+- Neither is a Debian security advisory status. Whether Debian issued a DSA, or
+  marked a CVE `no-dsa`, was not checked for these entries.
+- The table quotes the labels as the scanners gave them.
+- The two scanners also rank some CVEs differently (Grype and Trivy columns). Both
+  rankings are shown; neither is taken as the right one.
+
+| Debian packages | High CVEs (Grype) | Grype | Trivy |
+|---|---|---|---|
+| util-linux (`bsdutils`, `libblkid1`, `liblastlog2-2`, `libmount1`, `libsmartcols1`, `libuuid1`, `login`, `mount`, `util-linux`) | CVE-2026-76642, CVE-2026-78408, CVE-2026-78409, CVE-2026-78410 | High, `wont-fix` | High, `affected` |
+| ncurses (`libncursesw6`, `libtinfo6`, `ncurses-base`, `ncurses-bin`) | CVE-2025-69720 | High, `wont-fix` | High, `affected` |
+| `perl-base` | CVE-2026-9538 | High, `wont-fix` | High, `fix_deferred` |
+| `perl-base` | CVE-2026-82560 | High, `wont-fix` | Medium, `affected` |
+| glibc (`libc6`, `libc-bin`) | CVE-2026-19499, CVE-2026-5435, CVE-2026-84243 | High, `wont-fix` | Medium, `affected` |
+| gcc-14 (`gcc-14-base`, `libgcc-s1`, `libstdc++6`) | CVE-2026-95619, CVE-2026-102010 | High, `wont-fix` | Medium, `affected` |
+| sqlite3 (`libsqlite3-0`) | CVE-2026-119373, CVE-2026-119374, CVE-2026-119379 | High, `wont-fix` | High, `affected` |
+| `libacl1` | CVE-2026-54369 | High, `wont-fix` | High, `affected` |
+| `libacl1` | CVE-2026-54370 | High, `wont-fix` | Medium, `affected` |
+| systemd (`libsystemd0`, `libudev1`) | CVE-2026-16742 (Medium in Grype) | Medium, `wont-fix` | High, `affected` |
+
+**What is known of them.**
+
+- Grype's database carries the known-exploited (KEV) list; none of the image's matches
+  is on it.
+- Each CVE in this table has an EPSS score below 1 % (EPSS data of 2026-11-14). That
+  does not hold for every finding of the scan: some lower-severity ones score higher.
+
+**What lowers the risk.**
+
+- The service runs as a non-root user (uid 10001), with `no-new-privileges` and
+  every capability dropped.
+- Its root filesystem is read-only, nothing is mounted, and it sits only on an
+  internal network behind the proxy.
+- It does not call the tools some of these findings sit in (`mount`, `nsenter`,
+  `infocmp`, perl).
+- For the library findings (glibc, libstdc++, sqlite3, libacl1, systemd), no call
+  path from the service was established either way.
+
+These measures lower the risk; they do not remove the vulnerabilities, which stay in
+the image.
+
+**When they are reviewed:** at the next base-image or security update, and before the
+next release.
+
+**The Python interpreter (Grype only, 8 matches).** These matches are unchanged in the
+validation image's scan: 6 Medium, 1 Low and 1 Negligible (the disputed one). Grype
+matches CPython 3.12.16 to:
+
+- CVE-2025-12781, CVE-2025-15366, CVE-2025-15367, CVE-2026-3446, CVE-2026-6019,
+  CVE-2026-116566 and CVE-2026-103995;
+- CVE-2026-3479, which its project disputes.
+
+How the match was made, and what it means:
+
+- The match is on the interpreter's version, through NVD CPE ranges that state no
+  bound for the 3.12 branch.
+- Whether any of them applies to 3.12.16 is not established. They are neither
+  confirmed nor dismissed, and stay under review.
+- The runtime Python is not changed for them.
+
+**zlib1g.** The baseline lists CVE-2026-85091, CVE-2026-27171 and CVE-2026-76844
+against `zlib1g` `1:1.3.dfsg+really1.3.1-1+b1`, fixed in
+`1:1.3.dfsg+really1.3.1-1+deb13u1`. The `Dockerfile` now pins that version
+(`docs/DEPLOYMENT.md`, section 3).
+
+- The validation image holds `1:1.3.dfsg+really1.3.1-1+deb13u1`, and neither Trivy nor
+  Grype reports any of the three for it. That is a scan-verified fix for that image.
+- An image built from the committed change still has to be built and scanned.
+- It does not touch the other findings above, which remain.
+- CVE-2026-76844's published description concerns webpack-dev-middleware, not zlib,
+  although both scanners map it to `zlib1g`. That mismatch was not investigated further.
 
 ## Secrets
 
