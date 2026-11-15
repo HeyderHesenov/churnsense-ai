@@ -7,9 +7,9 @@
 # image has the bundled model.
 #
 # Base images are pinned by version and by the digest of their multi-platform
-# index (linux/amd64 and linux/arm64 both present), resolved from Docker Hub on
-# 2026-11-10 (docs/DEPLOYMENT.md, section 3). scripts/verify_deploy_bundle.py
-# refuses an image reference without a digest.
+# index (linux/amd64 and linux/arm64 both present), resolved from Docker Hub
+# (docs/DEPLOYMENT.md, section 3: node 2026-11-10, python 2026-11-15).
+# scripts/verify_deploy_bundle.py refuses an image reference without a digest.
 #
 # No dataset is in the image, and none is mounted beside it (docs/DEPLOYMENT.md,
 # section 6): the public demo lists generated customers, and shows the dataset's
@@ -27,7 +27,7 @@ COPY tests/fixtures/demo_customers.csv /build/tests/fixtures/demo_customers.csv
 RUN npm run build
 
 # --- 2. the runtime: locked runtime dependencies, the source, the approved assets ----------
-FROM python:3.12.13-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36 AS runtime
+FROM python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,9 +44,16 @@ WORKDIR /app
 
 # Runtime lock only, every file checked against its hash; no dev or notebook tools.
 # The same command CI's lock job runs on Linux (`make setup-runtime`).
+# pip is needed for this install and its check only, so it leaves in the same
+# layer: the package, its commands and ensurepip's bundled wheel. The final
+# filesystem holds no pip (the bundle check below refuses an image that does);
+# the base image's own layer still holds pip's bytes (docs/DEPLOYMENT.md, section 8).
 COPY requirements.txt ./
 RUN pip install --require-hashes -r requirements.txt \
-    && pip check
+    && pip check \
+    && python -m pip uninstall -y pip \
+    && rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12 \
+    && rm -f /usr/local/lib/python3.12/ensurepip/_bundled/pip-*.whl
 
 # The source runs from the repository layout: config.PROJECT_ROOT is two levels
 # above src/churnsense, so the package is not installed as a wheel.

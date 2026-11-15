@@ -114,7 +114,7 @@ internet ──HTTPS 443 / HTTP 80──▶ caddy ──(proxy network: internal
 | Stage | Version | Source |
 |---|---|---|
 | Front end build | Node 22.23.4 | `frontend/.nvmrc`, `package.json` engines `^22.12.0`, `npm ci` from `package-lock.json` |
-| Runtime | Python 3.12.13 | the version CI and the model's metadata record |
+| Runtime | Python 3.12.16 | the runtime base image. The model was trained on 3.12.13 (its metadata records it): the same minor version, with the same locked scikit-learn |
 | Python packages | `requirements.txt`, installed with `--require-hashes` | the runtime lock (no dev or notebook tools) |
 
 Every external image is pinned by version **and** by the digest of its multi-platform
@@ -125,7 +125,7 @@ silently. `scripts/verify_deploy_bundle.py` refuses any `FROM` or `image:` witho
 | Image | Version tag | Index digest | Platforms checked | Verified |
 |---|---|---|---|---|
 | `node` (front end build) | `22.23.4-slim` | `sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d` | linux/amd64, linux/arm64/v8 (also arm/v7, ppc64le) | 2026-11-10 |
-| `python` (runtime) | `3.12.13-slim` | `sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36` | linux/amd64, linux/arm64/v8 (and six more) | 2026-11-10 |
+| `python` (runtime) | `3.12.16-slim` | `sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b` | linux/amd64, linux/arm64/v8 (and six more) | 2026-11-15 |
 | `caddy` (proxy) | `2.11.9` | `sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0` | linux/amd64, linux/arm64/v8 (and five more) | 2026-11-10 |
 
 How the digests were obtained:
@@ -135,7 +135,8 @@ How the digests were obtained:
 - Each `Docker-Content-Digest` header equals the SHA-256 of the index manifest that was
   returned.
 - Each index lists linux/amd64 and linux/arm64. `node:22-slim` currently resolves to
-  the same index as `22.23.4-slim`.
+  the same index as `22.23.4-slim`, and `python:3.12-slim` to the same index as
+  `3.12.16-slim`.
 - `caddy:2` and `caddy:2.11` resolve to a different index for the same v2.11.9 build
   (it also lists riscv64). The versioned tag is pinned.
 
@@ -343,7 +344,13 @@ refuses:
 - any file under `data/`, the dataset's own file name anywhere, and
   `shap_global.json` anywhere (it holds validation rows);
 - `.egg-info`, `.env*`, `.git`, `audit-reports/`, tests, the held-out report, other
-  reports, and keys.
+  reports, and keys;
+- a package installer in the image's own Python, the interpreter the check runs on:
+  pip importable, pip's distribution metadata, the `pip` package or a `pip-*.dist-info`
+  or `pip-*.egg-info` in any site directory or `sys.path` entry, a `pip`, `pip3` or
+  `pip3.12` command in any `PATH` directory (a dangling link counts), or a pip wheel in
+  `ensurepip/_bundled`. There is no option to waive this one. The run in the checkout
+  does not check the interpreter: a development environment has pip.
 
 For a local test build only, waive the domain check with
 `--build-arg ALLOW_EXAMPLE_DOMAIN=1`, or with `--allow-example-domain` on the command
@@ -392,7 +399,10 @@ The tag depends on the build context (every path `.dockerignore` re-includes, pl
 
 **Runtime stage:**
 
-- Installs the hash-locked runtime packages and runs `pip check`.
+- Installs the hash-locked runtime packages, runs `pip check`, and then removes pip in
+  the same `RUN`: the package, its commands and the wheel `ensurepip` bundles. The
+  image's final filesystem holds no pip, and the bundle check refuses one that does
+  (below, "pip in the base image").
 - Copies the source and the approved files (never the dataset, never
   `shap_global.json`) and runs the bundle check, with the evidence's hash.
 - Runs `python -m churnsense.demo.migrate --check` on the copied evidence (below): no
@@ -402,6 +412,54 @@ The tag depends on the build context (every path `.dockerignore` re-includes, pl
 
 To get the image to the host, either build it there from the same checkout, or
 `docker save … | ssh host docker load`. Do not push it to a public registry.
+
+### pip in the base image
+
+**What the base image holds.** `python:3.12.16-slim` installs pip 25.0.1, the version
+CPython 3.12's `ensurepip` bundles, in four places: the `pip` package with its
+`pip-25.0.1.dist-info` in `site-packages`, the commands `pip3` and `pip3.12`, a `pip`
+link to `pip3` (in a layer of its own), and the wheel
+`ensurepip/_bundled/pip-25.0.1-py3-none-any.whl`. This was read from the published
+layers of both linux/amd64 and linux/arm64 through the registry API on 2026-11-15.
+Moving to a later 3.12 image does not change it: the 3.12 branch still bundles 25.0.1.
+
+**What is known against pip 25.0.1** (OSV, 2026-11-15; each also has a PYSEC alias):
+
+| Advisory | Fixed in | Here |
+|---|---|---|
+| CVE-2025-8869 (GHSA-4xh5-x5gv-qwph): tar symlinks not checked | 25.3 | Does not apply on Python 3.12. The flaw is in pip's own fallback for extracting tar files, which pip uses only when the `tarfile` module lacks PEP 706 extraction filters; Python 3.12 has them |
+| CVE-2026-1703 (GHSA-6vgw-5pg2-w6jp): path traversal | 26.0 | pip is removed from the final filesystem |
+| CVE-2026-3219 (GHSA-58qw-9mgm-455v): a tar and ZIP file read as ZIP | 26.1 | pip is removed from the final filesystem |
+| CVE-2026-6357 (GHSA-jp4c-xjxw-mgf9): functionality from an untrusted control sphere | 26.1 | pip is removed from the final filesystem |
+| CVE-2026-8643 (GHSA-wf93-45jw-7689): entry point names escape the scripts directory | 26.1.2 | pip is removed from the final filesystem |
+| CVE-2026-13346 (GHSA-qwm4-qh6w-59xr): doubly encoded package URLs | 26.2.0 | pip is removed from the final filesystem |
+
+**What the build does.** pip runs once, to install the hash-locked runtime packages and
+to run `pip check`. Every package file is checked against its hash before pip unpacks
+it. In the same `RUN`, `python -m pip uninstall -y pip` removes the package, its
+metadata and the commands it installed; `rm -f` then removes any `pip`, `pip3` or
+`pip3.12` command or link still in `/usr/local/bin`, and the wheel `ensurepip`
+bundles. The bundle check, run later in the build by the image's own Python, refuses
+the image if any of these is left (§7). Nothing the service runs uses pip. In a
+running container, `pip`, `python -m pip` and `python -m ensurepip` no longer work,
+and neither does a virtual environment created with pip.
+
+**What stays: pip's bytes in the base layer.** An image is a stack of read-only
+layers. A later layer cannot take a file out of an earlier one; it can only mark it as
+deleted. The base image's layer therefore still carries pip 25.0.1, and anyone who
+unpacks the image's layers one by one can read it. What a scanner reports depends on
+what it reads:
+
+- **A scan of the final filesystem** (the container as it runs; Trivy's and Grype's
+  default for an image) should find no pip at all.
+- **A scan of every layer** (for example `grype --scope all-layers`) can still report
+  pip 25.0.1 and the advisories above, from the base layer.
+
+This project does not claim that every layer of the image is free of known
+vulnerabilities. That would take an all-layers scan with a clean result, which pip's
+base layer rules out for now. Neither scan has been run against an image of this
+`Dockerfile` yet. Removing the base layer's copy would take a base image built without
+pip.
 
 ### The published evidence: from the builder to a running container
 

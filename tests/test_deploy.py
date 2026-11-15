@@ -11,11 +11,14 @@ from __future__ import annotations
 import ast
 import functools
 import hashlib
+import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 import pytest
@@ -104,6 +107,76 @@ def _attributions(model_sha: str, **changes) -> dict:
 def _ledger(**identity) -> str:
     """A published ledger the strict reader accepts, naming ``identity`` over the defaults."""
     return seal(published_body(identity={**IDENTITY, **identity}))
+
+
+#: The real description of the interpreter running the check. Every test below sees a
+#: synthetic interpreter instead (``_clean_interpreter``), because the one running the
+#: tests is a development environment with pip in it, as it must be.
+RUNNING_INTERPRETER = bundle.running_interpreter
+
+#: What an image's Python may still hold of pip, and the problem each leaves.
+PIP_RESIDUE = {
+    "importable": "can still be imported",
+    "metadata": "pip 25.0.1 is installed",
+    "package": "the pip package is in the image",
+    "egg_info": "pip's metadata is in the image",
+    "stray_dist_info": "pip's metadata is in the image",
+    "pip": "a pip command is on PATH",
+    "pip3": "a pip command is on PATH",
+    "pip3.12": "a pip command is on PATH",
+    "dangling_pip": "a pip command is on PATH",
+    "ensurepip_wheel": "ensurepip still bundles a pip wheel",
+}
+
+
+def _interpreter(root: Path, *residue: str) -> bundle.Interpreter:
+    """A synthetic interpreter under ``root``: empty, except for the named pip ``residue``."""
+    site, other_site, stdlib = root / "site-packages", root / "platlib", root / "lib"
+    commands, more_commands = root / "bin", root / "sbin"
+    for folder in (site, other_site, commands, more_commands, stdlib / "ensurepip" / "_bundled"):
+        folder.mkdir(parents=True, exist_ok=True)
+    unknown = set(residue) - set(PIP_RESIDUE)
+    assert not unknown, unknown
+    if "metadata" in residue:
+        _write(
+            site,
+            "pip-25.0.1.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: pip\nVersion: 25.0.1\n",
+        )
+    if "package" in residue:
+        _write(site, "pip/__init__.py", "")
+    if "stray_dist_info" in residue:  # in a site directory, off sys.path: no metadata lookup
+        _write(other_site, "pip-25.0.1.dist-info/RECORD", "")
+    if "egg_info" in residue:
+        _write(site, "pip-25.0.1.egg-info/PKG-INFO", "Name: pip\nVersion: 25.0.1\n")
+    for name in ("pip", "pip3", "pip3.12"):
+        if name in residue:
+            _write(commands, name, "#!/bin/sh\n")
+    if "dangling_pip" in residue:
+        (more_commands / "pip").symlink_to(more_commands / "pip3-gone")
+    if "ensurepip_wheel" in residue:
+        _write(stdlib, "ensurepip/_bundled/pip-25.0.1-py3-none-any.whl", b"PK")
+    importable = "importable" in residue
+    return bundle.Interpreter(
+        search_path=(str(site),),
+        site_dirs=(str(site), str(other_site)),
+        command_dirs=(str(commands), "", str(more_commands)),
+        stdlib=str(stdlib),
+        version=(3, 12),
+        find_spec=lambda name: object() if importable and name == "pip" else None,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _clean_interpreter(monkeypatch, tmp_path_factory) -> bundle.Interpreter:
+    """The image's Python as the build leaves it: no pip. The check itself still runs."""
+    clean = _interpreter(tmp_path_factory.mktemp("python"))
+    monkeypatch.setattr(bundle, "running_interpreter", lambda: clean)
+    return clean
+
+
+def _with_interpreter(monkeypatch, interpreter: bundle.Interpreter) -> None:
+    monkeypatch.setattr(bundle, "running_interpreter", lambda: interpreter)
 
 
 @pytest.fixture
@@ -634,6 +707,101 @@ def test_the_command_passes_a_complete_bundle(image, capsys):
     assert out.err == ""
 
 
+# --- no package installer in the image's Python ---------------------------------------------
+
+
+@pytest.mark.parametrize("residue", sorted(PIP_RESIDUE))
+def test_the_image_check_refuses_any_pip_residue(image, tmp_path, monkeypatch, residue):
+    """Each thing pip can leave behind - importable, metadata, files, a command (even a
+    dangling link), ensurepip's wheel - fails the image on its own."""
+    _with_interpreter(monkeypatch, _interpreter(tmp_path / "python", residue))
+    problems = _problems(image)
+    assert problems and all("pip" in problem for problem in problems), problems
+    assert any(PIP_RESIDUE[residue] in problem for problem in problems), problems
+
+
+def test_the_image_check_passes_an_interpreter_without_pip(image, tmp_path, monkeypatch):
+    _with_interpreter(monkeypatch, _interpreter(tmp_path / "python"))
+    problems, notes = bundle.verify(
+        image, in_image=True, allow_example_domain=True, evidence_sha256=_evidence_hash(image)
+    )
+    assert list(problems) == []
+    assert "no package installer in the image" in notes
+
+
+def test_the_image_check_names_every_residue_at_once(image, tmp_path, monkeypatch):
+    _with_interpreter(monkeypatch, _interpreter(tmp_path / "python", *PIP_RESIDUE))
+    problems = _problems(image)
+    for expected in PIP_RESIDUE.values():
+        assert any(expected in problem for problem in problems), expected
+
+
+def test_the_command_refuses_an_image_with_pip(image, tmp_path, monkeypatch, capsys):
+    _with_interpreter(monkeypatch, _interpreter(tmp_path / "python", "importable", "metadata"))
+    argv = ["--in-image", "--allow-example-domain", "--root", str(image)]
+    argv += ["--evidence-sha256", _evidence_hash(image)]
+    assert bundle.main(argv) == 1
+    out = capsys.readouterr()
+    assert out.out == ""
+    assert "PROBLEM: pip can still be imported in the image" in out.err
+    assert "NOT ready" in out.err
+
+
+def test_the_checkout_run_does_not_judge_the_interpreter(image, tmp_path, monkeypatch):
+    """Before the build, the check runs in a development environment, which has pip."""
+    _with_interpreter(monkeypatch, _interpreter(tmp_path / "python", *PIP_RESIDUE))
+    problems, _notes = bundle.verify(_repo_bundle(tmp_path, image), in_image=False)
+    assert not [p for p in problems if "pip" in p], problems
+
+
+def test_the_running_interpreter_is_the_one_the_check_reads():
+    """The real description mirrors this process; and in it - a development environment
+    that has pip - the check finds pip (the check's positive control)."""
+    real = RUNNING_INTERPRETER()
+    paths = sysconfig.get_paths()
+    assert real.search_path == tuple(sys.path)
+    assert real.site_dirs == (paths["purelib"], paths["platlib"])
+    assert real.command_dirs == tuple(os.environ.get("PATH", "").split(os.pathsep))
+    assert real.stdlib == paths["stdlib"]
+    assert real.version == sys.version_info[:2]
+    assert real.find_spec is importlib.util.find_spec
+    problems, notes = bundle.Problems(), []
+    bundle.check_no_installer(real, problems, notes)
+    has_pip = importlib.util.find_spec("pip") is not None
+    assert ("pip can still be imported in the image" in problems) == has_pip
+    assert ("no package installer in the image" in notes) == (not problems), (problems, notes)
+
+
+def _instructions(dockerfile: str) -> list[str]:
+    """The Dockerfile's instructions, each on one line, comments dropped."""
+    lines = [line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")]
+    return [" ".join(i.split()) for i in "\n".join(lines).replace("\\\n", " ").splitlines() if i]
+
+
+def test_the_runtime_layer_installs_checks_and_removes_pip_in_one_run():
+    """pip installs the hash-locked lock and checks it, then leaves in the same RUN - a later
+    layer could only hide its files, never take them out of the one that has them."""
+    runs = [i for i in _instructions((REPO / "Dockerfile").read_text()) if i.startswith("RUN ")]
+    installs = [i for i, run in enumerate(runs) if "pip install" in run]
+    assert len(installs) == 1, installs
+    run = runs[installs[0]]
+    steps = [
+        "RUN pip install --require-hashes -r requirements.txt",
+        "&& pip check",
+        "&& python -m pip uninstall -y pip",
+        "&& rm -f /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.12",
+        "&& rm -f /usr/local/lib/python3.12/ensurepip/_bundled/pip-*.whl",
+    ]
+    at = [run.find(step) for step in steps]
+    assert -1 not in at, dict(zip(steps, at, strict=True))
+    assert at == sorted(at), "install, check, then remove - in this order"
+    assert "requirements-dev" not in run
+    others = runs[: installs[0]] + runs[installs[0] + 1 :]
+    assert not [r for r in others if "pip uninstall" in r], "the removal is not its own layer"
+    later = runs[installs[0] + 1 :]
+    assert not [r for r in later if re.search(r"(^|[\s&;|])(pip3?|python -m pip)\s", r[4:])]
+
+
 def _repo_bundle(tmp_path: Path, image: Path) -> Path:
     """The synthetic bundle laid out as a checkout: the committed deployment files beside it."""
     root = tmp_path / "checkout"
@@ -694,23 +862,59 @@ def test_the_output_is_fixed_text_never_a_note():
     assert bundle.PASSED == "deployment bundle ready"
 
 
-def test_the_check_never_loads_a_model_or_the_data_stack(image):
-    """Run it as the build does: the release reader brings pandas and numpy, but the model
-    stack - joblib (unpickling) and scikit-learn - must stay unimported."""
+def test_the_check_never_loads_a_model_or_the_data_stack(image, _clean_interpreter):
+    """Run it in a fresh process, as the build does: the release reader brings pandas and
+    numpy, but the model stack - joblib (unpickling) and scikit-learn - must stay unimported.
+    This process has pip, so the check is shown the synthetic image Python without it."""
+    clean = _clean_interpreter
     probe = (
-        "import runpy, sys\n"
-        f"sys.argv = ['verify', '--in-image', '--allow-example-domain', '--root', {str(image)!r},"
-        f" '--evidence-sha256', {_evidence_hash(image)!r}]\n"
-        "try:\n"
-        f"    runpy.run_path({str(REPO / 'scripts' / 'verify_deploy_bundle.py')!r}, run_name='__main__')\n"
-        "except SystemExit as exit_:\n"
-        "    assert exit_.code == 0, exit_.code\n"
+        "import importlib.util, sys\n"
+        "spec = importlib.util.spec_from_file_location(\n"
+        f"    'verify_deploy_bundle', {str(REPO / 'scripts' / 'verify_deploy_bundle.py')!r})\n"
+        "check = importlib.util.module_from_spec(spec)\n"
+        "sys.modules[spec.name] = check\n"
+        "spec.loader.exec_module(check)\n"
+        "clean = check.Interpreter(\n"
+        f"    search_path={clean.search_path!r}, site_dirs={clean.site_dirs!r},\n"
+        f"    command_dirs={clean.command_dirs!r}, stdlib={clean.stdlib!r},\n"
+        f"    version={clean.version!r}, find_spec=lambda name: None)\n"
+        "check.running_interpreter = lambda: clean\n"
+        f"code = check.main(['--in-image', '--allow-example-domain', '--root', {str(image)!r},"
+        f" '--evidence-sha256', {_evidence_hash(image)!r}])\n"
+        "assert code == 0, code\n"
         "loaded = {'joblib', 'sklearn'} & set(sys.modules)\n"
         "assert not loaded, loaded\n"
     )
     env = {**os.environ, "PYTHONPATH": str(REPO / "src")}
     result = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env)
     assert result.returncode == 0, result.stderr
+
+
+def test_the_script_run_as_the_build_runs_it_judges_its_own_interpreter(image):
+    """``python scripts/verify_deploy_bundle.py --in-image ...`` in a fresh process, as the
+    Dockerfile runs it: the ``__main__`` entry point, with nothing patched. The answer depends
+    on that interpreter alone - this one is read first (the real description, unpatched) to
+    know whether it has pip - and the image itself is complete, so pip is the only problem
+    there can be: refused when pip is there, passed when it is not."""
+    expected, _notes = bundle.Problems(), []
+    bundle.check_no_installer(RUNNING_INTERPRETER(), expected, _notes)
+    script = REPO / "scripts" / "verify_deploy_bundle.py"
+    argv = ["--in-image", "--allow-example-domain", "--root", str(image)]
+    argv += ["--evidence-sha256", _evidence_hash(image)]
+    env = {**os.environ, "PYTHONPATH": str(REPO / "src")}
+    result = subprocess.run(
+        [sys.executable, str(script), *argv], capture_output=True, text=True, env=env
+    )
+    if expected:
+        assert result.returncode == 1, (result.returncode, result.stderr)
+        assert result.stdout == ""
+        lines = result.stderr.splitlines()
+        assert lines[-1] == f"deployment bundle NOT ready: {len(expected)} problem(s)", lines
+        assert sorted(lines[:-1]) == sorted(f"PROBLEM: {problem}" for problem in expected), lines
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == bundle.PASSED + "\n"
+        assert result.stderr == ""
 
 
 # --- the committed deployment files ---------------------------------------------------------
@@ -975,7 +1179,7 @@ def test_the_committed_images_are_all_pinned_by_digest():
     dockerfile = (REPO / "Dockerfile").read_text()
     assert bundle._from_images(dockerfile) == [
         "node:22.23.4-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d",
-        "python:3.12.13-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36",
+        "python:3.12.16-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b",
     ]
     compose = yaml.safe_load((REPO / "deploy/compose.yaml").read_text())
     assert compose["services"]["caddy"]["image"] == (

@@ -66,6 +66,17 @@ here; one that ships, or reaches high, is fixed instead.
 Accepted advisories are reviewed by their date and removed as soon as a fixed
 version is available.
 
+`pip-audit` reads the locks, not the container image. The runtime image's base
+(`python:3.12.16-slim`) ships pip 25.0.1, which has known advisories. The image needs
+pip only to install the runtime lock, so the same `RUN` that installs it removes pip
+afterwards: the package, its commands and the wheel `ensurepip` bundles. The bundle
+check refuses an image whose Python still has any of them. pip's bytes stay in the
+base image's own layer, which a later layer cannot change. A scan of the final
+filesystem should therefore find no pip, while a scan of every layer can still report
+it. No claim is made that every layer is free of known vulnerabilities.
+CVE-2025-8869 does not apply on Python 3.12, which implements PEP 706. Details:
+`docs/DEPLOYMENT.md`, section 8, "pip in the base image".
+
 ## Secrets
 
 GitHub secret scanning and push protection are enabled for the repository, so
