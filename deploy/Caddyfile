@@ -1,9 +1,9 @@
 # ChurnSense AI - the public entry point (docs/DEPLOYMENT.md).
 #
 # Caddy obtains and renews the certificate for the site address below and
-# redirects HTTP to HTTPS. REPLACE demo.example.com with the real domain - the
-# same name as in configs/deploy.yaml api.allowed_hosts; the bundle check
-# refuses the example domain and any mismatch.
+# redirects HTTP to HTTPS. The site is the public demo's domain,
+# churnsense.brimbyway.com - the same name as in configs/deploy.yaml
+# api.allowed_hosts; the bundle check refuses the example domain and any mismatch.
 #
 # Forwarded headers: Caddy ignores X-Forwarded-* values a client sends (no
 # trusted_proxies here) and sets X-Forwarded-For to the client's address and
@@ -25,7 +25,7 @@
 	}
 }
 
-demo.example.com {
+churnsense.brimbyway.com {
 	# Body limits by path, as in the app (BodySizeLimit): only the three upload
 	# paths take a file - a little above the app's 5 MiB plus multipart
 	# overhead; everything else 64 KiB. Paths match exactly, so an alias or a

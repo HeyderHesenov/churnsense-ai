@@ -106,11 +106,11 @@ api:
   # (4.8 MB) reads in under 0.1 s. Must be at least the raw contract's 21.
   max_upload_columns: 1000
   # Host headers the service answers to (src/churnsense/hosts.py).
-  # REPLACE demo.example.com with the real public domain before building the
-  # image - the same name as the site address in deploy/Caddyfile; the bundle
-  # check refuses the example domain. 127.0.0.1 is for the container's own
-  # health check: Caddy forwards only requests for its site name. Never "*".
-  allowed_hosts: [demo.example.com, 127.0.0.1]
+  # churnsense.brimbyway.com is the public demo's domain - the same name as the
+  # site address in deploy/Caddyfile; the bundle check refuses a mismatch and the
+  # example domain. 127.0.0.1 is for the container's own health check: Caddy
+  # forwards only requests for its site name. Never "*".
+  allowed_hosts: [churnsense.brimbyway.com, 127.0.0.1]
   # The one peer whose X-Forwarded-For / X-Forwarded-Proto are believed: the
   # Caddy container's fixed address on the internal proxy network in
   # deploy/compose.yaml (src/churnsense/proxies.py). Change both together.

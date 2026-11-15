@@ -266,6 +266,15 @@ def test_the_dockerfile_validates_the_evidence_before_the_image_exists():
 
 
 def test_the_image_check_refuses_the_example_domain_unless_waived(image):
+    text = (image / bundle.DEPLOY_CONFIG).read_text()
+    config = yaml.safe_load(text)
+    assert config["api"]["allowed_hosts"] == [
+        "churnsense.brimbyway.com",
+        "127.0.0.1",
+    ]
+    _write(
+        image, bundle.DEPLOY_CONFIG, text.replace("churnsense.brimbyway.com", "demo.example.com")
+    )
     assert any("documentation domain" in p for p in _problems(image, allow_example_domain=False))
     assert _problems(image, allow_example_domain=True) == []
 
@@ -653,12 +662,12 @@ def test_a_deploy_config_that_drifts_from_the_development_one_is_refused(image):
     ("old", "new", "expected"),
     [
         (
-            "allowed_hosts: [demo.example.com, 127.0.0.1]",
+            "allowed_hosts: [churnsense.brimbyway.com, 127.0.0.1]",
             'allowed_hosts: ["*"]',
             "allows every host",
         ),
         (
-            "allowed_hosts: [demo.example.com, 127.0.0.1]",
+            "allowed_hosts: [churnsense.brimbyway.com, 127.0.0.1]",
             "allowed_hosts: [127.0.0.1]",
             "no public host",
         ),
@@ -991,7 +1000,7 @@ def test_the_deploy_config_differs_from_the_development_one_in_its_stated_keys_o
 
 def test_the_deploy_config_loads_and_answers_only_its_host_and_proxy():
     cfg = load_config(REPO / bundle.DEPLOY_CONFIG)
-    assert cfg.api.allowed_hosts == ("demo.example.com", "127.0.0.1")
+    assert cfg.api.allowed_hosts == ("churnsense.brimbyway.com", "127.0.0.1")
     assert cfg.api.trusted_proxies == ("172.30.10.2/32",)
     assert "localhost" not in cfg.api.allowed_hosts
 
@@ -1040,18 +1049,21 @@ def test_the_committed_wiring_and_dockerignore_agree(capsys):
     assert list(problems) == []
 
 
-def test_the_example_domain_is_refused_until_replaced():
+def test_the_committed_domain_is_real_and_the_example_one_is_refused():
     deploy = yaml.safe_load((REPO / bundle.DEPLOY_CONFIG).read_text())
     problems = bundle.Problems()
     bundle.check_domain(deploy, problems)
+    assert list(problems) == []
+    example = {
+        **deploy,
+        "api": {**deploy["api"], "allowed_hosts": ["demo.example.com", "127.0.0.1"]},
+    }
+    problems = bundle.Problems()
+    bundle.check_domain(example, problems)
     assert list(problems) == [
         "demo.example.com is a documentation domain: set the real one in "
         "configs/deploy.yaml and deploy/Caddyfile"
     ]
-    real = {**deploy, "api": {**deploy["api"], "allowed_hosts": ["churn.heyder.dev", "127.0.0.1"]}}
-    problems = bundle.Problems()
-    bundle.check_domain(real, problems)
-    assert list(problems) == []
 
 
 @pytest.mark.parametrize(
@@ -1085,11 +1097,9 @@ def test_a_published_app_port_or_a_mismatched_proxy_is_refused(tmp_path):
 def test_a_caddy_site_other_than_the_allowed_host_is_refused(tmp_path):
     for name in ("deploy/compose.yaml", "deploy/Caddyfile"):
         _write(tmp_path, name, (REPO / name).read_text())
-    caddyfile = (
-        (tmp_path / "deploy/Caddyfile")
-        .read_text()
-        .replace("demo.example.com {", "other.example.com {")
-    )
+    original = (tmp_path / "deploy/Caddyfile").read_text()
+    assert "churnsense.brimbyway.com {" in original
+    caddyfile = original.replace("churnsense.brimbyway.com {", "other.example.com {")
     _write(tmp_path, "deploy/Caddyfile", caddyfile)
     problems = bundle.Problems()
     bundle.check_wiring(
