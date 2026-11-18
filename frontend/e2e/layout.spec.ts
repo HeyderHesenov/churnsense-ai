@@ -97,8 +97,8 @@ test('the longest customer ID fits a 320 px phone on every page that names it', 
 test('focus is always visible to a keyboard user', async ({ page }) => {
   await page.goto('/explorer');
   await settled(page);
-  // The skip link, the sidebar's links, then the page's own controls.
-  for (let step = 0; step < 14; step += 1) {
+  // The skip link, the sidebar's links, the guide's, then the page's own controls.
+  for (let step = 0; step < 20; step += 1) {
     await page.keyboard.press('Tab');
     // Every ring is an outline (src/styles/base.css :focus-visible); a row draws
     // its button's on itself (:has(:focus-visible)), so an ancestor's counts.
@@ -124,4 +124,52 @@ test('focus is always visible to a keyboard user', async ({ page }) => {
     });
     expect(ring.visible, `focus ring on ${ring.name}`).toBe(true);
   }
+});
+
+test('each page sits in its breadcrumb section and in its sidebar group', async ({ page }) => {
+  for (const { path, label, section, navGroup } of PAGES) {
+    await page.goto(path);
+    await settled(page);
+    const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
+    await expect(crumbs.locator('span').first(), label).toHaveText(section);
+    await expect(crumbs.locator('[aria-current="page"]'), label).toHaveText(label);
+    const link = page
+      .getByRole('navigation', { name: 'Sections' })
+      .getByRole('group', { name: navGroup })
+      .getByRole('link', { name: `${label}:` });
+    await expect(link, label).toHaveAttribute('aria-current', 'page');
+  }
+});
+
+test('the sidebar asks for the performance figures once, across every page', async ({ page }) => {
+  let asked = 0;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/performance') asked += 1;
+  });
+  await page.goto('/');
+  await settled(page);
+  const nav = page.getByRole('navigation', { name: 'Sections' });
+  for (const { label } of [...PAGES.slice(1), PAGES[0]]) {
+    await nav.getByRole('link', { name: `${label}:` }).click();
+    await settled(page);
+  }
+  await page.goBack();
+  await settled(page);
+  await expect(page.getByText('Validation ECE')).toBeVisible();
+  expect(asked).toBe(1);
+});
+
+test('the serving dot pulses, and is still under reduced motion', async ({ page }) => {
+  const animation = () =>
+    page
+      .getByRole('complementary', { name: 'Navigation' })
+      .locator('[data-state="up"] > span')
+      .evaluate((dot) => getComputedStyle(dot).animationName);
+  // The suite runs with reduced motion (playwright.config.ts); this test asks for motion first.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/');
+  await settled(page);
+  expect(await animation()).not.toBe('none');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await animation()).toBe('none');
 });

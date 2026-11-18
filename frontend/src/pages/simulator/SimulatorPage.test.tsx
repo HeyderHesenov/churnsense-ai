@@ -594,7 +594,8 @@ describe('when the sweep cannot be had', () => {
   it('says a request was refused even when the API lists no problem', async () => {
     await showSimulator('/simulator', [refusal(422, 'validation_error')]);
     expect(await screen.findByText('The API refused these assumptions.')).toBeInTheDocument();
-    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    // No list of problems on the page (the sidebar's guide is a list of its own).
+    expect(within(screen.getByRole('main')).queryByRole('list')).not.toBeInTheDocument();
   });
 
   it('lists the problems of a refused request, with nothing to try again', async () => {

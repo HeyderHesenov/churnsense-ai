@@ -574,6 +574,8 @@ describe('Single customer: a customer in the book', () => {
       '/api/explain',
       '/api/health',
       '/api/model-info',
+      // The sidebar's serving card.
+      '/api/performance',
       '/api/predict',
     ]);
   });

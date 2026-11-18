@@ -10,6 +10,9 @@ body {
   margin: 0;
   max-width: 100%;
   overflow-x: hidden;
+  /* Where supported, clip: it does not make html or body a scroll container,
+     so a sticky element inside the page still sticks. */
+  overflow-x: clip;
   overscroll-behavior-x: none;
 }
 

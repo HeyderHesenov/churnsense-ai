@@ -127,6 +127,17 @@
   --skeleton: #141b24;
   --skeleton-hi: #1a222c;
 
+  /* Design v4: the shell's new surfaces. v4 renames many tokens above (its
+     --bg-side is --sidebar, --ink-3 is --muted, --ink-4 is --placeholder,
+     --surface-sel is --selected, --line-ctrl is --line-strong); the existing
+     names are kept and only values v4 adds are listed here. */
+  --ambient-accent: rgba(24, 151, 174, 0.1);
+  --ambient-violet: rgba(163, 94, 201, 0.09);
+  --guide-glow: rgba(24, 151, 174, 0.08);
+  --guide-line: #1d3a43;
+  --ok-pulse: rgba(63, 166, 85, 0.55);
+  --ok-pulse-end: rgba(63, 166, 85, 0);
+
   /* Shape and type */
   /* Radii are named by their size: the artboards use exact pixel values. */
   --radius-2: 2px;

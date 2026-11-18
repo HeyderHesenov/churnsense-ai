@@ -1,14 +1,16 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from '../../app/router';
-import { GROUPS, ROUTES } from '../../app/routes';
-import { useHealth, useModelInfo, type ModelInfo } from '../../api/queries';
-import { cut } from '../../lib/format';
+import { NAV_GROUPS, ROUTES, type Route } from '../../app/routes';
+import { useHealth, useModelInfo, usePerformance, type ModelInfo } from '../../api/queries';
+import { cut, int } from '../../lib/format';
 import { modelName } from '../../lib/labels';
+import { readPreference, writePreference } from '../../lib/preferences';
 import { icons, Logo } from '../icons';
+import { useDataSource } from '../ui/DataSourceNote';
 import styles from './Shell.module.css';
 
 interface SidebarProps {
-  /** Labels and the serving card are shown. */
+  /** Labels, the guide and the serving card are shown. */
   expanded: boolean;
   /** The narrow icon column of a wide screen. */
   collapsed: boolean;
@@ -20,10 +22,34 @@ interface SidebarProps {
 
 const FOCUSABLE = 'a[href], button:not([disabled])';
 
+/** The getting-started guide: three pages, in the order a newcomer needs them. */
+const GUIDE = [
+  { path: '/', title: 'See where risk sits', note: 'Overview, 1 minute' },
+  { path: '/performance', title: 'Check you can trust it', note: 'Performance and explanations' },
+  { path: '/simulator', title: 'Plan a campaign', note: 'Pick a cut-off, compare scenarios' },
+] as const;
+
 export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarProps) {
   const { pathname } = useLocation();
   const aside = useRef<HTMLElement>(null);
+  const nav = useRef<HTMLElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const [guide, setGuide] = useState(() => readPreference('guide') !== 'hidden');
+  // The explorer lists the book: its size, as the service states it, and nothing without it.
+  const bookSize = useDataSource()?.customers;
+  /** In an open drawer: close it, even for the page already shown. */
+  const onFollow = drawer && open ? onClose : undefined;
+
+  const hideGuide = () => {
+    writePreference('guide', 'hidden');
+    // The button leaves with the card; focus goes to the page's own link, not to the document.
+    const links = nav.current;
+    (
+      links?.querySelector<HTMLElement>('[aria-current="page"]') ??
+      links?.querySelector<HTMLElement>('a[href]')
+    )?.focus();
+    setGuide(false);
+  };
 
   // While the drawer is open it is modal: focus starts on its close button,
   // Esc closes it, and Tab cycles within it.
@@ -83,54 +109,138 @@ export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarP
           <icons.close size={14} />
         </button>
       </div>
-      <nav aria-label="Sections" className={styles.nav}>
-        {GROUPS.map((group) => (
-          <NavGroup
-            key={group}
-            group={group}
-            expanded={expanded}
-            pathname={pathname}
-            onFollow={drawer && open ? onClose : undefined}
-          />
+      <nav ref={nav} aria-label="Sections" className={styles.nav}>
+        {NAV_GROUPS.map((group) => (
+          // Named whether or not its label is shown: a collapsed rail still has groups.
+          <div key={group} role="group" aria-label={group} className={styles.navGroup}>
+            {expanded && (
+              <span className={styles.group} aria-hidden="true">
+                {group}
+              </span>
+            )}
+            {ROUTES.filter((route) => route.navGroup === group).map((route) => (
+              <NavItem
+                key={route.path}
+                route={route}
+                expanded={expanded}
+                current={route.path === pathname}
+                count={route.path === '/explorer' ? bookSize : undefined}
+                onFollow={onFollow}
+              />
+            ))}
+          </div>
         ))}
       </nav>
-      {expanded && <Serving />}
+      {expanded && (
+        <div className={styles.foot}>
+          {guide && <Guide pathname={pathname} onHide={hideGuide} onFollow={onFollow} />}
+          <Serving />
+          <p className={styles.disclaimer}>
+            Decision support, not a decision system. A probability is similarity to past churners,
+            not a causal claim.
+          </p>
+        </div>
+      )}
     </aside>
   );
 }
 
-function NavGroup({
-  group,
+function NavItem({
+  route,
   expanded,
-  pathname,
+  current,
+  count,
   onFollow,
 }: {
-  group: string;
+  route: Route;
   expanded: boolean;
+  current: boolean;
+  /** The customers the page lists, shown as a badge. */
+  count: number | undefined;
+  onFollow: (() => void) | undefined;
+}) {
+  const Icon = icons[route.icon];
+  const badge = expanded && count !== undefined ? int(count) : null;
+  // The name holds every word the link shows, in order (WCAG 2.5.3), and the
+  // same words on a collapsed rail, where only the icon shows.
+  const name = `${route.label}: ${route.description}${badge === null ? '' : `, ${badge} customers`}`;
+  return (
+    <Link
+      to={route.path}
+      className={styles.navLink}
+      aria-label={name}
+      aria-current={current ? 'page' : undefined}
+      onClick={onFollow}
+    >
+      <Icon />
+      {expanded && (
+        <>
+          {/* The spaces render as nothing in a flex box; they keep the words apart in the text. */}
+          <span className={styles.navText}>
+            <span className={styles.navLabel}>{route.label}</span>{' '}
+            <span className={styles.navNote}>{route.description}</span>
+          </span>
+          {badge !== null && (
+            <>
+              {' '}
+              <span className={styles.badge}>{badge}</span>
+            </>
+          )}
+        </>
+      )}
+    </Link>
+  );
+}
+
+/** Three steps for a first visit; dismissed once, remembered as a UI preference. */
+function Guide({
+  pathname,
+  onHide,
+  onFollow,
+}: {
   pathname: string;
-  /** In an open drawer: close it, even for the page already shown. */
+  onHide: () => void;
   onFollow: (() => void) | undefined;
 }) {
   return (
-    <>
-      {expanded && <span className={styles.group}>{group}</span>}
-      {ROUTES.filter((route) => route.group === group).map((route) => {
-        const Icon = icons[route.icon];
-        return (
-          <Link
-            key={route.path}
-            to={route.path}
-            className={styles.navLink}
-            aria-label={route.label}
-            aria-current={route.path === pathname ? 'page' : undefined}
-            onClick={onFollow}
-          >
-            <Icon />
-            {expanded && <span className={styles.navLabel}>{route.label}</span>}
-          </Link>
-        );
-      })}
-    </>
+    <section className={styles.guide} aria-label="Getting started">
+      <div className={styles.guideHead}>
+        <span className={styles.guideTitle}>New here? Start with three steps</span>
+        <button
+          type="button"
+          className={styles.guideClose}
+          onClick={onHide}
+          aria-label="Hide the getting started guide"
+        >
+          <icons.close size={12} strokeWidth={2.4} />
+        </button>
+      </div>
+      <ol className={styles.steps}>
+        {GUIDE.map((step, i) => {
+          const here = step.path === pathname;
+          return (
+            <li key={step.path}>
+              <Link
+                to={step.path}
+                className={styles.step}
+                aria-current={here ? 'step' : undefined}
+                onClick={onFollow}
+              >
+                <span className={styles.stepNumber} aria-hidden="true">
+                  {i + 1}
+                </span>
+                <span className={styles.stepText}>
+                  <span className={styles.stepTitle}>{step.title}</span>
+                  <span className={here ? styles.stepHere : styles.stepNote}>
+                    {here ? 'you are here' : step.note}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
@@ -142,52 +252,57 @@ function calibrationNote(model: ModelInfo): string {
   return model.probability_epsilon ? `${calibration}, clamped` : calibration;
 }
 
-/** What is being served: the model, its operating point and its recorded test figures. */
+/**
+ * What is being served: the model, its operating point, the test figures the
+ * release ledger records for it, and its calibration error on validation.
+ */
 function Serving() {
   const health = useHealth();
   const info = useModelInfo();
+  // The performance page's own query: one request, shared, kept for the session.
+  const performance = usePerformance();
   const loaded = health.data?.model_loaded === true;
   const model = info.data;
   const test = model?.test_evaluation;
   const figure = (value: number | null | undefined) =>
     value === null || value === undefined ? '—' : value.toFixed(3);
   return (
-    <div className={styles.foot}>
-      <div className={styles.serving}>
-        <div className={styles.servingHead}>
-          <span className={styles.label}>Serving</span>
-          <span className={styles.status} data-state={loaded ? 'up' : 'down'}>
-            <span className={styles.dot} />
-            {health.isPending
-              ? 'Checking'
-              : health.isError
-                ? 'Unreachable'
-                : loaded
-                  ? 'Loaded'
-                  : 'No model'}
-          </span>
+    <div className={styles.serving}>
+      <div className={styles.servingHead}>
+        <span className={styles.label}>Serving</span>
+        <span className={styles.status} data-state={loaded ? 'up' : 'down'}>
+          <span className={styles.dot} />
+          {health.isPending
+            ? 'Checking'
+            : health.isError
+              ? 'Unreachable'
+              : loaded
+                ? 'Loaded'
+                : 'No model'}
+        </span>
+      </div>
+      <div className={styles.modelName}>{model ? modelName(model.display_name) : '—'}</div>
+      <div className={styles.modelNote}>{model ? calibrationNote(model) : '—'}</div>
+      <div className={styles.figures}>
+        <div>
+          <div className={styles.figureName}>Threshold</div>
+          <div className={styles.figureValue}>{model ? cut(model.threshold) : '—'}</div>
         </div>
-        <div className={styles.modelName}>{model ? modelName(model.display_name) : '—'}</div>
-        <div className={styles.modelNote}>{model ? calibrationNote(model) : '—'}</div>
-        <div className={styles.figures}>
-          <div>
-            <div className={styles.figureName}>Threshold</div>
-            <div className={styles.figureValue}>{model ? cut(model.threshold) : '—'}</div>
-          </div>
-          <div>
-            <div className={styles.figureName}>Test precision</div>
-            <div className={styles.figureValue}>{figure(test?.precision)}</div>
-          </div>
-          <div>
-            <div className={styles.figureName}>Test recall</div>
-            <div className={styles.figureValue}>{figure(test?.recall)}</div>
+        <div>
+          <div className={styles.figureName}>Test precision</div>
+          <div className={styles.figureValue}>{figure(test?.precision)}</div>
+        </div>
+        <div>
+          <div className={styles.figureName}>Test recall</div>
+          <div className={styles.figureValue}>{figure(test?.recall)}</div>
+        </div>
+        <div>
+          <div className={styles.figureName}>Validation ECE</div>
+          <div className={styles.figureValue}>
+            {figure(performance.data?.validation_evaluation?.ece)}
           </div>
         </div>
       </div>
-      <p className={styles.disclaimer}>
-        Decision support, not a decision system. A probability is similarity to past churners, not a
-        causal claim.
-      </p>
     </div>
   );
 }

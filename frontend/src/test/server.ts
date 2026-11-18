@@ -1,6 +1,6 @@
 /**
  * The API, as component tests see it: MSW answers each request in-process.
- * Every test starts from the default handlers (the shell's own two requests);
+ * Every test starts from the default handlers (the shell's own three requests);
  * a test adds what its page reads with ``server.use(answer(...))``, and any
  * request nobody answers fails the test (see ``setup.ts``).
  *
@@ -13,6 +13,7 @@ import { setupServer } from 'msw/node';
 import type { Schemas } from '../api/client';
 import type { paths } from '../api/schema';
 import { health, modelInfo } from './fixtures';
+import { performance } from './performanceApi';
 
 type Method = 'get' | 'post';
 type ApiPath = keyof paths;
@@ -64,6 +65,8 @@ export function refuse(
 export const server = setupServer(
   answer('get', '/api/health', health()),
   answer('get', '/api/model-info', modelInfo()),
+  // Built when asked, not here: performanceApi.ts imports this module.
+  respond('get', '/api/performance', () => performance()),
 );
 
 /** The URLs of the API requests made from now on, in order. */

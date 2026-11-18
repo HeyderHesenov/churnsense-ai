@@ -1,13 +1,14 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw/http';
 import { App } from '../../app/App';
+import { navigate } from '../../app/router';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { modelInfo } from '../../test/fixtures';
 import { entriesAdded } from '../../test/history';
 import { curve, measured, performance, performanceApi, recorded } from '../../test/performanceApi';
 import { renderAt } from '../../test/render';
-import { answer, refuse, server } from '../../test/server';
+import { answer, recordRequests, refuse, server } from '../../test/server';
 import { FAILED, GENDER, MISMATCH, TEST_SCOPE, TITLE, UNAVAILABLE, UNSCANNED } from './copy';
 import { PR, prX, prY } from './performance';
 
@@ -791,5 +792,21 @@ describe('the words on the page', () => {
     first.unmount();
     await showPerformance('/performance', RECORDED);
     expectNoClaims();
+  });
+});
+
+describe('the sidebar', () => {
+  it("reads the page's own figures: one request for both, kept across pages", async () => {
+    const seen = recordRequests();
+    await showPerformance(
+      '/performance',
+      performance({ validation_evaluation: measured({ ece: 0.0412 }) }),
+    );
+    const ece = screen.getByText('Validation ECE').nextElementSibling;
+    expect(ece).toHaveTextContent(/^0\.041$/);
+    act(() => navigate('/batch'));
+    act(() => navigate('/performance'));
+    await screen.findByRole('table', { name: 'Metrics by partition' });
+    expect(seen.filter((url) => url.pathname === '/api/performance')).toHaveLength(1);
   });
 });
