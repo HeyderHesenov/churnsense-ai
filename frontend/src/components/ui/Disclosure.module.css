@@ -1,0 +1,50 @@
+.disclosure {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+  background: var(--well);
+}
+.summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-12);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 550;
+  list-style: none;
+  cursor: pointer;
+}
+.summary::-webkit-details-marker {
+  display: none;
+}
+.summary:hover {
+  color: var(--accent-text);
+}
+.disclosure[open] > .summary {
+  border-radius: var(--radius-12) var(--radius-12) 0 0;
+}
+/* "+" closed, "−" open: drawn by the stylesheet, hidden from screen readers,
+   which hear the open state from the browser. */
+.marker {
+  flex: none;
+  width: 12px;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 1;
+  text-align: center;
+}
+.marker::before {
+  content: '+';
+}
+.disclosure[open] > .summary > .marker::before {
+  content: '−';
+}
+.body {
+  padding: 4px 14px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}

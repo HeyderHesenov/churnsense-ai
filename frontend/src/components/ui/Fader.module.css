@@ -1,0 +1,299 @@
+.fader {
+  --fill-from: var(--fill-cyan-from);
+  --fill-to: var(--fill-cyan-to);
+  --fill-glow: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.fader[data-tone='amber'] {
+  --fill-from: var(--fill-amber-from);
+  --fill-to: var(--fill-amber-to);
+  --fill-glow: var(--fill-amber-glow);
+}
+.fader[data-tone='neutral'] {
+  --fill-from: var(--fill-neutral-from);
+  --fill-to: var(--ink);
+}
+.off {
+  opacity: 0.55;
+}
+.fader[aria-busy='true'] .track,
+.fader[aria-busy='true'] .stepper {
+  opacity: 0.6;
+}
+
+/* --- the label row ------------------------------------------------------------ */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.reset {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.reset:hover {
+  border-color: var(--line-hover);
+  color: var(--ink);
+}
+
+/* --- the stepper -------------------------------------------------------------- */
+.stepper {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-10);
+  background: var(--stepper-ground);
+}
+.stepper:focus-within {
+  border-color: var(--stepper-focus);
+}
+.step {
+  width: 30px;
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  cursor: pointer;
+}
+.step:first-child {
+  border-radius: var(--radius-10) 0 0 var(--radius-10);
+}
+.step:last-child {
+  border-radius: 0 var(--radius-10) var(--radius-10) 0;
+}
+.step:hover:not([aria-disabled='true']):not(:disabled) {
+  color: var(--ink);
+}
+.step[aria-disabled='true'],
+.step:disabled {
+  color: var(--line-hover);
+  cursor: default;
+}
+.field {
+  width: 64px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: center;
+}
+.field:focus-visible {
+  outline: none;
+}
+.field[aria-invalid='true'] {
+  color: var(--critical-ink);
+}
+
+/* --- the track: the native range over the drawn scale --------------------------
+   The scale is inset by half the thumb's width, so a position along it is the
+   thumb's centre at that value: the range's thumb runs from 8 px to the width
+   less 8 px. */
+/* The top margin is the value bubble's room: shown over the thumb, it never
+   covers the label row or the stepper. */
+.track {
+  position: relative;
+  height: 34px;
+  margin-top: 12px;
+}
+.marked {
+  height: 48px;
+}
+.scale {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  width: calc(100% - 16px);
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.rail {
+  fill: var(--rail);
+  stroke: var(--rail-shade);
+  stroke-width: 1;
+}
+.fill {
+  filter: drop-shadow(0 0 6px var(--fill-glow));
+  transition: width 0.3s ease;
+}
+.from {
+  stop-color: var(--fill-from);
+}
+.to {
+  stop-color: var(--fill-to);
+}
+.minor {
+  stroke: var(--tick);
+  stroke-width: 1;
+}
+.major {
+  stroke: var(--tick-major);
+  stroke-width: 1;
+}
+.default {
+  stroke: var(--fill-to);
+  stroke-width: 2;
+}
+.fader[data-tone='amber'] .default {
+  filter: drop-shadow(0 0 4px var(--fill-glow));
+}
+.markText {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.bubble {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.bubble rect,
+.bubble path {
+  fill: var(--tip-ground);
+}
+.bubble text {
+  fill: var(--tip-ink);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.track:hover .bubble,
+.track:focus-within .bubble {
+  opacity: 1;
+}
+
+.range {
+  position: absolute;
+  inset: 0 0 auto;
+  width: 100%;
+  height: 34px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.range:disabled,
+.range[aria-disabled='true'] {
+  cursor: default;
+}
+/* The ring is drawn on the thumb, where the eye is, not around the whole track. */
+.range:focus-visible {
+  outline: none;
+}
+.range::-webkit-slider-runnable-track {
+  height: 34px;
+  background: transparent;
+  border: 0;
+}
+.range::-moz-range-track {
+  height: 34px;
+  background: transparent;
+  border: 0;
+}
+/* A 16 x 26 rounded block with two grip lines, never a circle. */
+.range::-webkit-slider-thumb {
+  box-sizing: border-box;
+  width: 16px;
+  height: 26px;
+  margin-top: 4px;
+  border: 1px solid var(--thumb-edge);
+  border-radius: var(--radius-6);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 5px,
+      var(--thumb-grip) 5px 6px,
+      transparent 6px 8px,
+      var(--thumb-grip) 8px 9px,
+      transparent 9px
+    ),
+    linear-gradient(180deg, var(--thumb-top), var(--thumb-bottom));
+  box-shadow: var(--shadow-thumb);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.range::-moz-range-thumb {
+  box-sizing: border-box;
+  width: 16px;
+  height: 26px;
+  border: 1px solid var(--thumb-edge);
+  border-radius: var(--radius-6);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 5px,
+      var(--thumb-grip) 5px 6px,
+      transparent 6px 8px,
+      var(--thumb-grip) 8px 9px,
+      transparent 9px
+    ),
+    linear-gradient(180deg, var(--thumb-top), var(--thumb-bottom));
+  box-shadow: var(--shadow-thumb);
+}
+.range:hover:not(:disabled)::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 5px var(--thumb-halo),
+    var(--shadow-thumb);
+}
+.range:hover:not(:disabled)::-moz-range-thumb {
+  box-shadow:
+    0 0 0 5px var(--thumb-halo),
+    var(--shadow-thumb);
+}
+.range:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 2px var(--accent-text),
+    var(--shadow-thumb);
+}
+.range:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 2px var(--accent-text),
+    var(--shadow-thumb);
+}
+
+/* Always in the page, so a message added to it is announced; empty, it takes no room. */
+.message:empty {
+  margin-top: -6px;
+}
+.error {
+  font-size: 12px;
+  color: var(--critical-ink);
+}

@@ -138,6 +138,35 @@
   --ok-pulse: rgba(63, 166, 85, 0.55);
   --ok-pulse-end: rgba(63, 166, 85, 0);
 
+  /* Design v4: the shared controls. Page tabs: the sticky strip and the chosen
+     tab's ground. The fader: its rail, ticks, the three fills (cyan for a cut,
+     amber for an assumption, neutral), the thumb and the stepper. The term tip:
+     its "?" ring and its light card, which the fader's value bubble shares. */
+  --tabs-ground: rgba(10, 13, 18, 0.92);
+  --tab-selected: rgba(24, 151, 174, 0.06);
+  --rail: #1a212a;
+  --rail-shade: rgba(0, 0, 0, 0.45);
+  --tick: #2a3440;
+  --tick-major: #3d4957;
+  --fill-cyan-from: #0f5563;
+  --fill-cyan-to: #5cc8dc;
+  --fill-amber-from: #7a5208;
+  --fill-amber-to: #f0b54a;
+  --fill-amber-glow: rgba(240, 181, 74, 0.28);
+  --fill-neutral-from: #2f3a47;
+  --thumb-top: #ffffff;
+  --thumb-bottom: #c9d1da;
+  --thumb-edge: #05070a;
+  --thumb-grip: rgba(5, 7, 10, 0.32);
+  --thumb-halo: rgba(230, 237, 243, 0.12);
+  --shadow-thumb: 0 3px 8px rgba(0, 0, 0, 0.6);
+  --stepper-ground: #0b0f14;
+  --stepper-focus: #3f8fa0;
+  --term-line: #2f3a47;
+  --tip-ground: #e6edf3;
+  --tip-ink: #1b222b;
+  --shadow-term: 0 12px 32px rgba(0, 0, 0, 0.5);
+
   /* Shape and type */
   /* Radii are named by their size: the artboards use exact pixel values. */
   --radius-2: 2px;
