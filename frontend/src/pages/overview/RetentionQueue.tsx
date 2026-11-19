@@ -6,7 +6,7 @@
  * browser sums nothing. A page's attributions come from one explanation
  * request for its eight customers.
  */
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { exportUrl } from '../../api/client';
 import {
   useCustomers,
@@ -53,6 +53,7 @@ import styles from './RetentionQueue.module.css';
 
 /** The queue's heading: where the reader continues when its controls go away. */
 export const QUEUE_TITLE_ID = 'queue-title';
+const SCROLL_HINT_ID = 'queue-scroll-hint';
 
 type Column = QueueState['sort'];
 const DEFAULT_DIRECTION = {
@@ -319,7 +320,8 @@ interface TableProps {
 
 function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
   const ids = rows.map((row) => row.id);
-  const explained = useExplanations(ids);
+  // A page's explanation outlives the tab and the page: one leaving mid-request finds it answered on return.
+  const explained = useExplanations(ids, { outlive: true });
   const byId = new Map(explained.data?.explanations.map((e) => [e.customer_id, e]));
   const sort = { column: state.sort, dir: state.dir };
   const onSort = (column: Column) => {
@@ -328,6 +330,10 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
   };
   const all = ids.every((id) => selected.has(id));
   const some = !all && ids.some((id) => selected.has(id));
+  const [scroller, sideways, holding] = useSideways<HTMLDivElement>();
+  // The box holding the keyboard's focus stays a stop on its path until the focus moves on,
+  // even if it stops scrolling meanwhile (a wider window): the reader never loses their place.
+  const region = sideways || holding;
 
   return (
     <>
@@ -336,9 +342,27 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
           Attributions are unavailable right now.
         </p>
       )}
-      <div className={styles.scroll}>
+      {sideways && (
+        <p id={SCROLL_HINT_ID} className={cx(styles.inset, styles.scrollHint)}>
+          <icons.arrowRight size={14} />
+          Wider than the screen: scroll sideways for every column, or focus the table and use the
+          arrow keys.
+        </p>
+      )}
+      {/* Only while it scrolls is it a stop on the keyboard's path: the arrow keys then move it. */}
+      <div
+        ref={scroller}
+        className={styles.scroll}
+        data-sideways={sideways}
+        {...(region && {
+          role: 'region',
+          'aria-label': 'Flagged customers, scrolls sideways',
+          tabIndex: 0,
+        })}
+        {...(sideways && { 'aria-describedby': SCROLL_HINT_ID })}
+      >
         <div role="table" aria-label="Flagged customers" className={styles.table}>
-          <div role="rowgroup">
+          <div role="rowgroup" className={styles.group}>
             <div role="row" className={cx(styles.row, styles.head)}>
               <div role="columnheader" className={cx(styles.headCell, styles.first)}>
                 <PageCheckbox
@@ -349,11 +373,11 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
                   onChange={(on) => onSelect(ids, on)}
                 />
               </div>
-              <div role="columnheader" className={styles.headCell}>
+              <div role="columnheader" className={cx(styles.headCell, styles.folds)}>
                 Customer
               </div>
               <SortHeader column="probability" label="Probability" sort={sort} onSort={onSort} />
-              <div role="columnheader" className={styles.headCell}>
+              <div role="columnheader" className={cx(styles.headCell, styles.folds)}>
                 Band
               </div>
               <SortHeader column="tenure" label="Tenure" sort={sort} onSort={onSort} align="end" />
@@ -371,18 +395,18 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
                 onSort={onSort}
                 align="end"
               />
-              <div role="columnheader" className={styles.headCell}>
+              <div role="columnheader" className={cx(styles.headCell, styles.folds)}>
                 Strongest attributions
               </div>
-              <div role="columnheader" className={styles.headCell}>
+              <div role="columnheader" className={cx(styles.headCell, styles.folds)}>
                 Outcome
               </div>
-              <div role="columnheader" className={cx(styles.headCell, styles.last)}>
+              <div role="columnheader" className={cx(styles.headCell, styles.last, styles.folds)}>
                 <span className="sr">Action</span>
               </div>
             </div>
           </div>
-          <div role="rowgroup">
+          <div role="rowgroup" className={styles.group}>
             {rows.map((row) => (
               <Row
                 key={row.id}
@@ -401,6 +425,43 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
       </div>
     </>
   );
+}
+
+/**
+ * A ref for a box that may scroll sideways; whether it does now (its content
+ * wider than itself); and whether the box itself holds the focus. Watched as
+ * the box or the table in it resizes (the window, the navigation folding, a
+ * page of other rows). Where nothing can be watched it reports no scroll, and
+ * the box is as it always was.
+ */
+function useSideways<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  const [sideways, setSideways] = useState(false);
+  const [holding, setHolding] = useState(false);
+  useLayoutEffect(() => {
+    const box = ref.current;
+    if (!box) return;
+    // Focus and blur do not bubble: these hear the box itself, not the controls in it.
+    const hold = () => setHolding(true);
+    const release = () => setHolding(false);
+    box.addEventListener('focus', hold);
+    box.addEventListener('blur', release);
+    const observer =
+      typeof ResizeObserver === 'undefined'
+        ? null
+        : new ResizeObserver(() => setSideways(box.scrollWidth > box.clientWidth + 1));
+    if (observer) {
+      observer.observe(box);
+      if (box.firstElementChild) observer.observe(box.firstElementChild);
+      setSideways(box.scrollWidth > box.clientWidth + 1);
+    }
+    return () => {
+      box.removeEventListener('focus', hold);
+      box.removeEventListener('blur', release);
+      observer?.disconnect();
+    };
+  }, []);
+  return [ref, sideways, holding] as const;
 }
 
 /** "Select all rows on this page", mixed when only some are. */
@@ -432,6 +493,37 @@ function PageCheckbox({
   );
 }
 
+/**
+ * A figure's column name, shown beside it only where the queue folds into
+ * cards and its header row no longer stands above it. Hidden from assistive
+ * technology, which reads the column header with every cell either way.
+ */
+function CellLabel({ children }: { children: string }) {
+  return (
+    <span className={styles.cellLabel} aria-hidden="true">
+      {children}
+    </span>
+  );
+}
+
+/**
+ * "Month-to-month · Fiber · E-check", breaking only between its parts: a
+ * narrow column wraps it whole part by part, never at a part's own hyphen.
+ * The text is the label's, unchanged.
+ */
+function Profile({ text }: { text: string }) {
+  return (
+    <span className={styles.profile}>
+      {text.split(' · ').map((part, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          <span className={styles.part}>{part}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
 interface RowProps {
   row: CustomerRow;
   selected: boolean;
@@ -458,26 +550,28 @@ function Row({ row, selected, disabled, onSelect, explanation, attributions }: R
       <div role="cell" className={cx(styles.cell, styles.customer)}>
         <span className={styles.id}>{row.id}</span>
         {row.status === 'unknown' && <span className={styles.statusTag}>Status unknown</span>}
-        <span className={styles.profile}>
-          {profile(row.contract, row.internet_service, row.payment_method)}
-        </span>
+        <Profile text={profile(row.contract, row.internet_service, row.payment_method)} />
       </div>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.probability)}>
         <ProbabilityMeter value={row.churn_probability} band={row.risk_band} />
       </div>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.band)}>
         <BandLabel band={row.risk_band} />
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number)}>
+      <div role="cell" className={cx(styles.cell, styles.number, styles.tenure)}>
+        <CellLabel>Tenure</CellLabel>
         {row.tenure} mo
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number)}>
+      <div role="cell" className={cx(styles.cell, styles.number, styles.monthly)}>
+        <CellLabel>Monthly</CellLabel>
         {cents(row.monthly_charges)}
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number, styles.strong)}>
+      <div role="cell" className={cx(styles.cell, styles.number, styles.strong, styles.atRisk)}>
+        <CellLabel>At risk / mo</CellLabel>
         {row.at_risk === null ? '—' : cents(row.at_risk)}
       </div>
       <div role="cell" className={cx(styles.cell, styles.attributions)}>
+        <CellLabel>Strongest attributions</CellLabel>
         {attributions === 'loading' ? (
           <>
             <span className={styles.chipSkeleton} aria-hidden="true" />
@@ -496,7 +590,7 @@ function Row({ row, selected, disabled, onSelect, explanation, attributions }: R
           ))
         )}
       </div>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.outcome)}>
         <OutcomePill outcome={row.outcome} partition={row.partition} />
       </div>
       <div role="cell" className={cx(styles.cell, styles.number, styles.last)}>

@@ -54,7 +54,7 @@ async function expectNote({
 }
 
 describe('Overview, as a public demo', () => {
-  function show() {
+  function show(path = '/') {
     const rows = QUEUE_ROWS.map(asSynthetic);
     server.use(
       syntheticInfo(),
@@ -64,7 +64,7 @@ describe('Overview, as a public demo', () => {
       ),
       ...overviewApi(overview({ customers: SYNTHETIC.customers })),
     );
-    return renderAt(<App />, '/');
+    return renderAt(<App />, path);
   }
   const queue = () => screen.getByRole('region', { name: /^Retention queue/ });
 
@@ -82,7 +82,7 @@ describe('Overview, as a public demo', () => {
   });
 
   it('labels the retention queue, in the service’s words, as illustrative', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     const heading = within(queue()).getByRole('heading', { name: /^Retention queue/ });
     expect(heading).toHaveTextContent(SYNTHETIC.title);
@@ -92,7 +92,7 @@ describe('Overview, as a public demo', () => {
   });
 
   it('links to everyone flagged without speaking of churned customers: none is recorded', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     const link = within(queue()).getByRole('link', { name: /^See all [\d,]+ flagged/ });
     expect(link).toHaveAccessibleName(/^See all 2,300 flagged in the explorer$/);
@@ -101,13 +101,25 @@ describe('Overview, as a public demo', () => {
   });
 
   it('marks every queued customer as synthetic and offers no partition to filter by', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     await waitFor(() =>
       expect(within(queue()).getAllByText(SYNTHETIC_OUTCOME)).toHaveLength(QUEUE_ROWS.length),
     );
     expect(within(queue()).queryByRole('combobox', { name: 'Partition' })).toBeNull();
     expect(within(queue()).queryByText(/Churned ·|Stayed ·|Withheld ·/)).toBeNull();
+  });
+
+  it('labels the customers to call first, on the summary, as the service names them', async () => {
+    show();
+    await note();
+    const card = screen.getByRole('region', { name: /^Customers to call first/ });
+    expect(
+      within(card).getByRole('heading', { name: /^Customers to call first/ }),
+    ).toHaveTextContent(SYNTHETIC.title);
+    const links = await within(card).findAllByRole('link', { name: /^DEMO-/ });
+    expect(links).toHaveLength(3);
+    expect(card).not.toHaveTextContent(/Churned ·|Stayed ·|Withheld ·/);
   });
 });
 

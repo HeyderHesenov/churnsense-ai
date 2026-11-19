@@ -15,6 +15,7 @@ import { AXE_EXCEPTIONS } from './axe-exceptions';
 import { cells, expect, openReported, settled, test } from './fixtures';
 import { DATASET_PREFIX, DEMO_PREFIX } from './global-setup';
 import { PAGES } from './pages';
+import { queueLayout } from './queueLayout';
 
 type CustomerPage = components['schemas']['CustomerPage'];
 type ModelInfo = components['schemas']['ModelInfoResponse'];
@@ -106,7 +107,7 @@ test('the retention queue is of generated customers and says its figures are ill
   request,
 }) => {
   const stated = await source(request);
-  await page.goto('/');
+  await page.goto('/?tab=queue');
   await settled(page);
   const queue = page.getByRole('region', { name: /^Retention queue/ });
   await expect(queue.getByRole('heading', { name: /^Retention queue/ })).toContainText(
@@ -116,6 +117,24 @@ test('the retention queue is of generated customers and says its figures are ill
   await expect(queue.getByText(NO_OUTCOME).first()).toBeVisible();
   await expect(queue.getByRole('combobox', { name: 'Partition' })).toHaveCount(0);
   await expect(page.getByText(`${stated.title} ·`).last()).toContainText('generated customers');
+});
+
+test('at 1440 px the queue of generated customers fits its card, the widest outcome pill included', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?tab=queue');
+  await settled(page);
+  const queue = page.getByRole('region', { name: /^Retention queue/ });
+  await expect(queue.getByText('Loading attributions')).toHaveCount(0);
+  await expect(queue.getByText(NO_OUTCOME).first()).toBeVisible();
+  expect(await queueLayout(page)).toEqual({
+    sideways: 0,
+    outsideCard: 0,
+    clipped: 0,
+    explainCut: 0,
+  });
+  await expect(page.getByRole('region', { name: /scrolls sideways/ })).toHaveCount(0);
 });
 
 test('the scored export holds generated customers only, and no outcome', async ({ page }) => {

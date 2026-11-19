@@ -1,4 +1,6 @@
 .queue {
+  /* The table folds into cards by the width the queue has, whatever the shell beside it takes. */
+  container: queue / inline-size;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -86,18 +88,64 @@
   position: relative;
   overflow-x: auto;
 }
+/*
+ * Wider than its box: the table scrolls, a focus ring shows when the keyboard
+ * holds it, and a shade at either edge says more columns lie that way. The
+ * shades are backgrounds that scroll with the content (local) over ones that
+ * stay put, so an edge's shade shows only while there is more past it.
+ */
+.scroll[data-sideways='true'] {
+  background:
+    linear-gradient(to right, var(--surface) 40%, transparent) left / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 40%, transparent) right / 32px 100% no-repeat local,
+    linear-gradient(to right, var(--scroll-shade), transparent) left / 14px 100% no-repeat,
+    linear-gradient(to left, var(--scroll-shade), transparent) right / 14px 100% no-repeat;
+  --scroll-shade: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.scroll[data-sideways='true']:focus-visible {
+  outline-offset: -2px;
+}
+.scrollHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/*
+ * One grid for the whole table, its rows on it (subgrid), so a column is as
+ * wide as its widest figure or header: every pill, figure and the Explain link
+ * whole, whatever the data. The customer takes what is left (its profile wraps
+ * rather than being cut); the attributions sit side by side when there is room
+ * and wrap when there is not. Narrower than all that, the table scrolls.
+ */
 .table {
-  /* The artboard's 1132, plus room for the widest outcome pill ("Withheld · test"). */
-  min-width: 1140px;
+  min-width: 1246px;
   font-size: 13px;
 }
 .row {
   display: grid;
+  /* Without subgrid: fixed columns wide enough for any pill and the Explain link, scrolling. */
   grid-template-columns:
-    40px minmax(214px, 1.3fr) 120px 92px 72px 88px 104px minmax(206px, 1.4fr)
-    140px 64px;
+    40px minmax(214px, 1.3fr) 120px 92px 72px 88px 112px minmax(232px, 1.4fr)
+    196px 80px;
   white-space: nowrap;
   transition: background-color 0.15s ease;
+}
+@supports (grid-template-columns: subgrid) {
+  .table {
+    display: grid;
+    grid-template-columns:
+      max-content minmax(150px, 1fr) repeat(5, max-content) minmax(min-content, max-content)
+      max-content max-content;
+    min-width: min-content;
+  }
+  .group,
+  .row {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
 }
 .row:not(.head):hover {
   background: var(--row-hover);
@@ -126,6 +174,7 @@
   border-bottom: 1px solid var(--line-row);
 }
 .first {
+  padding-right: 6px;
   padding-left: 20px;
 }
 .last {
@@ -146,15 +195,20 @@
 .id {
   font-family: var(--font-mono);
   font-size: 13px;
+  /* An id may be up to 32 characters: a long one wraps inside its column (rows are nowrap). */
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .profile {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-size: 11.5px;
   color: var(--muted);
+  white-space: normal;
+}
+.part {
+  white-space: nowrap;
 }
 .attributions {
+  flex-wrap: wrap;
   gap: 6px;
 }
 .chipSkeleton {
@@ -204,4 +258,113 @@
   display: block;
   font-size: 11px;
   color: var(--muted);
+}
+.cellLabel {
+  display: none;
+}
+
+/*
+ * Narrow: each row is a card, with every figure the table shows and its column
+ * name beside it. The header row keeps the select-all box and the sort
+ * buttons, in a line that wraps; the other column names stay in the table for
+ * assistive technology, which still reads it as one, and leave the screen.
+ * Wider queues keep the table, which scrolls sideways (and says so) below its
+ * minimum width.
+ */
+@container queue (max-width: 640px) {
+  .table,
+  .group {
+    display: block;
+    min-width: 0;
+  }
+  .head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 16px;
+    padding: 0 20px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .head > [role='columnheader'] {
+    padding: 0;
+    border-bottom: 0;
+  }
+  .folds {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .row:not(.head) {
+    grid-template-columns: 24px repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      'check customer customer action'
+      'check probability probability band'
+      'check tenure monthly atRisk'
+      'check attributions attributions attributions'
+      'check outcome outcome outcome';
+    gap: 8px 10px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line-row);
+    white-space: normal;
+  }
+  .cell {
+    padding: 0;
+    border-bottom: 0;
+  }
+  .row:not(.head) > .first {
+    grid-area: check;
+    align-items: flex-start;
+    padding-top: 2px;
+  }
+  .row:not(.head) > .customer {
+    grid-area: customer;
+  }
+  .probability {
+    grid-area: probability;
+  }
+  .band {
+    grid-area: band;
+    justify-content: flex-end;
+  }
+  .tenure {
+    grid-area: tenure;
+  }
+  .monthly {
+    grid-area: monthly;
+  }
+  .atRisk {
+    grid-area: atRisk;
+  }
+  .attributions {
+    grid-area: attributions;
+  }
+  .outcome {
+    grid-area: outcome;
+  }
+  .row:not(.head) > .last {
+    grid-area: action;
+    align-items: flex-start;
+  }
+  .tenure,
+  .monthly,
+  .atRisk {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+  .cellLabel {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .attributions > .cellLabel {
+    flex-basis: 100%;
+  }
 }

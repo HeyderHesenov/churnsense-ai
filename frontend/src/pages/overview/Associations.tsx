@@ -1,8 +1,8 @@
 /**
- * "What the risk is associated with": churn by segment and by tenure on the
- * training partition, and what moves the score - in the model (mean |SHAP|)
- * and on its own (univariate association). Observed associations in one
- * snapshot; nothing here identifies a cause.
+ * "What the risk is associated with": churn by segment on the training
+ * partition, and what moves the score - in the model (mean |SHAP|) and on its
+ * own (univariate association). Observed associations in one snapshot;
+ * nothing here identifies a cause. (Churn by tenure is on the summary.)
  *
  * Bars are scaled to the largest figure in their card, rounded up to the
  * next tenth, so the cards never clip and the tick for the average stays
@@ -16,18 +16,13 @@ import { Segmented } from '../../components/ui/Toggle';
 import { Tabs } from '../../components/ui/Tabs';
 import { hiddenText, MIN_CUSTOMERS } from '../../lib/cells';
 import { int, pct } from '../../lib/format';
-import { isFeature, level, overviewLevel, RANKING } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { isFeature, overviewLevel, RANKING } from '../../lib/labels';
 import { importanceNote, segmentNote } from './copy';
+import { Meter } from './Meter';
+import { scaleTop } from './scale';
 import styles from './Associations.module.css';
 
 type Cell = Schemas['ReportedCell'] | Schemas['SuppressedCell'];
-
-/** The largest rate, rounded up to the next tenth: the top of a card's bars. */
-function scaleTop(rates: readonly (number | null | undefined)[]): number {
-  const largest = Math.max(0.1, ...rates.filter((r): r is number => typeof r === 'number'));
-  return Math.ceil(largest * 10) / 10;
-}
 
 export function Associations({ book }: { book: Overview }) {
   return (
@@ -42,7 +37,6 @@ export function Associations({ book }: { book: Overview }) {
       </div>
       <div className={styles.row}>
         <Segments tabs={book.segments} withheld={book.withheld_reason} />
-        <Lifecycle lifecycle={book.lifecycle} withheld={book.withheld_reason} />
         <Importance book={book} />
       </div>
     </section>
@@ -131,117 +125,11 @@ function LevelBar({
           </span>
         )}
       </div>
-      <div className={styles.track}>
-        {!cell.suppressed && (
-          <div className={styles.fill} style={cssVars({ '--w': cell.rate / top })} />
-        )}
-        {base !== null && <div className={styles.tick} style={cssVars({ '--x': base / top })} />}
-      </div>
-    </div>
-  );
-}
-
-function Lifecycle({
-  lifecycle,
-  withheld,
-}: {
-  lifecycle: Overview['lifecycle'];
-  withheld: string | null;
-}) {
-  const [active, setActive] = useState<number | null>(null);
-  const buckets = lifecycle?.buckets ?? [];
-  const top = scaleTop([
-    ...buckets.map((b) => (b.suppressed ? null : b.rate)),
-    lifecycle?.base_rate,
-  ]);
-  const shown = active === null ? undefined : buckets[active];
-  const months = (cell: Cell) => `${level('tenure', cell.row)} months`;
-  const wholeMonths = (value: number | null) => (value === null ? '—' : String(Math.round(value)));
-  return (
-    <Card titleId="lifecycle" className={styles.lifecycle}>
-      <CardHeader
-        id="lifecycle"
-        level={3}
-        title="Churn by tenure"
-        subtitle="When in the relationship do customers leave?"
-        aside={
-          lifecycle && (
-            <span className={styles.medians}>
-              median tenure <b>{wholeMonths(lifecycle.median_tenure_churned)}</b> mo churned ·{' '}
-              <b>{wholeMonths(lifecycle.median_tenure_stayed)}</b> stayed
-            </span>
-          )
-        }
+      <Meter
+        value={cell.suppressed ? null : cell.rate / top}
+        tick={base === null ? null : base / top}
       />
-      {!lifecycle ? (
-        <p className={styles.note}>Observed outcomes are withheld: {withheld}</p>
-      ) : (
-        <>
-          <div className={styles.columns} onPointerLeave={() => setActive(null)}>
-            {lifecycle.base_rate !== null && (
-              <>
-                <div
-                  className={styles.average}
-                  style={cssVars({ '--y': lifecycle.base_rate / top })}
-                />
-                <span
-                  className={styles.averageLabel}
-                  style={cssVars({ '--y': lifecycle.base_rate / top })}
-                >
-                  avg {pct(lifecycle.base_rate)}
-                </span>
-              </>
-            )}
-            {buckets.map((cell, i) => (
-              <button
-                key={cell.row}
-                type="button"
-                className={styles.column}
-                data-state={active === null ? 'rest' : active === i ? 'on' : 'off'}
-                style={cssVars({ '--step': i, '--h': cell.suppressed ? 0 : cell.rate / top })}
-                aria-label={
-                  cell.suppressed
-                    ? `${months(cell)}: ${hiddenText(cell, MIN_CUSTOMERS)}`
-                    : `${months(cell)}: ${int(cell.churned)} of ${int(cell.n)} churned, ${pct(cell.rate)}`
-                }
-                onPointerEnter={() => setActive(i)}
-                onFocus={() => setActive(i)}
-                onBlur={() => setActive(null)}
-              >
-                <span className={styles.columnRate}>{cell.suppressed ? '—' : pct(cell.rate)}</span>
-                <span className={styles.columnBar} />
-              </button>
-            ))}
-            {/* For the eye: each bar's own name says the same. */}
-            <div
-              aria-hidden="true"
-              className={cx(styles.tip, shown && styles.tipOn)}
-              style={cssVars({
-                '--x': active === null ? 0 : (active + 0.5) / buckets.length,
-                '--shift': active === 0 ? '-12%' : active === buckets.length - 1 ? '-88%' : '-50%',
-              })}
-            >
-              {shown && (
-                <>
-                  <b>{months(shown)}</b> ·{' '}
-                  {shown.suppressed
-                    ? hiddenText(shown, MIN_CUSTOMERS)
-                    : `${int(shown.churned)} of ${int(shown.n)} churned`}
-                </>
-              )}
-            </div>
-          </div>
-          <div className={styles.axis} aria-hidden="true">
-            {buckets.map((cell, i) => (
-              <span key={cell.row}>
-                {level('tenure', cell.row)}
-                {i === 0 ? ' mo' : ''}
-              </span>
-            ))}
-          </div>
-        </>
-      )}
-    </Card>
+    </div>
   );
 }
 
@@ -297,12 +185,11 @@ function Importance({ book }: { book: Overview }) {
               <span className={styles.featureName}>{name(row.feature)}</span>
               <span className={styles.featureValue}>{row.text}</span>
             </div>
-            <div className={cx(styles.track, styles.thin)}>
-              <div
-                className={styles.fill}
-                style={cssVars({ '--w': largest > 0 ? row.value / largest : 0 })}
-              />
-            </div>
+            <Meter
+              value={largest > 0 ? row.value / largest : 0}
+              tone={row.feature === lead ? 'sim' : 'accent'}
+              thin
+            />
           </div>
         ))}
       </div>

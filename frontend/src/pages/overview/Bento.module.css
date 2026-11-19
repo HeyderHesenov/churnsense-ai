@@ -1,0 +1,120 @@
+/*
+ * The overview's tabs: cards rise in turn as a tab opens (each 50 ms after the
+ * last, up to the eighth), and the summary's bento is a 12-column grid.
+ */
+.tab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rise > *,
+.grid > * {
+  animation: rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.rise > :nth-child(2),
+.grid > :nth-child(2) {
+  animation-delay: 50ms;
+}
+.rise > :nth-child(3),
+.grid > :nth-child(3) {
+  animation-delay: 100ms;
+}
+.rise > :nth-child(4),
+.grid > :nth-child(4) {
+  animation-delay: 150ms;
+}
+.grid > :nth-child(5) {
+  animation-delay: 200ms;
+}
+.grid > :nth-child(6) {
+  animation-delay: 250ms;
+}
+.grid > :nth-child(7) {
+  animation-delay: 300ms;
+}
+.grid > :nth-child(8) {
+  animation-delay: 350ms;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+.grid > * {
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.grid > :hover {
+  border-color: var(--line-hover);
+  box-shadow: var(--shadow-pop);
+}
+.glance {
+  grid-column: span 4;
+  grid-row: span 2;
+}
+.briefing {
+  grid-column: span 5;
+}
+.campaign {
+  grid-column: span 3;
+}
+.callFirst {
+  grid-column: span 8;
+}
+.watch {
+  grid-column: span 4;
+}
+.tenure {
+  grid-column: span 5;
+}
+.quick {
+  grid-column: span 3;
+}
+
+/* Two cards a row, the wide ones alone; the ring's card no longer spans two rows. */
+@media (max-width: 1180px) {
+  .glance,
+  .briefing,
+  .campaign,
+  .watch,
+  .tenure,
+  .quick {
+    grid-column: span 6;
+  }
+  .glance {
+    grid-row: auto;
+  }
+  .callFirst {
+    grid-column: span 12;
+  }
+}
+@media (max-width: 760px) {
+  .grid > * {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Two cards side by side that wrap: the distribution and associations tabs. */
+.pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 14px;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rise > *,
+  .grid > * {
+    animation: none;
+    transition: none;
+  }
+}

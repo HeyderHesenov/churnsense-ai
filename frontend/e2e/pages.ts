@@ -23,3 +23,13 @@ export const PAGES = [
   { path: '/simulator', label: 'Retention simulator', section: 'Act', navGroup: 'Take action' },
   { path: '/batch', label: 'Batch scoring', section: 'Act', navGroup: 'Take action' },
 ] as const;
+
+/**
+ * The overview's tabs other than the summary (src/pages/overview/tabs.ts), each
+ * at its own address: checked like a page wherever every page is.
+ */
+export const OVERVIEW_TABS = [
+  { path: '/?tab=distribution', label: 'Overview risk distribution' },
+  { path: '/?tab=associations', label: 'Overview associations' },
+  { path: '/?tab=queue', label: 'Overview retention queue' },
+] as const;

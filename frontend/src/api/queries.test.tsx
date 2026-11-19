@@ -1,13 +1,14 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw/http';
 import type { ReactNode } from 'react';
 import { batchScore } from '../test/batchApi';
-import { customerPage, customerRow } from '../test/overviewFixtures';
+import { customerPage, customerRow, explanations } from '../test/overviewFixtures';
 import { testQueryClient } from '../test/render';
 import { answer, recordRequests, refuse, respond, server } from '../test/server';
 import { ApiError } from './client';
 import {
+  createQueryClient,
   customersQuery,
   retryDelay,
   retryExplanation,
@@ -180,6 +181,155 @@ describe('one customer', () => {
       expect(result.current.fetchStatus).toBe('idle');
     },
   );
+});
+
+/**
+ * An explanation request held unanswered until ``release``; each request's
+ * signal is kept, to see whether the page aborted it.
+ */
+function holdExplain() {
+  const signals: AbortSignal[] = [];
+  let release = () => {};
+  const opened = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  server.use(
+    respond('post', '/api/explain', async (request) => {
+      signals.push(request.signal);
+      const body = (await request.clone().json()) as { customer_ids: string[] };
+      await opened;
+      return explanations(body.customer_ids);
+    }),
+  );
+  return { signals, release: () => release() };
+}
+
+describe('explanations: what a reader leaving does to a request in flight', () => {
+  const IDS = ['DEMO-0001', 'DEMO-0002'];
+
+  it('by default, as every page but the retention queue asks: aborted on leaving, asked again on return', async () => {
+    const held = holdExplain();
+    const client = testQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const first = renderHook(() => useExplanations(IDS), { wrapper: shared });
+    await waitFor(() => expect(held.signals).toHaveLength(1));
+    first.unmount();
+    await waitFor(() => expect(held.signals[0]?.aborted).toBe(true));
+    const back = renderHook(() => useExplanations(IDS), { wrapper: shared });
+    await waitFor(() => expect(held.signals).toHaveLength(2));
+    act(() => held.release());
+    await waitFor(() => expect(back.result.current.isSuccess).toBe(true));
+    // Asked again: how many times depends on when the abort settles, never fewer than twice.
+    expect(held.signals.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('with outlive, as the retention queue asks: runs to its answer, which the return reads', async () => {
+    const held = holdExplain();
+    const client = testQueryClient();
+    const shared = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const first = renderHook(() => useExplanations(IDS, { outlive: true }), { wrapper: shared });
+    await waitFor(() => expect(held.signals).toHaveLength(1));
+    first.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(held.signals[0]?.aborted).toBe(false);
+    const back = renderHook(() => useExplanations(IDS, { outlive: true }), { wrapper: shared });
+    // Still unanswered after its reader left, and not aborted.
+    expect(held.signals[0]?.aborted).toBe(false);
+    act(() => held.release());
+    await waitFor(() => expect(back.result.current.isSuccess).toBe(true));
+    expect(held.signals).toHaveLength(1);
+  });
+
+  it.each([
+    ['by default', undefined],
+    ['with outlive', { outlive: true }],
+  ] as const)(
+    '%s, keeps the cache rules every query has: the same key, staleness, lifetime and retries',
+    async (_name, options) => {
+      server.use(
+        respond('post', '/api/explain', async (request) => {
+          const body = (await request.json()) as { customer_ids: string[] };
+          return explanations(body.customer_ids);
+        }),
+      );
+      const client = createQueryClient();
+      const shared = ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      );
+      const { result } = renderHook(() => useExplanations(IDS, options), { wrapper: shared });
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      const query = client.getQueryCache().find({ queryKey: ['explain', 'ids', IDS] });
+      // As the hook's observer resolved them against the client's defaults.
+      const resolved = query?.observers[0]?.options;
+      expect(resolved).toBeDefined();
+      expect(resolved?.staleTime).toBe(Infinity);
+      expect(resolved?.gcTime).toBe(10 * 60_000);
+      expect(resolved?.refetchOnWindowFocus).toBe(false);
+      expect(resolved?.retryDelay).toBe(retryDelay);
+      const retry = resolved?.retry as (failures: number, error: Error) => boolean;
+      const limited = new ApiError(429, 'rate_limited');
+      const never = new ApiError(503, 'explanations_unavailable');
+      expect([retry(0, limited), retry(1, limited), retry(0, never)]).toEqual([
+        retryExplanation(0, limited),
+        retryExplanation(1, limited),
+        retryExplanation(0, never),
+      ]);
+      client.clear();
+    },
+  );
+
+  it('leaves the defaults every query starts from as they were', () => {
+    const queries = createQueryClient().getDefaultOptions().queries;
+    expect(queries?.staleTime).toBe(Infinity);
+    expect(queries?.gcTime).toBe(10 * 60_000);
+    expect(queries?.refetchOnWindowFocus).toBe(false);
+    expect(queries?.retry).toBe(shouldRetry);
+    expect(queries?.retryDelay).toBe(retryDelay);
+  });
+});
+
+/**
+ * Every call of ``useExplanations`` in the app, read from the source: the
+ * retention queue alone outlives its reader; every other page asks with the
+ * ids alone, the default, so its requests are aborted as they always were.
+ */
+const sources = import.meta.glob<string>('../**/*.tsx', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+describe('who asks for explanations that outlive the reader', () => {
+  const calls = Object.entries(sources)
+    .filter(([path]) => !path.includes('.test.'))
+    .flatMap(([path, source]) =>
+      [...source.matchAll(/useExplanations\(([\s\S]*?)\);/g)].map(
+        (m) => [path, m[1] ?? ''] as const,
+      ),
+    );
+
+  it('finds every page that asks', () => {
+    expect([...new Set(calls.map(([path]) => path))].sort()).toEqual([
+      '../pages/customer/CustomerPage.tsx',
+      '../pages/explainability/ExplainabilityPage.tsx',
+      '../pages/explorer/Detail.tsx',
+      '../pages/overview/RetentionQueue.tsx',
+    ]);
+  });
+
+  it.each(calls)('%s asks with outlive only if it is the retention queue', (path, args) => {
+    if (path === '../pages/overview/RetentionQueue.tsx') {
+      expect(args).toBe('ids, { outlive: true }');
+    } else {
+      expect(args).not.toMatch(/outlive/);
+      // One argument: the ids, so the default holds.
+      expect(args.split(',').filter((part) => part.includes('{'))).toEqual([]);
+    }
+  });
 });
 
 describe('explanations of customers in the book', () => {

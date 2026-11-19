@@ -90,55 +90,52 @@
   color: var(--muted);
 }
 
-/* The band scale: four spans in their bands' colours, the threshold marked. */
+/* The band scale: four spans in their bands' colours, the threshold marked (Summary.tsx). */
 .scale {
-  position: relative;
-  padding-top: 24px;
-}
-.marker {
-  position: absolute;
-  top: 0;
-  left: calc(var(--t) * 100%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  transform: translateX(-50%);
+  gap: 8px;
 }
-.markerLabel {
-  padding: 0 6px;
-  border-radius: var(--radius-5);
-  background: var(--ink);
-  color: var(--on-light);
+.scaleSvg {
+  display: block;
+  width: 100%;
+  height: 42px;
+  overflow: visible;
+}
+.segment {
+  fill: var(--band);
+}
+.gap {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.chip {
+  fill: var(--ink);
+}
+.chipText {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 600;
-  line-height: 18px;
-  white-space: nowrap;
+  fill: var(--on-light);
 }
-.markerStem {
-  width: 2px;
-  height: 22px;
-  background: var(--ink);
-}
-.bar {
-  display: flex;
-  gap: 2px;
-  height: 12px;
-  overflow: hidden;
-  border-radius: var(--radius-6);
-}
-.bar > span {
-  flex: var(--w) 1 0;
-  background: var(--band);
+.stem {
+  stroke: var(--ink);
+  stroke-width: 2;
 }
 .legend {
   display: flex;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 12px;
-}
-.legend > span {
-  flex: var(--w) 1 0;
   font-weight: 550;
+}
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .legend .range {
   font-family: var(--font-mono);
@@ -150,8 +147,13 @@
 /* --- key figures ------------------------------------------------------------ */
 .figures {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
+}
+@media (max-width: 760px) {
+  .figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .partitionTag {
   font-family: var(--font-mono);

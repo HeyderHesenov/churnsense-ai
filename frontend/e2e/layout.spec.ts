@@ -3,7 +3,7 @@
  * API accepts fits a 320 px phone, and a keyboard user can always see focus.
  */
 import { expect, settled, test, WIDTHS } from './fixtures';
-import { PAGES } from './pages';
+import { OVERVIEW_TABS, PAGES } from './pages';
 
 /** The longest customer ID the API accepts; the e2e server gives one customer it. */
 const LONG_ID = `E2E-${'X'.repeat(28)}`;
@@ -67,7 +67,7 @@ async function clipped(
 for (const width of WIDTHS) {
   test(`no page scrolls sideways at ${String(width)} px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    for (const { path, label } of PAGES) {
+    for (const { path, label } of [...PAGES, ...OVERVIEW_TABS]) {
       await page.goto(path);
       await settled(page);
       expect(await overflow(page), label).toBeLessThanOrEqual(0);

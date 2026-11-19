@@ -1,0 +1,151 @@
+.all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--link);
+  white-space: nowrap;
+}
+.all:hover {
+  color: var(--link-hover);
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cards > li {
+  display: flex;
+  min-width: 0;
+}
+/* Attributions are the queue's: the card says where, and asks for none itself. */
+.explanations {
+  display: flex;
+  justify-content: flex-end;
+}
+.explanations .all {
+  min-height: 24px;
+  white-space: normal;
+}
+.card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 14px 12px;
+  border: 1px solid var(--line-row);
+  border-radius: var(--radius-12);
+  background: var(--well);
+  color: var(--ink);
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+.card:hover {
+  border-color: var(--line-hover);
+  transform: translateY(-2px);
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.avatar {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--band-soft);
+  color: var(--band-ink);
+  font-weight: 650;
+}
+.who {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.profile {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ring {
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+.ringTrack,
+.ringArc {
+  fill: none;
+  stroke-width: 5;
+}
+.ringTrack {
+  stroke: var(--track);
+}
+.ringArc {
+  stroke: var(--band);
+  animation: arc 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.probability {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+}
+.status {
+  font-size: 11px;
+  color: var(--muted);
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.atRisk {
+  color: var(--ink);
+}
+@keyframes arc {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ringArc {
+    animation: none;
+  }
+  .card {
+    transition: none;
+  }
+  .card:hover {
+    transform: none;
+  }
+}

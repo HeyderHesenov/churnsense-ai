@@ -212,15 +212,27 @@ export function useExamples(): UseQueryResult<Examples> {
   });
 }
 
-/** Explanations of book customers; nothing is fetched for an empty list. */
-export function useExplanations(ids: readonly string[]): UseQueryResult<ExplainResponse> {
+/**
+ * Explanations of book customers; nothing is fetched for an empty list.
+ *
+ * By default a request nobody waits for any more is aborted. With ``outlive``
+ * it runs to its answer and the answer is cached: the server has counted it
+ * against the rate limit either way, so a reader who leaves and comes back
+ * (Back, Forward, another page and back) is shown that answer instead of
+ * asking again.
+ */
+export function useExplanations(
+  ids: readonly string[],
+  { outlive = false }: { outlive?: boolean } = {},
+): UseQueryResult<ExplainResponse> {
   return useQuery({
     queryKey: ['explain', 'ids', ids],
-    queryFn: ({ signal }) =>
+    // Reading the signal is what lets the query abort the request, so with ``outlive`` it is never read.
+    queryFn: (context) =>
       request<ExplainResponse>('/explain', {
         method: 'POST',
         json: { customer_ids: ids },
-        signal,
+        signal: outlive ? undefined : context.signal,
       }),
     enabled: ids.length > 0,
     retry: (failures, error: Error) => retryExplanation(failures, error),

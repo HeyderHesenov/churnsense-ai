@@ -1,10 +1,10 @@
 /**
  * "Where the book sits on the probability scale": the histogram, and a card
- * per band. A bin or a band card filters the queue to that band; pressing
- * the band shown alone brings every flagged band back.
+ * per band. A bin or a band card opens the retention queue tab on that band.
  */
 import { useId, useState } from 'react';
 import type { ModelInfo, Overview } from '../../api/queries';
+import { Link } from '../../app/router';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { Segmented } from '../../components/ui/Toggle';
 import { int, moneyK, pct } from '../../lib/format';
@@ -16,16 +16,26 @@ import styles from './Distribution.module.css';
 interface DistributionProps {
   book: Overview;
   info: ModelInfo | undefined;
-  /** The one band the queue shows, if it shows exactly one. */
-  only: string | null;
-  /** Show this band alone, or every flagged band again when it already is. */
+  /** The queue tab's address on one band. */
+  bandLink: (band: string) => string;
+  /** Open the queue tab on one band (a bin chosen in the histogram). */
   onPickBand: (band: string) => void;
+  /** Following a band card's link: the page then focuses the queue. */
+  onFollow: () => void;
+  className?: string | undefined;
 }
 
-export function Distribution({ book, info, only, onPickBand }: DistributionProps) {
+export function Distribution({
+  book,
+  info,
+  bandLink,
+  onPickBand,
+  onFollow,
+  className,
+}: DistributionProps) {
   const [measure, setMeasure] = useState<Measure>('customers');
   return (
-    <Card titleId="distribution" className={styles.card}>
+    <Card titleId="distribution" className={cx(styles.card, className)}>
       <CardHeader
         id="distribution"
         title="Where the book sits on the probability scale"
@@ -46,16 +56,16 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
           />
         }
       />
-      <Histogram book={book} measure={measure} only={only} onPickBand={onPickBand} />
+      <Histogram book={book} measure={measure} onPickBand={onPickBand} />
       <div className={styles.bands}>
         {book.bands.map((band) => (
           <BandCard
             key={band.name}
             band={band}
             measure={measure}
-            alone={only === band.name}
             withheld={book.withheld_reason !== null}
-            onPick={() => onPickBand(band.name)}
+            to={bandLink(band.name)}
+            onFollow={onFollow}
           />
         ))}
       </div>
@@ -64,7 +74,7 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
           "The isotonic step shows: probabilities bunch at the calibrator's levels. "}
         {book.withheld_reason === null &&
           'Validation customers informed the cut and the calibration choice, so this is not an independent test. Held-out figures appear only on Performance, once recorded. '}
-        Select a bin or a band to filter the queue.
+        Select a bin or a band to see its flagged customers in the retention queue.
       </p>
     </Card>
   );
@@ -73,31 +83,30 @@ export function Distribution({ book, info, only, onPickBand }: DistributionProps
 interface BandCardProps {
   band: Overview['bands'][number];
   measure: Measure;
-  alone: boolean;
   withheld: boolean;
-  onPick: () => void;
+  to: string;
+  onFollow: () => void;
 }
 
 /**
- * A band's figures, which are also its accessible name; what pressing it does
- * is its description, so a screen reader hears the figures first.
+ * A band's figures, which are also its accessible name; where following it
+ * goes is its description, so a screen reader hears the figures first.
  */
-function BandCard({ band, measure, alone, withheld, onPick }: BandCardProps) {
+function BandCard({ band, measure, withheld, to, onFollow }: BandCardProps) {
   const share = measure === 'customers' ? band.share : band.monthly_share;
   const churned = band.observed?.rate;
   const action = useId();
   return (
-    <button
-      type="button"
+    <Link
+      to={to}
       className={styles.band}
       data-band={band.name}
-      aria-pressed={alone}
       aria-describedby={action}
-      onClick={onPick}
+      onClick={onFollow}
     >
       {/* Out of the name (aria-hidden), still the description by reference. */}
       <span id={action} className="sr" aria-hidden="true">
-        {alone ? 'Shows every flagged band in the queue again.' : 'Filters the queue to this band.'}
+        Shows its flagged customers in the retention queue.
       </span>
       <span className={styles.bandHead}>
         <span className={styles.bandName}>{band.name}</span>{' '}
@@ -123,6 +132,6 @@ function BandCard({ band, measure, alone, withheld, onPick }: BandCardProps) {
           </b>
         </span>
       </span>
-    </button>
+    </Link>
   );
 }

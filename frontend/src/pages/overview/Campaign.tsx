@@ -12,6 +12,7 @@ import { icons } from '../../components/icons';
 import { ButtonLink } from '../../components/ui/Button';
 import { Card, CardHeader, SimulatedBadge } from '../../components/ui/Surface';
 import { cut, int, money, probability } from '../../lib/format';
+import { cx } from '../../lib/style';
 import { assumptionsNote, campaignCaption, campaignLabel } from './copy';
 import styles from './Campaign.module.css';
 
@@ -20,12 +21,23 @@ type Campaign = NonNullable<Overview['campaign']>;
 const WIDTH = 260;
 const HEIGHT = 64;
 
-export function CampaignCard({ campaign }: { campaign: Campaign | null }) {
+interface CampaignCardProps {
+  campaign: Campaign | null;
+  /** The summary's tile: the net benefit, the curve and the assumptions, without the four figures. */
+  compact?: boolean;
+  className?: string | undefined;
+}
+
+export function CampaignCard({ campaign, compact = false, className }: CampaignCardProps) {
   const sweepNote = useSweepNote();
+  const classes = cx(styles.card, compact && styles.compact, className);
+  // The overview keeps a visited tab mounted, so the summary's tile and the
+  // distribution's card can both be in the page: each has its own heading id.
+  const titleId = compact ? 'campaign-summary' : 'campaign';
   if (!campaign) {
     return (
-      <Card titleId="campaign" variant="sim" className={styles.card}>
-        <CardHeader id="campaign" title="Campaign" aside={<SimulatedBadge />} />
+      <Card titleId={titleId} variant="sim" className={classes}>
+        <CardHeader id={titleId} title="Campaign" aside={<SimulatedBadge />} />
         <p className={styles.note}>
           {sweepNote ??
             'The simulated campaign needs observed outcomes on the validation partition, which ' +
@@ -35,43 +47,47 @@ export function CampaignCard({ campaign }: { campaign: Campaign | null }) {
     );
   }
   return (
-    <Card titleId="campaign" variant="sim" className={styles.card}>
+    <Card titleId={titleId} variant="sim" className={classes}>
       <CardHeader
-        id="campaign"
+        id={titleId}
         title={`Campaign at ${cut(campaign.threshold)}`}
         aside={<SimulatedBadge />}
       />
       <div>
-        <div className={styles.label}>Net benefit on validation</div>
         <div className={styles.net}>{money(campaign.net_benefit)}</div>
+        <div className={styles.label}>
+          net benefit on validation, {int(campaign.flagged)} offers
+        </div>
       </div>
       <Sparkline campaign={campaign} />
-      <dl className={styles.stats}>
-        <div>
-          <dt>Flagged</dt>
-          <dd>
-            <span>{int(campaign.flagged)}</span>{' '}
-            <span className={styles.of}>/ {int(campaign.customers)}</span>
-          </dd>
-        </div>
-        <div>
-          <dt>Precision · recall</dt>
-          <dd>
-            {probability(campaign.precision)} · {probability(campaign.recall)}
-          </dd>
-        </div>
-        <div>
-          <dt>Campaign cost</dt>
-          <dd>{money(campaign.intervention_cost)}</dd>
-        </div>
-        <div>
-          <dt>Retained value</dt>
-          <dd>{money(campaign.retained_value)}</dd>
-        </div>
-      </dl>
+      {!compact && (
+        <dl className={styles.stats}>
+          <div>
+            <dt>Flagged</dt>
+            <dd>
+              <span>{int(campaign.flagged)}</span>{' '}
+              <span className={styles.of}>/ {int(campaign.customers)}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>Precision · recall</dt>
+            <dd>
+              {probability(campaign.precision)} · {probability(campaign.recall)}
+            </dd>
+          </div>
+          <div>
+            <dt>Campaign cost</dt>
+            <dd>{money(campaign.intervention_cost)}</dd>
+          </div>
+          <div>
+            <dt>Retained value</dt>
+            <dd>{money(campaign.retained_value)}</dd>
+          </div>
+        </dl>
+      )}
       <p className={styles.assumed}>{assumptionsNote(campaign.assumptions)}</p>
       <ButtonLink to="/simulator" variant="sim" size="lg" className={styles.open}>
-        Open simulator
+        Plan a campaign
         <icons.arrowRight size={15} />
       </ButtonLink>
     </Card>

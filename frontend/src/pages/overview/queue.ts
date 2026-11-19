@@ -22,6 +22,20 @@ export const QUEUE_PARAMS = {
 
 export type QueueState = Values<typeof QUEUE_PARAMS>;
 
+/**
+ * The queue as an address without any of its keys shows it: every flagged band,
+ * most revenue at risk first, first page. The summary's "call first" card reads
+ * this listing, so it and the queue tab share one request.
+ */
+export const DEFAULT_QUEUE: QueueState = {
+  bands: QUEUE_PARAMS.bands.fallback,
+  part: QUEUE_PARAMS.part.fallback,
+  q: QUEUE_PARAMS.q.fallback,
+  sort: QUEUE_PARAMS.sort.fallback,
+  dir: QUEUE_PARAMS.dir.fallback,
+  page: QUEUE_PARAMS.page.fallback,
+};
+
 /** A band summary whose name is one the queue's address can hold. */
 export type QueueBand = BandSummary & { name: BandName };
 

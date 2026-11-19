@@ -181,3 +181,77 @@ export function footerSource(source: DataSource | null | undefined, customers: n
     ? `${source.title} · ${int(customers)} generated customers`
     : `IBM Telco Customer Churn · ${int(customers)} rows`;
 }
+
+type Observed = Schemas['Observed'];
+
+/** A band's observed churn in a few words: "8.0% churned", "withheld", or "—" (too few, or none published). */
+export function observedShort(band: { observed: Observed | null }, withheld: boolean): string {
+  if (withheld) return 'withheld';
+  const rate = band.observed?.rate;
+  return rate === null || rate === undefined ? '—' : `${pct(rate)} churned`;
+}
+
+/** The ring's accessible name: each band's count and share, and everyone flagged. */
+export function donutDescription(book: Overview): string {
+  const bands = book.bands
+    .map(
+      (band) =>
+        `${band.name} ${int(band.customers)}${band.share === null ? '' : ` (${pct(band.share)})`}`,
+    )
+    .join(', ');
+  const share = book.flagged.share === null ? '' : `, ${pct(book.flagged.share)} of the book`;
+  return `Customers by risk band: ${bands}. ${int(book.flagged.customers)} flagged at ${cut(book.threshold)}${share}.`;
+}
+
+/** A median tenure as whole months, or a dash when the API has none. */
+export function wholeMonths(value: number | null): string {
+  return value === null ? '—' : String(Math.round(value));
+}
+
+/** The briefing's row on who is flagged: the API's share and count, never a ratio made here. */
+export function flaggedBrief(book: Overview): { title: string; fact: string } {
+  const share = book.flagged.share;
+  return {
+    title:
+      share === null
+        ? `${int(book.flagged.customers)} customers are flagged`
+        : `${pct(share)} of the book is flagged`,
+    fact: `${int(book.flagged.customers)} customers at or above ${cut(book.threshold)}; ${int(book.flagged.in_queue)} of them in the retention queue.`,
+  };
+}
+
+/** The briefing's row on tenure, or ``null`` when either median is missing. */
+export function tenureBrief(
+  lifecycle: Overview['lifecycle'],
+): { title: string; fact: string } | null {
+  if (
+    !lifecycle ||
+    lifecycle.median_tenure_churned === null ||
+    lifecycle.median_tenure_stayed === null
+  )
+    return null;
+  return {
+    title: 'Tenure of who left and who stayed',
+    fact: `Median tenure ${wholeMonths(lifecycle.median_tenure_churned)} months among customers who churned, ${wholeMonths(lifecycle.median_tenure_stayed)} among those who stayed (training partition).`,
+  };
+}
+
+/** The briefing's row on the simulated campaign: "pays" only when the API's net benefit is above zero. */
+export function campaignBrief(campaign: Campaign): { title: string; fact: string } {
+  return {
+    title:
+      campaign.net_benefit > 0
+        ? 'A campaign pays, on paper'
+        : 'A campaign does not pay at these assumptions',
+    fact: `${money(campaign.net_benefit)} simulated net benefit at ${cut(campaign.threshold)} on validation, ${int(campaign.flagged)} offers.`,
+  };
+}
+
+/** What the "segments to watch" card says of how its groups were chosen. */
+export function watchNote(minimum: number): string {
+  return (
+    `The highest observed churn among contract and tenure groups on the training partition, ` +
+    `${int(minimum)} or more customers each, in the order the API ranks them. Chosen for being ` +
+    'highest, so more likely overstated than understated. An association, not a cause.'
+  );
+}
