@@ -15,10 +15,38 @@
 }
 @media (min-width: 1200px) {
   .workspace {
-    grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
   }
 }
-.main,
+/* The breakdown is the page's subject: a card of its own, the views beside it. */
+.breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-14);
+  background: var(--surface);
+}
+.breakdownHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.breakdownTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.breakdownMeta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
 .side {
   display: flex;
   flex-direction: column;
@@ -95,9 +123,9 @@
 }
 .scroll {
   overflow-x: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-10);
-  background: var(--surface);
+  background: var(--well);
 }
 .scroll:focus-visible {
   outline: 2px solid var(--accent);
@@ -136,7 +164,7 @@
 }
 .table td {
   padding: 0;
-  min-width: 76px;
+  min-width: 72px;
 }
 .cell {
   --hue: var(--observed);
@@ -151,10 +179,71 @@
   border: 1px solid transparent;
   border-radius: var(--radius-6);
   /* The shade is the figure's place on its scale: none at 0, two thirds at the top. */
-  background: color-mix(in oklab, var(--hue) calc(var(--t) * 66%), var(--well));
+  background: color-mix(in oklab, var(--hue) calc(var(--t, 0) * 66%), var(--well));
   color: var(--ink);
   font: inherit;
   cursor: pointer;
+}
+/* The shade's strength in twenty steps (shadeStep in patterns.ts): no style is set. */
+.cell[data-shade='1'] {
+  --t: 0.05;
+}
+.cell[data-shade='2'] {
+  --t: 0.1;
+}
+.cell[data-shade='3'] {
+  --t: 0.15;
+}
+.cell[data-shade='4'] {
+  --t: 0.2;
+}
+.cell[data-shade='5'] {
+  --t: 0.25;
+}
+.cell[data-shade='6'] {
+  --t: 0.3;
+}
+.cell[data-shade='7'] {
+  --t: 0.35;
+}
+.cell[data-shade='8'] {
+  --t: 0.4;
+}
+.cell[data-shade='9'] {
+  --t: 0.45;
+}
+.cell[data-shade='10'] {
+  --t: 0.5;
+}
+.cell[data-shade='11'] {
+  --t: 0.55;
+}
+.cell[data-shade='12'] {
+  --t: 0.6;
+}
+.cell[data-shade='13'] {
+  --t: 0.65;
+}
+.cell[data-shade='14'] {
+  --t: 0.7;
+}
+.cell[data-shade='15'] {
+  --t: 0.75;
+}
+.cell[data-shade='16'] {
+  --t: 0.8;
+}
+.cell[data-shade='17'] {
+  --t: 0.85;
+}
+.cell[data-shade='18'] {
+  --t: 0.9;
+}
+.cell[data-shade='19'] {
+  --t: 0.95;
+}
+.cell[data-shade='20'] {
+  --t: 1;
 }
 .cell[data-measure='customers'] {
   --hue: var(--count);
@@ -285,42 +374,24 @@
   color: var(--ink);
 }
 .track {
-  position: relative;
+  display: block;
   grid-column: 1 / -1;
+  width: 100%;
   height: 10px;
+  overflow: visible;
 }
-.track::before {
-  content: '';
-  position: absolute;
-  inset: 4px 0;
-  border-radius: var(--radius-2);
-  background: var(--track);
+.trackGround {
+  fill: var(--track);
 }
 .whisker {
-  position: absolute;
-  top: 4px;
-  left: calc(var(--low) * 100%);
-  width: calc((var(--high) - var(--low)) * 100%);
-  height: 2px;
-  background: var(--observed);
+  fill: var(--observed);
 }
 .dot {
-  position: absolute;
-  top: 1px;
-  left: calc(var(--rate) * 100%);
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  border-radius: 50%;
-  background: var(--observed);
+  fill: var(--observed);
 }
 .baseLine {
-  position: absolute;
-  top: 0;
-  left: calc(var(--base) * 100%);
-  width: 1px;
-  height: 10px;
-  background: var(--ink-2);
+  stroke: var(--ink-2);
+  stroke-width: 1;
 }
 .axis {
   display: flex;
@@ -379,11 +450,13 @@
   color: var(--ink-2);
 }
 .strength {
+  display: block;
   grid-column: 1 / -1;
+  width: 100%;
   height: 4px;
-  width: calc(var(--w) * 100%);
-  border-radius: var(--radius-2);
-  background: var(--count);
+}
+.strengthBar {
+  fill: var(--count);
 }
 
 @media (prefers-reduced-motion: reduce) {

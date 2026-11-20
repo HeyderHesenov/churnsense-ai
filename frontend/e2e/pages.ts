@@ -54,3 +54,11 @@ export const SIMULATOR_TABS = [
   { path: '/simulator?tab=compare', label: 'Simulator compare' },
   { path: '/simulator?tab=method', label: 'Simulator method' },
 ] as const;
+
+/**
+ * The explainability page's tabs other than the global attributions
+ * (src/pages/explainability/tabs.ts), each at its own address: checked like a page.
+ */
+export const EXPLAINABILITY_TABS = [
+  { path: '/explainability?tab=rankings', label: 'Explainability two rankings' },
+] as const;

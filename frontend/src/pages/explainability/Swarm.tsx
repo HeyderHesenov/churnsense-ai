@@ -15,7 +15,7 @@ import { ChartFrame } from '../../components/charts/ChartFrame';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { pct, signedPoints, tickLabels } from '../../lib/format';
 import { valueText } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { CARDS, featureName, rowDescription, SCALE } from './copy';
 import {
   contributionDomain,
@@ -145,23 +145,28 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
         >
           <div className={styles.swarmHead}>
             <span>Attribute</span>
-            <span className={styles.axisLabels}>
+            {/* No viewBox: the labels keep their size, placed at a share of the width. */}
+            <svg className={styles.axisLabels} aria-hidden="true">
               {ticks.map((t, i) => (
-                <span key={t} style={cssVars({ '--at': x(t) / WIDTH })}>
+                <text key={t} x={share(x(t))} y={12} textAnchor="middle">
                   {tickNames[i]}
-                </span>
+                </text>
               ))}
-            </span>
+            </svg>
             <span className={styles.headMean}>mean |pp|</span>
           </div>
           <div className={styles.swarmPlot}>
             <span />
             <div className={styles.swarmArea}>
+              {/* One 26 px line per attribute gives the area its height; the SVGs fill it. */}
+              {rows.map((row) => (
+                <span key={row.feature} className={styles.rowSpace} aria-hidden="true" />
+              ))}
               <svg
                 viewBox={`0 0 ${WIDTH} ${height}`}
                 preserveAspectRatio="none"
                 className={styles.swarmSvg}
-                style={cssVars({ '--rows': rows.length })}
+                height={height}
               >
                 {rows.map(
                   (row, i) =>
@@ -195,21 +200,26 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
                   </g>
                 ))}
               </svg>
-              {/* Rings are HTML so they stay round however the SVG is stretched. */}
-              {ringed &&
-                rows.map((row, i) => {
-                  const own = contributionOf(ringed, row.feature);
-                  return (
-                    own && (
-                      <span
-                        key={row.feature}
-                        data-testid="ring"
-                        className={styles.swarmRing}
-                        style={cssVars({ '--at': x(own.shap) / WIDTH, '--row': i })}
-                      />
-                    )
-                  );
-                })}
+              {/* Rings in their own unscaled SVG, so they stay round however the dots stretch. */}
+              {ringed && (
+                <svg className={styles.ringLayer} height={height} aria-hidden="true">
+                  {rows.map((row, i) => {
+                    const own = contributionOf(ringed, row.feature);
+                    return (
+                      own && (
+                        <circle
+                          key={row.feature}
+                          data-testid="ring"
+                          className={styles.ring}
+                          cx={share(x(own.shap))}
+                          cy={i * SWARM.row + SWARM.row / 2}
+                          r={5.5}
+                        />
+                      )
+                    );
+                  })}
+                </svg>
+              )}
             </div>
             <span />
           </div>
@@ -218,4 +228,9 @@ export function Swarm({ global, feature, ringed, onPick }: Props) {
       <p className={styles.note}>{CARDS.swarm.note}</p>
     </Card>
   );
+}
+
+/** A place on the stretched drawing as a share of its width, for an unscaled SVG. */
+function share(at: number): string {
+  return `${String((at / WIDTH) * 100)}%`;
 }

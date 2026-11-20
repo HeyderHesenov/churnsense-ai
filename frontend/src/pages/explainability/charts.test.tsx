@@ -69,9 +69,21 @@ describe('the swarm', () => {
     rings.forEach((ring, i) => {
       const feature = GLOBAL.importance[i]?.feature ?? '';
       const own = contributionOf(EXPLAINED, feature);
-      expect(cssVar(ring, '--row')).toBe(String(i));
-      expect(Number(cssVar(ring, '--at'))).toBeCloseTo(x(own?.shap ?? NaN) / 400, 9);
+      // An unscaled SVG: the row's middle in pixels, the contribution as a share of the width.
+      expect(ring.tagName.toLowerCase()).toBe('circle');
+      expect(Number(ring.getAttribute('cy'))).toBe(i * SWARM.row + SWARM.row / 2);
+      const cx = ring.getAttribute('cx') ?? '';
+      expect(cx.endsWith('%')).toBe(true);
+      expect(parseFloat(cx) / 100).toBeCloseTo(x(own?.shap ?? NaN) / 400, 9);
     });
+  });
+
+  it('sets no style attribute: axis labels and rings are placed by SVG attributes', () => {
+    const { container } = show(EXPLAINED);
+    expect(container.querySelector('[style]')).toBeNull();
+    const labels = [...container.querySelectorAll('svg text')].map((t) => t.getAttribute('x'));
+    expect(labels.length).toBeGreaterThan(1);
+    for (const at of labels) expect(at).toMatch(/^-?[\d.]+%$/);
   });
 });
 

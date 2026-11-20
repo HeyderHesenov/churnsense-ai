@@ -3,7 +3,13 @@
  * API accepts fits a 320 px phone, and a keyboard user can always see focus.
  */
 import { expect, settled, test, WIDTHS } from './fixtures';
-import { OVERVIEW_TABS, PAGES, PERFORMANCE_TABS, SIMULATOR_TABS } from './pages';
+import {
+  EXPLAINABILITY_TABS,
+  OVERVIEW_TABS,
+  PAGES,
+  PERFORMANCE_TABS,
+  SIMULATOR_TABS,
+} from './pages';
 
 /** The longest customer ID the API accepts; the e2e server gives one customer it. */
 const LONG_ID = `E2E-${'X'.repeat(28)}`;
@@ -72,6 +78,7 @@ for (const width of WIDTHS) {
       ...OVERVIEW_TABS,
       ...PERFORMANCE_TABS,
       ...SIMULATOR_TABS,
+      ...EXPLAINABILITY_TABS,
     ]) {
       await page.goto(path);
       await settled(page);

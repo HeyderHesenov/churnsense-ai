@@ -1,5 +1,6 @@
 .detail {
   flex: 1 1 330px;
+  align-self: flex-start;
   min-width: 0;
   max-width: 100%;
   display: flex;
@@ -141,35 +142,21 @@
   color: var(--ink-2);
 }
 .track {
-  position: relative;
+  display: block;
+  width: 100%;
   height: 10px;
+  overflow: visible;
 }
-.track::before {
-  content: '';
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: 50%;
-  width: 1px;
-  background: var(--line-axis);
-}
-.fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: calc(var(--w) * 50%);
-  border-radius: var(--radius-2);
+.axis {
+  stroke: var(--line-axis);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
 }
 .fill[data-direction='raises'] {
-  left: 50%;
-  background: var(--raises);
+  fill: var(--raises);
 }
 .fill[data-direction='lowers'] {
-  right: 50%;
-  background: var(--lowers);
-}
-.fill[data-direction='none'] {
-  display: none;
+  fill: var(--lowers);
 }
 .barValue {
   font-family: var(--font-mono);
@@ -182,4 +169,19 @@
 }
 .barValue[data-direction='lowers'] {
   color: var(--lowers-text);
+}
+
+/*
+ * Beside the list (a wide screen), the panel stays in view while the list
+ * scrolls; taller than the screen, it scrolls on its
+ * own. Below it (narrower), it is part of the page.
+ */
+@media (min-width: 1200px) {
+  .detail {
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
 }

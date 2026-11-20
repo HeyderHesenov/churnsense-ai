@@ -15,7 +15,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import { cents } from '../../lib/format';
 import { profile } from '../../lib/labels';
 import { cx } from '../../lib/style';
-import { emptyHint, pageNote } from './copy';
+import { emptyHint, pageNote, sortNote } from './copy';
 import {
   CUSTOMERS_ID,
   DEFAULT_DIRECTION,
@@ -79,6 +79,10 @@ export function CustomerTable({
       aria-busy={idle === null && listing.isPlaceholderData}
       className={styles.list}
     >
+      <div className={styles.listHead}>
+        <h2 className={styles.listTitle}>Scored customers</h2>
+        <span className={styles.listMeta}>{sortNote(state.sort, state.dir)}</span>
+      </div>
       {idle ? (
         <EmptyState
           title="No customer matches these filters"
@@ -158,13 +162,13 @@ function Table({ rows, state, set, openId, onOpen, onClose }: TableProps) {
           <div role="row" className={cx(styles.row, styles.head)}>
             <SortHeader column="id" label="Customer" sort={sort} onSort={onSort} />
             <SortHeader column="probability" label="Probability" sort={sort} onSort={onSort} />
-            <div role="columnheader" className={styles.headCell}>
+            <div role="columnheader" className={cx(styles.headCell, styles.folds)}>
               Band
             </div>
             <SortHeader column="tenure" label="Tenure" sort={sort} onSort={onSort} align="end" />
             <SortHeader column="monthly" label="Monthly" sort={sort} onSort={onSort} align="end" />
             <SortHeader column="at_risk" label="At risk" sort={sort} onSort={onSort} align="end" />
-            <div role="columnheader" className={cx(styles.headCell, styles.last)}>
+            <div role="columnheader" className={cx(styles.headCell, styles.last, styles.folds)}>
               Outcome
             </div>
           </div>
@@ -187,7 +191,7 @@ function Table({ rows, state, set, openId, onOpen, onClose }: TableProps) {
 function Row({ row, open, onToggle }: { row: CustomerRow; open: boolean; onToggle: () => void }) {
   return (
     <div role="row" className={styles.row} data-open={open}>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.customer)}>
         <button
           type="button"
           id={`open-${row.id}`}
@@ -202,24 +206,40 @@ function Row({ row, open, onToggle }: { row: CustomerRow; open: boolean; onToggl
           </span>
         </button>
       </div>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.probability)}>
         <ProbabilityMeter value={row.churn_probability} band={row.risk_band} />
       </div>
-      <div role="cell" className={styles.cell}>
+      <div role="cell" className={cx(styles.cell, styles.band)}>
         <BandLabel band={row.risk_band} inked />
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number)}>
-        {row.tenure} mo
+      <div role="cell" className={cx(styles.cell, styles.number, styles.tenure)}>
+        <CellLabel>Tenure</CellLabel>
+        <span>{row.tenure} mo</span>
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number)}>
-        {cents(row.monthly_charges)}
+      <div role="cell" className={cx(styles.cell, styles.number, styles.monthly)}>
+        <CellLabel>Monthly</CellLabel>
+        <span>{cents(row.monthly_charges)}</span>
       </div>
-      <div role="cell" className={cx(styles.cell, styles.number, styles.strong)}>
-        {row.at_risk === null ? '—' : cents(row.at_risk)}
+      <div role="cell" className={cx(styles.cell, styles.number, styles.strong, styles.atRisk)}>
+        <CellLabel>At risk</CellLabel>
+        <span>{row.at_risk === null ? '—' : cents(row.at_risk)}</span>
       </div>
-      <div role="cell" className={cx(styles.cell, styles.last)}>
+      <div role="cell" className={cx(styles.cell, styles.last, styles.outcome)}>
         <OutcomePill outcome={row.outcome} partition={row.partition} />
       </div>
     </div>
+  );
+}
+
+/**
+ * A figure's column name, shown beside it only where the list folds into
+ * cards and its header row no longer stands above it. Hidden from assistive
+ * technology, which reads the column header with every cell either way.
+ */
+function CellLabel({ children }: { children: string }) {
+  return (
+    <span className={styles.cellLabel} aria-hidden="true">
+      {children}
+    </span>
   );
 }

@@ -204,3 +204,20 @@ test('the template carries exactly the served contract’s columns', async ({ pa
   const header = cells((await text(await download)).trim().split(/\r?\n/)[0] ?? '');
   for (const column of columns) expect(header).toContain(column);
 });
+
+test('the upload says the file goes to the server, and the contract opens by keyboard', async ({
+  page,
+}) => {
+  await page.goto('/batch');
+  await settled(page);
+  const upload = page.getByRole('region', { name: 'Upload' });
+  await expect(upload.getByRole('note')).toContainText(
+    'Scoring sends the file to this app’s server.',
+  );
+  const summary = upload.locator('summary', { hasText: 'Required columns' });
+  await summary.focus();
+  await page.keyboard.press('Enter');
+  await expect(upload.getByRole('list', { name: 'Required columns' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'What you get back' })).toBeVisible();
+  await expect(page.locator('main')).not.toContainText(/nothing leaves|in your browser/i);
+});

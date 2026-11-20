@@ -6,7 +6,7 @@
 import type { Segments } from '../../api/queries';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { FEATURE, isFeature } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { ASSOCIATIONS, measureSymbol } from './copy';
 import { associationRows, type View } from './patterns';
 import styles from './Patterns.module.css';
@@ -36,11 +36,16 @@ export function Associations({ data, view, onView }: Props) {
             const name = isFeature(row.feature) ? FEATURE[row.feature] : row.feature;
             const figure = `${measureSymbol(row.measure)} ${row.strength.toFixed(2)}`;
             const bar = (
-              <span
-                className={styles.strength}
-                aria-hidden="true"
-                style={cssVars({ '--w': row.strength / top })}
-              />
+              <svg className={styles.strength} aria-hidden="true">
+                <rect
+                  className={styles.strengthBar}
+                  x="0"
+                  y="0"
+                  width={`${String((row.strength / top) * 100)}%`}
+                  height="4"
+                  rx="2"
+                />
+              </svg>
             );
             if (row.dimension === null) {
               return (

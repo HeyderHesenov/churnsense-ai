@@ -6,7 +6,7 @@
 import type { Cell, Segments } from '../../api/queries';
 import { Card, CardHeader } from '../../components/ui/Surface';
 import { int, pct } from '../../lib/format';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { cellName, interval, RANKED, rankedSubtitle } from './copy';
 import { sameGroup, type View } from './patterns';
 import styles from './Patterns.module.css';
@@ -58,20 +58,27 @@ export function Ranked({ view, data, pinned, stale, onToggle, onUnpin }: Props) 
                     <span className={styles.rankFigures}>
                       <b>{pct(cell.rate)}</b> {interval(cell)} · n {int(cell.n)}
                     </span>
-                    <span
-                      className={styles.track}
-                      aria-hidden="true"
-                      style={cssVars({
-                        '--low': at(cell.rate_low),
-                        '--high': at(cell.rate_high),
-                        '--rate': at(cell.rate),
-                        '--base': at(data.base_rate ?? 0),
-                      })}
-                    >
-                      <span className={styles.whisker} />
-                      <span className={styles.dot} />
-                      {data.base_rate !== null && <span className={styles.baseLine} />}
-                    </span>
+                    {/* No viewBox: places are shares of the width, the dot stays round. */}
+                    <svg className={styles.track} aria-hidden="true">
+                      <rect className={styles.trackGround} x="0" y="4" width="100%" height="2" />
+                      <rect
+                        className={styles.whisker}
+                        x={share(at(cell.rate_low))}
+                        y="4"
+                        width={share(at(cell.rate_high) - at(cell.rate_low))}
+                        height="2"
+                      />
+                      {data.base_rate !== null && (
+                        <line
+                          className={styles.baseLine}
+                          x1={share(at(data.base_rate))}
+                          x2={share(at(data.base_rate))}
+                          y1="0"
+                          y2="10"
+                        />
+                      )}
+                      <circle className={styles.dot} cx={share(at(cell.rate))} cy="5" r="4" />
+                    </svg>
                   </button>
                 </li>
               );
@@ -86,4 +93,9 @@ export function Ranked({ view, data, pinned, stale, onToggle, onUnpin }: Props) 
       )}
     </Card>
   );
+}
+
+/** A place on the track as a share of its width (0 to 1 as "0%" to "100%"). */
+function share(at: number): string {
+  return `${String(at * 100)}%`;
 }

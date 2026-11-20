@@ -50,6 +50,23 @@ test('the swarm shows the served ranking, in the served order, with the served f
   }
 });
 
+test('the swarm is as tall as its rows: every attribute sits on its own dots, above the legend', async ({
+  page,
+}) => {
+  const global = await open(page);
+  const rows = page.getByRole('group', { name: 'Attributes' }).getByRole('button');
+  const plot = page.locator('[class*="swarmArea"] > svg[class*="swarmSvg"]');
+  const area = await plot.boundingBox();
+  if (!area) throw new Error('no swarm');
+  expect(area.height).toBeCloseTo(global.importance.length * 26, 0);
+  const last = await rows.last().boundingBox();
+  if (!last) throw new Error('no last row');
+  expect(last.y + last.height).toBeLessThanOrEqual(area.y + area.height + 1);
+  const legend = await page.getByText('high value').boundingBox();
+  if (!legend) throw new Error('no legend');
+  expect(legend.y).toBeGreaterThanOrEqual(last.y + last.height);
+});
+
 test('one customer’s explanation shares the global base and adds up to its probability', async ({
   page,
 }) => {
@@ -108,4 +125,34 @@ test('switching customers quickly never leaves the earlier one’s attributions'
     points(own?.contributions[0]?.shap_value ?? NaN),
   );
   await expect(page).toHaveURL((url) => url.searchParams.get('id') === b);
+});
+
+test('the two tabs, by keyboard, ask for the cached figures once and the customer once', async ({
+  page,
+}) => {
+  const sent: Request[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/explain')) sent.push(request);
+  });
+  await open(page);
+  const first = examples(page).getByRole('link').first();
+  const id = await placedBy(first);
+  const answered = explainedFor(page, id);
+  await first.click();
+  await answered;
+  await expect(card(page).getByRole('table')).toBeVisible();
+  const strip = page.getByRole('tablist', { name: 'Explainability sections' });
+  await strip.getByRole('tab', { name: /^Global attributions/ }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page).toHaveURL(/[?&]tab=rankings/);
+  await expect(page.getByRole('region', { name: 'Two rankings, both published' })).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+  await page.goBack();
+  await expect(card(page).getByRole('table')).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole('region', { name: 'Two rankings, both published' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  const paths = sent.map((r) => `${r.method()} ${new URL(r.url()).pathname}`);
+  expect(paths.filter((p) => p === 'GET /api/explain/global')).toHaveLength(1);
+  expect(paths.filter((p) => p === 'POST /api/explain')).toHaveLength(1);
 });

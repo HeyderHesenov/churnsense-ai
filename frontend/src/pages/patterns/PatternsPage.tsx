@@ -19,6 +19,7 @@ import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
 import { Associations } from './Associations';
 import { Controls } from './Controls';
 import {
+  BREAKDOWN_META,
   FAILED,
   focusText,
   lede,
@@ -142,22 +143,23 @@ function Breakdown({ data, state, next, onPin, onView }: BreakdownProps) {
             : `Showing ${viewName(shown)}.`}
       </p>
       <div className={styles.workspace}>
-        <div className={styles.main}>
-          <section className={styles.main} aria-label="Breakdown" aria-busy={next !== null}>
-            <FocusLine view={shown} data={data} active={active} pinned={pinned} next={next} />
-            <CrossTab
-              view={shown}
-              data={data}
-              measure={state.show}
-              pinned={pinned}
-              stale={next !== null}
-              onActive={(cell) => setPointed({ data, cell })}
-              onToggle={toggle}
-              onUnpin={unpin}
-            />
-          </section>
-          <Associations data={data} view={next ?? shown} onView={onView} />
-        </div>
+        <section className={styles.breakdown} aria-label="Breakdown" aria-busy={next !== null}>
+          <div className={styles.breakdownHead}>
+            <h2 className={styles.breakdownTitle}>{viewName(shown)}</h2>
+            <span className={styles.breakdownMeta}>{BREAKDOWN_META}</span>
+          </div>
+          <FocusLine view={shown} data={data} active={active} pinned={pinned} next={next} />
+          <CrossTab
+            view={shown}
+            data={data}
+            measure={state.show}
+            pinned={pinned}
+            stale={next !== null}
+            onActive={(cell) => setPointed({ data, cell })}
+            onToggle={toggle}
+            onUnpin={unpin}
+          />
+        </section>
         <div className={styles.side}>
           <Ranked
             view={shown}
@@ -167,6 +169,7 @@ function Breakdown({ data, state, next, onPin, onView }: BreakdownProps) {
             onToggle={toggle}
             onUnpin={unpin}
           />
+          <Associations data={data} view={next ?? shown} onView={onView} />
         </div>
       </div>
     </>

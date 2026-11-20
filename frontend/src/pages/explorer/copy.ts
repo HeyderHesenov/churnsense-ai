@@ -4,7 +4,14 @@
  * "tops out below the threshold" only when its top is below it. Formatting
  * only: nothing here computes a statistic.
  */
-import type { CustomerPage, ExplainResponse, Explanation, ModelInfo } from '../../api/queries';
+import type {
+  CustomerPage,
+  Direction,
+  ExplainResponse,
+  Explanation,
+  ModelInfo,
+  SortKey,
+} from '../../api/queries';
 import { bandTop } from '../../lib/bands';
 import { cut, int, pct, probabilityPct } from '../../lib/format';
 import type { Filters, IdleReason } from './explorer';
@@ -103,6 +110,30 @@ export function pageNote(page: CustomerPage, shown: number, open: boolean): stri
 export function selectionStatus(summary: Summary): string {
   const one = summary.customers === 1;
   return `${int(summary.customers)} ${one ? 'customer matches' : 'customers match'}, ${int(summary.flagged)} flagged.`;
+}
+
+const SORT_NAME: Record<SortKey, string> = {
+  id: 'customer ID',
+  probability: 'probability',
+  tenure: 'tenure',
+  monthly: 'monthly charges',
+  at_risk: 'at risk',
+};
+
+/**
+ * The list's order, as the address asks the API for it: the server sorts and
+ * pages every row, so this only names the order it was asked for.
+ */
+export function sortNote(sort: SortKey, dir: Direction): string {
+  const way =
+    sort === 'id'
+      ? dir === 'asc'
+        ? 'A to Z'
+        : 'Z to A'
+      : dir === 'desc'
+        ? 'highest first'
+        : 'lowest first';
+  return `Sorted by ${SORT_NAME[sort]}, ${way}, by the API`;
 }
 
 export function exportLabel(total: number | undefined): string {

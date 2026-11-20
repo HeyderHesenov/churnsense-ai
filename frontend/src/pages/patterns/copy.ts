@@ -43,6 +43,9 @@ export const WITHHELD = {
     'no figure that rests on their outcomes.',
 };
 
+/** What the breakdown card shows, beside its view's name. */
+export const BREAKDOWN_META = 'Observed churn · training partition · as served';
+
 export const NOTE =
   'Associations in one historical snapshot, and confounded with each other: contract, payment ' +
   'method and tenure move together. Nothing here identifies a cause or says an offer would work.';

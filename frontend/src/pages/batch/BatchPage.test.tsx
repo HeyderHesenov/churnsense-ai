@@ -552,7 +552,12 @@ describe('files to download', () => {
 describe('the served contract', () => {
   it('lists every column the model scores, with what it may hold', async () => {
     await showBatch();
-    await press(screen.getByRole('button', { name: /Required columns \(18\)/ }));
+    // The shared disclosure: the browser's own <details>, closed at first.
+    const summary = screen.getByText('Required columns (18)', { selector: 'summary *, summary' });
+    const details = summary.closest('details');
+    expect(details).not.toHaveAttribute('open');
+    await userEvent.click(summary);
+    expect(details).toHaveAttribute('open');
     const listed = screen.getByRole('list', { name: 'Required columns' });
     expect(within(listed).getAllByRole('listitem')).toHaveLength(18);
     expect(within(listed).getByText('0–120, whole')).toBeInTheDocument();
@@ -565,5 +570,79 @@ describe('the served contract', () => {
       await within(upload).findByText(/The served model’s contract could not be loaded/),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText('Choose a CSV file to score')).toBeNull();
+  });
+});
+
+describe('design v4', () => {
+  it('says beside the upload that scoring sends the file to the server', async () => {
+    await showBatch();
+    const upload = screen.getByRole('region', { name: 'Upload' });
+    const note = within(upload).getByRole('note');
+    expect(note).toHaveTextContent('Scoring sends the file to this app’s server.');
+    expect(note).toHaveTextContent('POST /api/batch/score');
+    expect(document.body.textContent).not.toMatch(
+      /in your browser|nothing is uploaded|nothing leaves|never leaves/i,
+    );
+  });
+
+  it('tells what comes back before a file is scored, and gives way to the result', async () => {
+    await showBatch();
+    const before = screen.getByRole('region', { name: 'What you get back' });
+    expect(within(before).getAllByRole('listitem')).toHaveLength(4);
+    expect(before).toHaveTextContent('No attribution per row');
+    expect(before.textContent).not.toMatch(/\d/);
+    await choose();
+    // Still there with a file ready; gone while it is scored and once it is.
+    expect(screen.getByRole('region', { name: 'What you get back' })).toBeInTheDocument();
+    const pending = hold();
+    server.use(pending.handler);
+    await userEvent.click(action('Score file'));
+    await waitFor(() =>
+      expect(screen.queryByRole('region', { name: 'What you get back' })).toBeNull(),
+    );
+    pending.release();
+    await waitFor(() => expect(status()).toHaveTextContent('Accepted: 30 rows, 21 columns'));
+    expect(screen.queryByRole('region', { name: 'What you get back' })).toBeNull();
+  });
+
+  it('shows no reason or attribution for any row: the batch answer carries none', async () => {
+    await showBatch();
+    await scoreChosen();
+    const headers = within(table())
+      .getAllByRole('columnheader')
+      .map((h) => h.textContent);
+    expect(headers.join(' ')).not.toMatch(/reason|attribution|contribution|why|shap/i);
+    expect(document.body.textContent).not.toMatch(/two biggest|biggest reasons/i);
+  });
+
+  it('draws the rows by band end to end from the served counts, setting no style', async () => {
+    await showBatch();
+    await scoreChosen();
+    const summary = results();
+    if (!summary) throw new Error('summary');
+    const served = batchScore().summary;
+    const parts = [...summary.querySelectorAll('svg rect[data-band]')];
+    expect(parts.map((p) => p.getAttribute('data-band'))).toEqual(served.bands.map((b) => b.name));
+    let start = 0;
+    parts.forEach((part, i) => {
+      const share = (served.bands[i]?.customers ?? 0) / served.rows;
+      expect(parseFloat(part.getAttribute('x') ?? '')).toBeCloseTo(start * 100, 9);
+      expect(parseFloat(part.getAttribute('width') ?? '')).toBeCloseTo(share * 100, 9);
+      start += share;
+    });
+    expect(summary.querySelector('[style]')).toBeNull();
+  });
+
+  it('sends one request per Score, and nothing on choosing or opening the contract', async () => {
+    const sent = filesSent();
+    await showBatch();
+    await userEvent.click(
+      screen.getByText('Required columns (18)', { selector: 'summary *, summary' }),
+    );
+    await choose();
+    expect(sent.count()).toBe(0);
+    await userEvent.click(action('Score file'));
+    await waitFor(() => expect(status()).toHaveTextContent('Accepted: 30 rows, 21 columns'));
+    expect(sent.count()).toBe(1);
   });
 });

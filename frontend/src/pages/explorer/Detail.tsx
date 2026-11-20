@@ -20,7 +20,6 @@ import { Button, IconButton } from '../../components/ui/Button';
 import { ErrorState, Skeleton } from '../../components/ui/States';
 import { cents, cut, probabilityPct, signedPoints } from '../../lib/format';
 import { categoryValue, COMPACT, isFeature } from '../../lib/labels';
-import { cssVars } from '../../lib/style';
 import { CUSTOMER_PARAMS } from '../customer/customer';
 import { explanationMeta, explanationNote } from './copy';
 import { DETAIL_ID, DETAIL_TITLE_ID } from './explorer';
@@ -254,13 +253,7 @@ function Attributions({
               <span className={styles.barLabel}>
                 {isFeature(c.feature) ? COMPACT[c.feature] : c.label}
               </span>
-              <span className={styles.track} aria-hidden="true">
-                <span
-                  className={styles.fill}
-                  data-direction={direction}
-                  style={cssVars({ '--w': Math.abs(c.shap_value) / largest })}
-                />
-              </span>
+              <Bar share={Math.abs(c.shap_value) / largest} direction={direction} />
               <span className={styles.barValue} data-direction={direction}>
                 {value}
               </span>
@@ -270,5 +263,38 @@ function Attributions({
       </ol>
       <p className={styles.note}>{explanationNote(response)}</p>
     </>
+  );
+}
+
+/** The track's width in SVG units: the axis at its middle, each side half of it. */
+const TRACK = 100;
+const MIDDLE = TRACK / 2;
+
+/**
+ * One attribution's bar, drawn from the middle axis to the right (raises) or
+ * the left (lowers), as a share of the strongest one shown: geometry only, in
+ * SVG attributes, so no style is set.
+ */
+function Bar({ share, direction }: { share: number; direction: 'raises' | 'lowers' | 'none' }) {
+  const width = share * MIDDLE;
+  return (
+    <svg
+      className={styles.track}
+      viewBox={`0 0 ${String(TRACK)} 10`}
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      {direction !== 'none' && (
+        <rect
+          className={styles.fill}
+          data-direction={direction}
+          x={direction === 'raises' ? MIDDLE : MIDDLE - width}
+          y={0}
+          width={width}
+          height={10}
+        />
+      )}
+      <line className={styles.axis} x1={MIDDLE} x2={MIDDLE} y1={0} y2={10} />
+    </svg>
   );
 }

@@ -5,16 +5,16 @@
  * be chosen: the page would not know what it promises.
  */
 import type { UseQueryResult } from '@tanstack/react-query';
-import { useState, type RefObject } from 'react';
+import type { RefObject } from 'react';
 import type { ModelInfo } from '../../api/queries';
 import { icons } from '../../components/icons';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button } from '../../components/ui/Button';
+import { Disclosure } from '../../components/ui/Disclosure';
+import { InfoNote } from '../../components/ui/InfoNote';
 import { ErrorState, Skeleton } from '../../components/ui/States';
-import { columnRule, DEMO_NOTE, uploadLimits } from './copy';
+import { columnRule, DEMO_NOTE, SENT_TO_SERVER, uploadLimits } from './copy';
 import styles from './Batch.module.css';
-
-const CONTRACT_ID = 'upload-contract';
 
 interface UploadProps {
   info: UseQueryResult<ModelInfo>;
@@ -25,7 +25,6 @@ interface UploadProps {
 }
 
 export function Upload({ info, picker, onChoose, onDrop, onDemo }: UploadProps) {
-  const [open, setOpen] = useState(false);
   const data = info.data;
   const contract = data?.upload_contract;
   const limits = data?.limits;
@@ -69,18 +68,9 @@ export function Upload({ info, picker, onChoose, onDrop, onDemo }: UploadProps) 
             </Button>
             <span className={styles.note}>{DEMO_NOTE}</span>
           </div>
-          <button
-            type="button"
-            className={styles.disclosure}
-            aria-expanded={open}
-            aria-controls={open ? CONTRACT_ID : undefined}
-            onClick={() => setOpen(!open)}
-          >
-            Required columns ({data.feature_columns.length})
-            <icons.chevronDown size={14} className={styles.chevron} />
-          </button>
-          {open && (
-            <div id={CONTRACT_ID} className={styles.contract}>
+          <InfoNote title={SENT_TO_SERVER.title}>{SENT_TO_SERVER.body}</InfoNote>
+          <Disclosure summary={`Required columns (${String(data.feature_columns.length)})`}>
+            <div className={styles.contract}>
               <ul aria-label="Required columns" className={styles.columns}>
                 {data.feature_columns.map((column) => (
                   <li key={column}>
@@ -97,7 +87,7 @@ export function Upload({ info, picker, onChoose, onDrop, onDemo }: UploadProps) 
                 ))}
               </ul>
             </div>
-          )}
+          </Disclosure>
         </>
       )}
     </section>

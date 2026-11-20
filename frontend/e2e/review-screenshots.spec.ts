@@ -5,7 +5,13 @@
  * They land in test-results/review/ (gitignored), from synthetic data only.
  */
 import { expect, settled, test } from './fixtures';
-import { OVERVIEW_TABS, PAGES, PERFORMANCE_TABS, SIMULATOR_TABS } from './pages';
+import {
+  EXPLAINABILITY_TABS,
+  OVERVIEW_TABS,
+  PAGES,
+  PERFORMANCE_TABS,
+  SIMULATOR_TABS,
+} from './pages';
 
 test.skip(!process.env['E2E_SCREENSHOTS'], 'set E2E_SCREENSHOTS=1 to take review screenshots');
 
@@ -17,6 +23,7 @@ for (const width of [375, 1440]) {
       ...OVERVIEW_TABS,
       ...PERFORMANCE_TABS,
       ...SIMULATOR_TABS,
+      ...EXPLAINABILITY_TABS,
     ]) {
       await page.goto(address);
       await settled(page);

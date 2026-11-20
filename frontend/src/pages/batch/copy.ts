@@ -15,6 +15,24 @@ type Limits = NonNullable<ModelInfo['limits']>;
 export const LEDE =
   'Checked against the same contract as POST /predict/batch, then every row is scored by the served model. One refused value and nothing is scored; the file is not stored. The service has no authentication: never upload real or personally identifiable customer data.';
 
+/** Said beside the upload: the file leaves the browser for this app's API. */
+export const SENT_TO_SERVER = {
+  title: 'Scoring sends the file to this app’s server.',
+  body: 'Score file uploads it to the API (POST /api/batch/score), which checks every row against the served contract and scores it there; the file is not stored. The limits above are checked again by the server, which has the last word.',
+} as const;
+
+/** What a scored file gives back, before one is scored: no figure, only what comes. */
+export const WHAT_YOU_GET = {
+  title: 'What you get back',
+  items: [
+    'Each row’s served churn probability, risk band and flag at the served threshold.',
+    'Summary figures for the whole file, computed by the API.',
+    'A scored CSV built by the server: every row in the file’s order with its position, never a label.',
+    'Precision and recall on the file’s own labels, only when it has enough of them.',
+  ],
+  note: 'No attribution per row: the batch answer carries none, so this page shows none.',
+} as const;
+
 export const DEMO_NOTE = 'Synthetic customers from tests/fixtures, labels included.';
 
 export const ROWS_NOTE =
