@@ -24,7 +24,7 @@
  * on its way; the controls keep their place in the tab order and focus, say
  * they are unavailable, and do nothing until it arrives.
  */
-import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { cx } from '../../lib/style';
 import styles from './Fader.module.css';
 
@@ -47,6 +47,10 @@ interface FaderProps {
   tone?: 'cyan' | 'amber' | 'neutral';
   disabled?: boolean;
   loading?: boolean;
+  /** The value the page holds cannot be used (the caption says why): the range says so too. */
+  invalid?: boolean;
+  /** A unit ``format`` writes after each value ("%"): the typed field reads a value with it or without. */
+  unit?: string;
 }
 
 /** One value on the scale is "the same" as a typed number within this. */
@@ -56,9 +60,13 @@ const BIG_STEP = 10;
 /** Every value gets a minor tick when there are no more than this many. */
 const MAX_MINOR_TICKS = 30;
 
-/** The typed text as a number, a decimal comma read as a point; ``null`` if it is not one. */
-export function typedValue(text: string): number | null {
-  const trimmed = text.trim();
+/**
+ * The typed text as a number, a decimal comma read as a point and one trailing
+ * ``unit`` (as ``format`` writes it) dropped; ``null`` if it is not one.
+ */
+export function typedValue(text: string, unit = ''): number | null {
+  const whole = text.trim();
+  const trimmed = unit && whole.endsWith(unit) ? whole.slice(0, -unit.length).trim() : whole;
   const commas = trimmed.split(',').length - 1;
   if (commas > 1 || (commas === 1 && trimmed.includes('.'))) return null;
   const plain = trimmed.replace(',', '.');
@@ -74,8 +82,13 @@ export function positionOf(values: readonly number[], typed: number): number | n
 }
 
 /** Why a typed number was refused: the values on either side of it, or the scale's ends. */
-function refusal(values: readonly number[], text: string, format: (v: number) => string): string {
-  const typed = typedValue(text);
+function refusal(
+  values: readonly number[],
+  text: string,
+  format: (v: number) => string,
+  unit: string,
+): string {
+  const typed = typedValue(text, unit);
   const first = values[0];
   const last = values[values.length - 1];
   const ends =
@@ -113,6 +126,8 @@ export function Fader({
   tone = 'cyan',
   disabled = false,
   loading = false,
+  invalid = false,
+  unit = '',
 }: FaderProps) {
   const id = useId();
   const rangeId = `${id}-range`;
@@ -123,6 +138,8 @@ export function Fader({
   const gradientId = `fader${id.replace(/[^a-zA-Z0-9]/g, '')}`;
   const [draft, setDraft] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** A change fired during the press now under way. */
+  const moved = useRef(false);
 
   const count = values.length;
   const last = count - 1;
@@ -178,10 +195,10 @@ export function Fader({
 
   const commit = () => {
     if (draft === null || idle) return;
-    const typed = typedValue(draft);
+    const typed = typedValue(draft, unit);
     const position = typed === null ? null : positionOf(values, typed);
     if (position === null) {
-      setError(refusal(values, draft, format));
+      setError(refusal(values, draft, format, unit));
       return;
     }
     go(position);
@@ -208,6 +225,7 @@ export function Fader({
   };
 
   const majors = marks.filter((mark) => mark >= 0 && mark <= last);
+  const noteAtStart = defaultIndex !== undefined && last > 0 && defaultIndex / last >= 0.5;
   const minors = count <= MAX_MINOR_TICKS ? values.map((_, i) => i) : [];
   const showReset = defaultValue !== undefined && current !== defaultIndex && !off;
   const describedBy = caption ? captionId : undefined;
@@ -316,7 +334,28 @@ export function Fader({
               className={styles.major}
             />
           ))}
-          <rect x="0" y="15" width="100%" height="4" rx="2" className={styles.rail} />
+          <rect
+            x="0"
+            y="15"
+            width="100%"
+            height="4"
+            rx="2"
+            className={cx(styles.rail, current === null && styles.railEmpty)}
+          />
+          {/*
+            No value chosen: no thumb and no fill, so nothing reads as the first
+            value. The note sits at the end away from the default's tick.
+          */}
+          {current === null && count > 0 && (
+            <text
+              x={noteAtStart ? '0' : '100%'}
+              y="11"
+              textAnchor={noteAtStart ? 'start' : 'end'}
+              className={styles.emptyText}
+            >
+              no value chosen
+            </text>
+          )}
           {current !== null && (
             <rect
               x="0"
@@ -371,12 +410,29 @@ export function Fader({
           max={Math.max(0, last)}
           step={1}
           value={current ?? 0}
+          // The native range must hold a number; with none chosen its thumb is hidden.
+          data-empty={current === null || undefined}
           disabled={off}
           aria-disabled={waiting || undefined}
           aria-valuetext={value === undefined ? 'no value' : shown}
+          aria-invalid={invalid || undefined}
           aria-describedby={describedBy}
           onKeyDown={onRangeKey}
-          onChange={(event) => go(Number(event.target.value))}
+          onChange={(event) => {
+            moved.current = true;
+            go(Number(event.target.value));
+          }}
+          // With no value chosen the native range already sits at the first
+          // position, so a press there changes nothing and fires no change:
+          // a primary press (mouse, touch or pen) that moved nothing there chooses it.
+          onPointerDown={() => {
+            moved.current = false;
+          }}
+          onPointerUp={(event) => {
+            const primary = event.button === 0;
+            if (primary && current === null && !moved.current && event.currentTarget.value === '0')
+              go(0);
+          }}
         />
       </div>
       <div aria-live="polite" className={styles.message}>

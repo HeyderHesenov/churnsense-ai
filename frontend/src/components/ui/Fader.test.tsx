@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { cut } from '../../lib/format';
@@ -89,6 +89,21 @@ describe('typedValue', () => {
   );
 });
 
+describe('typedValue with a unit', () => {
+  it.each([
+    ['30%', 30],
+    [' 30 % ', 30],
+    ['30', 30],
+    ['12,5%', 12.5],
+  ])('reads %j as %s', (text, expected) => {
+    expect(typedValue(text, '%')).toBe(expected);
+  });
+
+  it.each(['%', '30%%', '%30', '30 %%', '3%0'])('refuses %j', (text) => {
+    expect(typedValue(text, '%')).toBeNull();
+  });
+});
+
 describe('positionOf', () => {
   it('finds a value only when it is one of the values', () => {
     expect(positionOf(CUTS, 0.36)).toBe(2);
@@ -109,6 +124,30 @@ describe('Fader: the range', () => {
     expect(range()).toHaveAttribute('step', '1');
     expect(range()).toHaveValue('2');
     expect(range()).toHaveAttribute('aria-valuetext', '0.36');
+  });
+
+  it('says the value held cannot be used only when told so', () => {
+    const { rerender } = render(
+      <Fader
+        label="Rate"
+        values={[1, 2]}
+        index={null}
+        onChange={() => undefined}
+        format={String}
+      />,
+    );
+    expect(screen.getByRole('slider', { name: 'Rate' })).not.toHaveAttribute('aria-invalid');
+    rerender(
+      <Fader
+        label="Rate"
+        values={[1, 2]}
+        index={null}
+        onChange={() => undefined}
+        format={String}
+        invalid
+      />,
+    );
+    expect(screen.getByRole('slider', { name: 'Rate' })).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('gives only values from the list when dragged to any position', () => {
@@ -459,6 +498,117 @@ describe('Fader: unavailable', () => {
     const { range, field } = setup({ start: null });
     expect(range()).toHaveAttribute('aria-valuetext', 'no value');
     expect(field()).toHaveValue('');
+  });
+
+  describe('with no value chosen', () => {
+    /** The drawn scale: the rail, the fill, the bubble and the empty note live in it. */
+    const scale = (range: HTMLElement) => {
+      const svg = range.parentElement?.querySelector('svg');
+      if (!svg) throw new Error('the scale');
+      return svg;
+    };
+
+    it('hides the thumb, draws no fill or bubble, and says no value is chosen', () => {
+      const { range } = setup({ start: null });
+      expect(range()).toHaveAttribute('data-empty', 'true');
+      const svg = scale(range());
+      expect(svg.querySelector('[fill^="url("]')).toBeNull();
+      expect(svg.querySelector('svg')).toBeNull();
+      expect(svg).toHaveTextContent('no value chosen');
+      // Nothing on the scale reads as the first value.
+      expect(svg).not.toHaveTextContent('0.12');
+    });
+
+    it('shows the thumb again once a value is chosen, and no empty note', async () => {
+      const { range, chosen } = setup({ start: null });
+      await keys(range(), '{End}');
+      expect(chosen).toEqual([0.61]);
+      expect(range()).not.toHaveAttribute('data-empty');
+      expect(scale(range())).not.toHaveTextContent('no value chosen');
+      expect(scale(range()).querySelector('[fill^="url("]')).not.toBeNull();
+    });
+
+    it('keeps the thumb wherever a value is held, loading or not', () => {
+      const { range } = setup({ start: 0 });
+      expect(range()).not.toHaveAttribute('data-empty');
+      cleanup();
+      const loading = setup({ start: 2, loading: true });
+      expect(loading.range()).not.toHaveAttribute('data-empty');
+      expect(loading.range()).toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('takes a press at the first position as choosing it, since it fires no change', () => {
+      const { range, chosen } = setup({ start: null });
+      fireEvent.pointerUp(range());
+      expect(chosen).toEqual([0.12]);
+      expect(range()).not.toHaveAttribute('data-empty');
+    });
+
+    it('takes no secondary press as a choice', () => {
+      const { range, chosen } = setup({ start: null });
+      fireEvent.pointerUp(range(), { button: 2 });
+      expect(chosen).toEqual([]);
+      expect(range()).toHaveAttribute('data-empty', 'true');
+    });
+
+    it('takes a press that moved the range as that value only, never also the first', () => {
+      const chosen: number[] = [];
+      // A page that has not taken the value yet: the range is held empty.
+      render(
+        <Fader
+          label="Decision threshold"
+          values={CUTS}
+          index={null}
+          format={cut}
+          onChange={(next) => chosen.push(CUTS[next] as number)}
+        />,
+      );
+      const range = screen.getByRole('slider', { name: 'Decision threshold' });
+      fireEvent.pointerDown(range);
+      fireEvent.change(range, { target: { value: '3' } });
+      fireEvent.pointerUp(range);
+      expect(chosen).toEqual([0.48]);
+    });
+
+    it('takes no press as a choice while a value is held, or while off or loading', () => {
+      const held = setup({ start: 2 });
+      fireEvent.pointerUp(held.range());
+      expect(held.chosen).toEqual([]);
+      cleanup();
+      for (const props of [{ disabled: true }, { loading: true }]) {
+        const { range, chosen } = setup({ start: null, ...props });
+        fireEvent.pointerUp(range());
+        expect(chosen).toEqual([]);
+        cleanup();
+      }
+    });
+
+    it('puts its note at the end away from the default’s tick', () => {
+      const note = (range: HTMLElement) =>
+        [...scale(range).querySelectorAll('text')].find((t) => t.textContent === 'no value chosen');
+      const early = setup({ start: null, defaultIndex: 1 });
+      expect(note(early.range())).toHaveAttribute('text-anchor', 'end');
+      cleanup();
+      const late = setup({ start: null, defaultIndex: 3 });
+      expect(note(late.range())).toHaveAttribute('text-anchor', 'start');
+      cleanup();
+      const none = setup({ start: null });
+      expect(note(none.range())).toHaveAttribute('text-anchor', 'end');
+    });
+
+    it('with no values at all stays disabled and empty, with no note to read as a value', () => {
+      const { range } = setup({ values: [], start: null });
+      expect(range()).toBeDisabled();
+      expect(range()).toHaveAttribute('data-empty', 'true');
+      expect(scale(range())).not.toHaveTextContent('no value chosen');
+    });
+
+    it('while loading with no values, stays off as before, and empty', () => {
+      const { range } = setup({ values: [], start: null, loading: true });
+      expect(range().closest('[aria-busy]')).toBeNull();
+      expect(range()).toBeDisabled();
+      expect(range()).toHaveAttribute('data-empty', 'true');
+    });
   });
 
   it.each([

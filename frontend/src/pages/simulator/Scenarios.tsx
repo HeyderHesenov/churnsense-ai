@@ -4,9 +4,10 @@
  * at its cut, so each row's figures are exactly a response's; nothing is
  * subtracted from anything. Only figures for the assumptions set can be
  * pinned, and Apply sets a pin's assumptions and cut again, for the API to
- * answer afresh. Pins live as long as the page.
+ * answer afresh. Pins live as long as the page: the page holds them
+ * (``usePins``), so a tab change keeps them, and nothing stores them anywhere.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, type Ref } from 'react';
 import { flushSync } from 'react-dom';
 import type { Sweep } from '../../api/queries';
 import { Button } from '../../components/ui/Button';
@@ -19,19 +20,25 @@ import styles from './Simulator.module.css';
 /** Four, as the artboard has it: more rows than that stop being a comparison. */
 const MAX_PINS = 4;
 
-interface ScenariosProps {
-  sweep: Sweep | undefined;
-  selected: Selection | null;
-  /** The figures shown are the response to the assumptions set. */
-  current: boolean;
-  onApply: (pin: Pin) => void;
+export type PinRow = Pin & { id: number };
+
+/** The page's pins: in memory, as long as the page is open. */
+export function usePins() {
+  const [pins, setPins] = useState<PinRow[]>([]);
+  const next = useRef(1);
+  return { pins, setPins, next };
 }
 
-export function Scenarios({ sweep, selected, current, onApply }: ScenariosProps) {
-  const [pins, setPins] = useState<(Pin & { id: number })[]>([]);
-  const next = useRef(1);
-  const pinButton = useRef<HTMLButtonElement>(null);
-  const removes = useRef(new Map<number, HTMLButtonElement>());
+export type Pins = ReturnType<typeof usePins>;
+
+/** What pinning now would keep, and whether it may: one rule for every pin button. */
+export function pinning(
+  store: Pins,
+  sweep: Sweep | undefined,
+  selected: Selection | null,
+  current: boolean,
+) {
+  const { pins } = store;
   const point = sweep && selected ? sweep.points[selected.index] : undefined;
   const candidate =
     sweep && selected && point
@@ -56,9 +63,60 @@ export function Scenarios({ sweep, selected, current, onApply }: ScenariosProps)
 
   const pin = () => {
     if (!canPin) return;
-    const id = next.current++;
-    setPins((all) => [...all, { ...candidate, id }]);
+    const id = store.next.current++;
+    store.setPins((all) => [...all, { ...candidate, id }]);
   };
+  return { candidate, canPin, why, pin, count: pins.length };
+}
+
+export type Pinning = ReturnType<typeof pinning>;
+
+interface PinButtonProps {
+  pinning: Pinning;
+  /** The id of the line saying why it cannot pin. */
+  whyId: string;
+  ref?: Ref<HTMLButtonElement>;
+}
+
+/** "Pin these figures (n/4)", and why not, when it cannot. */
+export function PinButton({ pinning: state, whyId, ref }: PinButtonProps) {
+  return (
+    <div className={styles.pinRow}>
+      <Button
+        ref={ref}
+        variant="sim"
+        size="md"
+        aria-disabled={!state.canPin}
+        aria-describedby={state.why ? whyId : undefined}
+        onClick={state.pin}
+      >
+        Pin these figures
+      </Button>
+      <span className={styles.pinCount}>
+        {state.count} of {MAX_PINS} pinned
+      </span>
+      {state.why && (
+        <p id={whyId} className={styles.pinWhy}>
+          {state.why}
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface ScenariosProps {
+  store: Pins;
+  pinning: Pinning;
+  /** The figures shown are the response to the assumptions set. */
+  current: boolean;
+  onApply: (pin: Pin) => void;
+}
+
+export function Scenarios({ store, pinning: state, current, onApply }: ScenariosProps) {
+  const { pins, setPins } = store;
+  const { candidate } = state;
+  const pinButton = useRef<HTMLButtonElement>(null);
+  const removes = useRef(new Map<number, HTMLButtonElement>());
   const remove = (id: number) => {
     const at = pins.findIndex((p) => p.id === id);
     const rest = pins.filter((p) => p.id !== id);
@@ -72,26 +130,10 @@ export function Scenarios({ sweep, selected, current, onApply }: ScenariosProps)
       <div className={styles.scenariosHead}>
         <CardHeader
           id="scenarios-title"
-          title="Compare scenarios"
+          title="Pinned scenarios"
           subtitle="Pin up to four responses and set any of them again. Each row is a response as the API gave it."
-          aside={
-            <Button
-              ref={pinButton}
-              variant="sim"
-              size="md"
-              aria-disabled={!canPin}
-              aria-describedby={why ? 'pin-why' : undefined}
-              onClick={pin}
-            >
-              Pin these figures
-            </Button>
-          }
         />
-        {why && (
-          <p id="pin-why" className={styles.pinWhy}>
-            {why}
-          </p>
-        )}
+        <PinButton pinning={state} whyId="pin-why" ref={pinButton} />
       </div>
       {pins.length === 0 ? (
         <p className={styles.emptyPins}>

@@ -11,6 +11,11 @@ import {
   SIMULATOR_PARAMS,
   statusOf,
   textsOf,
+  changesOf,
+  percentIndex,
+  percentSteps,
+  pointed,
+  pointIndex,
   typedNumber,
   type State,
 } from './simulator';
@@ -32,12 +37,18 @@ describe('reading a typed assumption', () => {
     ['0', 0],
     ['10000', 10_000],
     ['12.340', 12.34],
+    ['12,5', 12.5],
+    ['12,50', 12.5],
+    [',5', 0.5],
+    ['12,', 12],
   ])('reads the cost %s as %d', (text, value) => {
     expect(readField(text, BOUNDS.retention_offer_cost, 2)).toEqual({ value, problem: null });
   });
 
   it.each([
-    ['12,50', { reason: 'format' }],
+    ['1,234.5', { reason: 'format' }],
+    ['1,2,3', { reason: 'format' }],
+    ['12,505', { reason: 'step' }],
     ['1e3', { reason: 'format' }],
     ['$50', { reason: 'format' }],
     ['', { reason: 'required' }],
@@ -256,5 +267,65 @@ describe('what a number box keeps of what is typed', () => {
     expect(readField(kept, BOUNDS.retention_offer_cost, 2).problem).toEqual({ reason: 'long' });
     // The address holds what the box keeps, so the box never falls back to the default.
     expect(SIMULATOR_PARAMS.cost.parse([kept])).toBe(kept);
+  });
+});
+
+describe('a decimal comma', () => {
+  it.each([
+    ['12,50', '12.50'],
+    [',5', '.5'],
+    ['12,', '12.'],
+    ['12.50', '12.50'],
+    ['1,234.5', '1,234.5'],
+    ['1,2,3', '1,2,3'],
+    ['', ''],
+  ])('reads %j as %j', (text, expected) => {
+    expect(pointed(text)).toBe(expected);
+  });
+});
+
+describe('a rate fader', () => {
+  it('offers the whole percents inside the served bounds, and no other', () => {
+    expect(percentSteps({ min: 0.07, max: 0.57, integer: false })).toEqual(
+      Array.from({ length: 51 }, (_, i) => i + 7),
+    );
+    expect(percentSteps({ min: 0.141, max: 0.149, integer: false })).toEqual([]);
+  });
+
+  it('places a rate only where it is one of them, never at the nearest', () => {
+    const steps = percentSteps({ min: 0.1, max: 0.9, integer: false });
+    expect(percentIndex(steps, '0.3')).toBe(20);
+    expect(percentIndex(steps, '0,3')).toBe(20);
+    expect(percentIndex(steps, '0.57')).toBe(47);
+    expect(percentIndex(steps, '0.295')).toBeNull();
+    expect(percentIndex(steps, '0.05')).toBeNull();
+    expect(percentIndex(steps, '')).toBeNull();
+    expect(percentIndex(steps, 'abc')).toBeNull();
+  });
+});
+
+describe('the changes from the defaults', () => {
+  it('lists each field set away from its default, and each that cannot be sent', () => {
+    const scenario = scenarioOf({ ...NOTHING_SET, cost: '80', margin: '0.955' }, BOUNDS, DEFAULTS);
+    expect(
+      changesOf(scenario, DEFAULTS).map((change) => [
+        change.spec.key,
+        change.value,
+        change.fallback,
+      ]),
+    ).toEqual([
+      ['cost', 80, DEFAULTS.retention_offer_cost],
+      ['margin', null, DEFAULTS.gross_margin],
+    ]);
+    expect(changesOf(scenarioOf(NOTHING_SET, BOUNDS, DEFAULTS), DEFAULTS)).toEqual([]);
+  });
+});
+
+describe('a point of the sweep by its cut', () => {
+  it('is found by its label, an inexact grid value included, or not at all', () => {
+    const points = sweepFor(DEFAULTS).points;
+    expect(pointIndex(points, 0.35)).toBe(35);
+    expect(pointIndex(points, 0.1 + 0.25)).toBe(35);
+    expect(pointIndex(points, 1.5)).toBe(-1);
   });
 });

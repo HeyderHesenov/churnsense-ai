@@ -1,4 +1,9 @@
-/* The retention simulator, with Simulator.dc.html's measurements: assumptions in amber on the left, results on the right. */
+/*
+ * The retention simulator (design v4 §7.6): a scenario workspace of controls,
+ * overview and results & impact. Simulated values are amber; measured ones
+ * keep the ink. Layout follows the workspace's own width (a container), not
+ * the window's, so the sidebar's state never squeezes it.
+ */
 
 .simNote {
   display: flex;
@@ -25,25 +30,62 @@
 }
 
 /* --- layout ------------------------------------------------------------------ */
-.layout {
+.stack {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/*
+ * Phone and tablet: controls, then the results, then the advanced controls,
+ * then the overview and its charts. Wider: controls beside the results, the
+ * overview under both. Widest: three columns.
+ */
+.workspaceFrame {
+  container-type: inline-size;
+}
+.workspace {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: 'primary' 'results' 'advanced' 'overview';
   gap: 16px;
   align-items: start;
 }
-.controls,
-.output {
+.areaPrimary,
+.areaAdvanced,
+.areaOverview,
+.areaResults {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-@media (min-width: 1024px) {
-  .layout {
-    grid-template-columns: minmax(280px, 330px) minmax(0, 1fr);
+.areaPrimary {
+  grid-area: primary;
+}
+.areaAdvanced {
+  grid-area: advanced;
+}
+.areaOverview {
+  grid-area: overview;
+}
+.areaResults {
+  grid-area: results;
+}
+@container (min-width: 700px) {
+  .workspace {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+    /* The second row takes what the results leave, so the advanced card sits under the controls. */
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas: 'primary results' 'advanced results' 'overview overview';
   }
-  .controls {
-    position: sticky;
-    top: 16px;
+}
+@container (min-width: 1080px) {
+  .workspace {
+    grid-template-columns: minmax(270px, 310px) minmax(0, 1fr) minmax(300px, 340px);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: 'primary overview results' 'advanced overview results';
   }
 }
 
@@ -71,10 +113,6 @@
   font-size: 15px;
   color: var(--sim-text);
 }
-.cutValue {
-  font-family: var(--font-mono);
-  font-size: 18px;
-}
 .inputRow {
   display: flex;
   align-items: center;
@@ -99,15 +137,9 @@
   font-size: 12.5px;
   color: var(--muted);
 }
-.slider {
-  width: 100%;
-  margin: 4px 0;
-  accent-color: var(--sim);
-}
 .bounds,
 .caveat,
 .problem,
-.tip,
 .followNote {
   margin: 0;
   font-size: 11.5px;
@@ -173,8 +205,9 @@
   background: var(--surface);
 }
 /* Figures for other assumptions: dimmed under the line that names them. */
-.stale .groups,
+.stale .group,
 .stale .recommended,
+.stale table,
 .stale figure,
 .stale .readingText,
 .stale .rates,
@@ -242,11 +275,6 @@
   margin: 0;
   font-size: 13px;
   color: var(--ink-2);
-}
-.groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
 }
 .group {
   min-width: 0;
@@ -342,7 +370,22 @@
 
 /* --- charts -------------------------------------------------------------------- */
 .chartCard {
+  container-type: inline-size;
   gap: 10px;
+}
+/*
+ * The charts draw on a 760-wide box scaled to the card: in a narrow card the
+ * axis labels are set larger in that box, so they stay legible on screen.
+ */
+@container (max-width: 560px) {
+  .chartCard .tick {
+    font-size: 17px;
+  }
+}
+@container (max-width: 400px) {
+  .chartCard .tick {
+    font-size: 22px;
+  }
 }
 .subTitle {
   margin: 8px 0 0;
@@ -407,24 +450,51 @@
   font-size: 11px;
   fill: var(--muted);
 }
-.yTick {
-  position: absolute;
-  left: calc(54 / 760 * 100%);
-  top: calc(var(--y) * 100%);
-  transform: translate(-100%, -50%);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  pointer-events: none;
-}
 .capture {
   position: absolute;
+  /* The net plot: x from 60 to 744 of 760, y from 14 to 232 of 262 (SweepCharts). */
   left: calc(60 / 760 * 100%);
-  top: calc(var(--top) * 100%);
+  top: calc(14 / 262 * 100%);
   width: calc(684 / 760 * 100%);
-  height: calc(var(--h) * 100%);
+  height: calc(218 / 262 * 100%);
   cursor: crosshair;
+}
+.hoverTip {
+  position: absolute;
+  /* The top corners of the net plot (see .capture): left by default, right with .hoverTipEnd. */
+  top: calc(14 / 262 * 100% + 6px);
+  left: calc(60 / 760 * 100% + 6px);
+  z-index: 10;
+  width: max-content;
+  max-width: min(260px, 70%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--radius-8);
+  background: var(--ink);
+  box-shadow: var(--shadow-tip);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.hoverTipEnd {
+  left: auto;
+  right: calc(16 / 760 * 100% + 6px);
+}
+.hoverTip[data-visible='true'] {
+  opacity: 1;
+}
+.hoverTipTitle,
+.hoverTipLine {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--on-light-2);
+}
+.hoverTipTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-light);
 }
 .legendItem {
   display: inline-flex;
@@ -550,6 +620,12 @@
 }
 .tableWrap {
   overflow-x: auto;
+  border-radius: var(--radius-8);
+}
+/* Focusable, so a table wider than a phone can be scrolled from the keyboard. */
+.tableWrap:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 .pins {
   width: 100%;
@@ -586,4 +662,236 @@
   justify-content: flex-end;
   gap: 6px;
   padding-right: 20px;
+}
+
+/* --- controls ------------------------------------------------------------------ */
+.cutBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line-soft);
+}
+.readout {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+.faderField {
+  min-width: 0;
+}
+.boundsInline {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+/*
+ * The rate's problem gets a line of its own under the bounds note, as a typed
+ * box's problem does (.problem), so its "!" never runs on from the default.
+ */
+.problemInline {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--critical-ink);
+}
+.problemInline::before {
+  content: '! ';
+  font-weight: 700;
+}
+.advanced {
+  padding: 0;
+}
+.advancedBox {
+  padding: 14px 18px;
+}
+.advancedBox > div {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-top: 14px;
+}
+.advancedSummary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.advancedName {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.advancedValues {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.needsFix {
+  font-size: 11.5px;
+  color: var(--critical-ink);
+}
+.needsFix::before {
+  content: '! ';
+  font-weight: 700;
+}
+
+/* --- overview ------------------------------------------------------------------ */
+.atDefaults {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.change {
+  padding: 5px 10px;
+  border: 1px solid var(--sim-line);
+  border-radius: var(--radius-9);
+  background: var(--sim-soft);
+  font-size: 12.5px;
+  color: var(--sim-text);
+}
+.change[data-problem] {
+  border-color: var(--critical-line);
+  background: none;
+  color: var(--critical-ink);
+}
+
+/* --- results & impact ---------------------------------------------------------- */
+.resultsEyebrow {
+  margin: 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.groupHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.pinRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.pinRow .pinWhy {
+  flex-basis: 100%;
+}
+.pinCount {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* --- compare ------------------------------------------------------------------- */
+.threeCuts,
+.boundsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.threeCuts th,
+.threeCuts td,
+.boundsTable th,
+.boundsTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-row);
+  text-align: right;
+  white-space: nowrap;
+}
+.threeCuts td,
+.boundsTable td {
+  font-family: var(--font-mono);
+}
+.threeCuts th[scope='row'],
+.boundsTable th[scope='row'] {
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+.threeCuts thead th,
+.boundsTable thead th {
+  border-bottom-color: var(--line);
+  font-weight: 400;
+  color: var(--muted);
+  vertical-align: bottom;
+}
+.boundsTable thead th:first-child {
+  text-align: left;
+}
+/* On a phone every column stays in view: tighter cells, and names and ranges wrap. */
+@container (max-width: 520px) {
+  .threeCuts,
+  .boundsTable {
+    font-size: 11.5px;
+  }
+  .threeCuts th,
+  .threeCuts td,
+  .boundsTable th,
+  .boundsTable td {
+    padding: 7px 4px;
+  }
+  .threeCuts th[scope='row'],
+  .boundsTable th,
+  .boundsTable td {
+    white-space: normal;
+  }
+  .columnCut {
+    font-size: 13px;
+  }
+}
+.columnName {
+  display: block;
+  font-size: 11.5px;
+}
+.columnCut {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--ink);
+}
+.notPoint {
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  white-space: normal;
+  color: var(--muted);
+}
+.compareNote,
+.methodText {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+/* --- method -------------------------------------------------------------------- */
+.methodGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+@container (min-width: 700px) {
+  .methodGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.methodWide {
+  grid-column: 1 / -1;
+}
+.methodCut {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
 }

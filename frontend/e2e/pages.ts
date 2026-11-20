@@ -45,3 +45,12 @@ export const PERFORMANCE_TABS = [
   { path: '/performance?tab=errors&part=test', label: 'Performance errors test' },
   { path: '/performance?tab=calibration', label: 'Performance calibration' },
 ] as const;
+
+/**
+ * The simulator's tabs other than Simulate (src/pages/simulator/tabs.ts), each
+ * at its own address: checked like a page.
+ */
+export const SIMULATOR_TABS = [
+  { path: '/simulator?tab=compare', label: 'Simulator compare' },
+  { path: '/simulator?tab=method', label: 'Simulator method' },
+] as const;

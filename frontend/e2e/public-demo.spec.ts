@@ -290,6 +290,23 @@ test('the sweep is published only at cuts with twenty churners and twenty stayer
   expect(performance.calibration.uncalibrated).toBeNull();
 });
 
+test('the simulator’s cut fader offers the published cuts, and only those', async ({ page }) => {
+  const served = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/threshold/sweep');
+  await page.goto('/simulator');
+  const sweep = (await (await served).json()) as components['schemas']['SweepResponse'];
+  await settled(page);
+  const slider = page.getByRole('slider', { name: 'Decision threshold' });
+  await expect(slider).toHaveAttribute('max', String(sweep.points.length - 1));
+  await slider.focus();
+  await page.keyboard.press('Home');
+  const seen: string[] = [];
+  for (let i = 0; i < sweep.points.length; i += 1) {
+    seen.push((await slider.getAttribute('aria-valuetext')) ?? '');
+    await page.keyboard.press('ArrowRight');
+  }
+  expect(seen).toEqual(sweep.points.map((point) => point.threshold.toFixed(2)));
+});
+
 /** WCAG 2.2 level A and AA, and the earlier versions' rules it includes. */
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 

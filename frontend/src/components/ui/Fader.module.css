@@ -289,6 +289,32 @@
     var(--shadow-thumb);
 }
 
+/*
+ * No value chosen: the native range still sits at its first position, so its
+ * thumb is hidden and the rail is drawn empty, never as the first value. The
+ * focus ring goes round the track instead of the hidden thumb.
+ */
+.railEmpty {
+  fill: transparent;
+  stroke-dasharray: 4 3;
+}
+.emptyText {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.range[data-empty='true']::-webkit-slider-thumb {
+  opacity: 0;
+}
+.range[data-empty='true']::-moz-range-thumb {
+  opacity: 0;
+}
+.range[data-empty='true']:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: var(--radius-6);
+}
+
 /* Always in the page, so a message added to it is announced; empty, it takes no room. */
 .message:empty {
   margin-top: -6px;

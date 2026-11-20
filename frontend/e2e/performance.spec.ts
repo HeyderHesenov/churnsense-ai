@@ -7,6 +7,7 @@
 import type { Page } from '@playwright/test';
 import type { components } from '../src/api/schema';
 import { expect, settled, test } from './fixtures';
+import { thumbPixels } from './thumb';
 
 type Performance = components['schemas']['PerformanceResponse'];
 
@@ -134,4 +135,13 @@ test('the tabs move with the keyboard and Back, and ask the server nothing more'
   await expect(page).toHaveURL((url) => url.searchParams.get('tab') === 'errors');
   await settled(page);
   expect(asked).toBe(1);
+});
+
+test('the explored cut keeps its thumb: a fader with a value is drawn as before', async ({
+  page,
+}) => {
+  await open(page, '/performance?tab=errors');
+  const slider = page.getByRole('slider', { name: 'Explored cut' });
+  await expect(slider).not.toHaveAttribute('data-empty');
+  expect(await thumbPixels(page, slider)).toBeGreaterThan(50);
 });
