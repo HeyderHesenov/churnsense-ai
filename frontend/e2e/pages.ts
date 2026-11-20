@@ -33,3 +33,15 @@ export const OVERVIEW_TABS = [
   { path: '/?tab=associations', label: 'Overview associations' },
   { path: '/?tab=queue', label: 'Overview retention queue' },
 ] as const;
+
+/**
+ * The performance page's tabs other than the summary, and its test partition
+ * (src/pages/performance/tabs.ts), each at its own address: checked like a page.
+ */
+export const PERFORMANCE_TABS = [
+  { path: '/performance?part=test', label: 'Performance summary test' },
+  { path: '/performance?tab=choice', label: 'Performance model choice' },
+  { path: '/performance?tab=errors', label: 'Performance errors validation' },
+  { path: '/performance?tab=errors&part=test', label: 'Performance errors test' },
+  { path: '/performance?tab=calibration', label: 'Performance calibration' },
+] as const;

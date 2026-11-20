@@ -5,14 +5,14 @@
  * They land in test-results/review/ (gitignored), from synthetic data only.
  */
 import { expect, settled, test } from './fixtures';
-import { OVERVIEW_TABS, PAGES } from './pages';
+import { OVERVIEW_TABS, PAGES, PERFORMANCE_TABS } from './pages';
 
 test.skip(!process.env['E2E_SCREENSHOTS'], 'set E2E_SCREENSHOTS=1 to take review screenshots');
 
 for (const width of [375, 1440]) {
   test(`every page at ${String(width)} px, for review`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    for (const { path: address, label } of [...PAGES, ...OVERVIEW_TABS]) {
+    for (const { path: address, label } of [...PAGES, ...OVERVIEW_TABS, ...PERFORMANCE_TABS]) {
       await page.goto(address);
       await settled(page);
       // The queue's attributions arrive after its rows: shown as a reader sees them, settled.

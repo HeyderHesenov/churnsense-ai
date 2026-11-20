@@ -42,8 +42,8 @@ export function evaluatedOn(iso: string): string {
   return iso.slice(0, 10);
 }
 
-/** Beside a test figure that does not exist: not a dash that might mean "not computed yet". */
-export const NOT_PUBLISHED = 'not published for test';
+/** The note over a page that shows a recorded test evaluation. */
+export const REUSED_HOLDOUT = 'A re-used holdout, not an untouched one.';
 
 export function withheld(reason: string): string {
   return `Validation outcomes are withheld: ${reason}`;
@@ -62,58 +62,100 @@ export const MISMATCH =
 
 export const FAILED = 'The model’s evaluation could not be loaded, so nothing can be shown yet.';
 
-// --- the scorecard ----------------------------------------------------------------
+// --- the partitions and their tiles ------------------------------------------------
 
-export const SCORE_GROUPS = {
-  ranking: 'Ranking · threshold-free',
-  cut: 'At the cut',
-  probabilities: 'Probabilities',
-  context: 'Context',
-} as const;
+export const PARTITION_NAMES = { validation: 'Validation', test: 'Test' } as const;
 
-export const SCORE_NOTE =
-  'Ranking metrics do not depend on the cut; the figures at the cut do. Churn is the positive class throughout. Accuracy is listed last: with most customers staying, flagging nobody already scores high.';
+export const VALIDATION_NOTE =
+  'Measured live on the validation customers, which set the cut and decided calibration, so these figures are somewhat optimistic. Ranking and probability figures do not depend on the cut. Churn is the positive class throughout.';
+
+export const TEST_NOTE =
+  'The recorded test release at its one cut: the two-by-two table and the rates it gives. Accuracy is listed last: it counts every customer left alone who stayed as right.';
+
+export const NO_TEST = 'No test figures shown';
 
 export function churnersFlagged(tp: number, positives: number): string {
   return `${int(tp)} of ${int(positives)} churners flagged`;
 }
 
-export function flaggedChurned(tp: number, flagged: number): string {
-  return `${int(tp)} of ${int(flagged)} flagged churned`;
-}
-
-export function noSkill(rate: number): string {
-  return `flagging at random scores ${score(rate)}`;
-}
-
-export function nobody(accuracy: number): string {
-  return `flagging nobody scores ${score(accuracy)}`;
+/** Who the flagged turned out to be, from the two cells, never their sum. */
+export function flaggedOutcomes(tp: number, fp: number): string {
+  return `of the flagged, ${int(tp)} churned and ${int(fp)} stayed`;
 }
 
 export const TEST_SCOPE =
-  "Test customers are listed with their flags and scores, so a figure about any group of them is read against known people. The test column holds the partition's own table only: no segment, bin, calibration error or second cut is published for it. A score metric reads “—” when the scores tie too much to publish it.";
+  "Test customers are listed with their flags and scores, so a figure about any group of them is read against known people. The test record holds the partition's own table only: no ranking score, segment, bin, calibration error or second cut is published for it.";
+
+// --- the test record, one square per customer ----------------------------------------
+
+/** What each outcome is called on the waffle, the cards and the matrix. */
+export const OUTCOME_NAMES = {
+  tp: { short: 'caught', long: 'flagged, churned' },
+  fn: { short: 'missed', long: 'not flagged, churned' },
+  fp: { short: 'offers to stayers', long: 'flagged, stayed' },
+  tn: { short: 'left alone', long: 'not flagged, stayed' },
+} as const;
+
+export const WAFFLE_MISMATCH =
+  "The record's four cells do not add up to its customers, so no square-per-customer picture is drawn.";
+
+export function waffleSubtitle(n: number, threshold: number): string {
+  return `Each square is one of the ${int(n)} test customers, by what the cut ${cut(threshold)} did.`;
+}
+
+export function waffleLabel(
+  counts: { tp: number; fn: number; fp: number; tn: number },
+  threshold: number,
+): string {
+  return (
+    `Test customers at the cut ${cut(threshold)}, one square each: ` +
+    `${int(counts.tp)} caught, ${int(counts.fn)} missed, ` +
+    `${int(counts.fp)} offers to stayers, ${int(counts.tn)} left alone.`
+  );
+}
+
+/** The three plain-language cards: raw counts of the record, no ratio or rescaling. */
+export function plainCaught(tp: number, positives: number): string {
+  return `Of the ${int(positives)} test customers who churned, ${int(tp)} were flagged.`;
+}
+
+export function plainOffers(tp: number, fp: number): string {
+  return `Among the customers flagged, ${int(tp)} churned and ${int(fp)} stayed.`;
+}
+
+export function plainMissed(fn: number, threshold: number): string {
+  return `${int(fn)} test customers who churned scored below the cut ${cut(threshold)} and were not flagged.`;
+}
 
 // --- errors at a cut --------------------------------------------------------------
-
-export const CELLS = {
-  tn: 'not flagged, stayed',
-  fp: 'flagged, stayed',
-  fn: 'not flagged, churned',
-  tp: 'flagged, churned',
-} as const;
 
 export function offerCost(cost: number, currency: string): string {
   return `${money(cost, currency)} each if offered, assumed`;
 }
 
-export function errorsAt(threshold: number, flagged: number, fp: number, fn: number): string {
-  return `At ${cut(threshold)}: ${int(flagged)} flagged; ${int(fp)} of them stayed, ${int(fn)} churners not flagged.`;
+/** The explored validation cut in one line: the sweep point's own figures. */
+export function readoutAt(
+  threshold: number,
+  flagged: number,
+  precision: string,
+  recall: string,
+  f1: string,
+): string {
+  return `At ${cut(threshold)}: ${int(flagged)} flagged · precision ${precision} · recall ${recall} · F1 ${f1}.`;
 }
+
+/** The test record's table in one line, cell by cell. */
+export function recordAt(threshold: number, tp: number, fn: number, fp: number): string {
+  return `At ${cut(threshold)}: ${int(tp)} churners caught, ${int(fn)} missed; ${int(fp)} offers to stayers.`;
+}
+
+export const ONE_CUT =
+  'The test release is recorded at one cut only: no other cut, curve or ranking score of it is published.';
 
 export const NOT_OPTIMAL = 'One cut under one set of assumptions, not a universal optimum.';
 
 export const PR_HINT =
-  'Hover to read a cut; a click loads it into the errors card, whose slider is the keyboard way to move the cut.';
+  'Hover to read a cut; a click loads it into the fader, the keyboard way to move the cut.';
 
 export function prLabel(
   shipped: Cut | undefined,
@@ -220,8 +262,12 @@ export const CANDIDATES_NOTE =
 
 // --- segments ---------------------------------------------------------------------
 
+export function segmentsTitle(threshold: number): string {
+  return `Performance by segment at ${cut(threshold)}`;
+}
+
 export function segmentsSubtitle(threshold: number): string {
-  return `Does an aggregate recall hide a segment the model never flags? Customers at the cut ${cut(threshold)}.`;
+  return `Does an aggregate recall hide a segment the model never flags? Validation customers at the cut ${cut(threshold)}.`;
 }
 
 export const UNSCANNED =

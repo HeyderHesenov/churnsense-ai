@@ -10,7 +10,7 @@ import type { Performance } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { Card, CardHeader, Tag } from '../../components/ui/Surface';
 import { modelName } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { CANDIDATES_NOTE, cutoffCaption, cv, selectionNote, selectionSubtitle } from './copy';
 import { charted, selectionScale } from './performance';
 import styles from './Performance.module.css';
@@ -32,6 +32,8 @@ export function Selection({ figures }: { figures: Performance }) {
   const shown = charted(candidates);
   const scale = selectionScale(shown, selection.cutoff);
   const ticks = scale.ticks(4);
+  /** A score's place along the plot, as a share of its width (SVG takes a percentage). */
+  const at = (value: number) => `${(scale(value) * 100).toFixed(2)}%`;
   const leader = candidates.find((c) => c.model === selection.leader_name);
   const chosen = candidates.find((c) => c.selected);
   const marks = (model: string) =>
@@ -70,43 +72,60 @@ export function Selection({ figures }: { figures: Performance }) {
               <span className={cx(styles.whiskerName, c.selected && styles.chosenName)}>
                 {modelName(c.model)} <span className={styles.mono}>{cv(c.cv_pr_auc)}</span>
               </span>
-              <span className={styles.whiskerPlot}>
-                <span
-                  className={cx(styles.whisker, c.selected && styles.chosenWhisker)}
-                  style={cssVars({
-                    '--lo': scale(c.cv_pr_auc - c.cv_se),
-                    '--hi': scale(c.cv_pr_auc + c.cv_se),
-                  })}
+              <svg className={styles.whiskerPlot} aria-hidden="true">
+                <line
+                  className={styles.cutoffLine}
+                  x1={at(selection.cutoff)}
+                  x2={at(selection.cutoff)}
+                  y1="0"
+                  y2="100%"
                 />
-                <span
+                <line
+                  className={cx(styles.whisker, c.selected && styles.chosenWhisker)}
+                  x1={at(c.cv_pr_auc - c.cv_se)}
+                  x2={at(c.cv_pr_auc + c.cv_se)}
+                  y1="28"
+                  y2="28"
+                />
+                {[c.cv_pr_auc - c.cv_se, c.cv_pr_auc + c.cv_se].map((end, i) => (
+                  <line
+                    key={i}
+                    className={cx(styles.whisker, c.selected && styles.chosenWhisker)}
+                    x1={at(end)}
+                    x2={at(end)}
+                    y1="22"
+                    y2="34"
+                  />
+                ))}
+                <circle
                   className={cx(styles.dot, c.selected && styles.chosenDot)}
-                  style={cssVars({ '--at': scale(c.cv_pr_auc) })}
+                  cx={at(c.cv_pr_auc)}
+                  cy="28"
+                  r={c.selected ? 7 : 6}
                 />
                 {marks(c.model) && (
-                  <span
+                  <text
                     className={styles.whiskerMark}
-                    style={cssVars({ '--at': scale(c.cv_pr_auc) })}
+                    x={at(c.cv_pr_auc)}
+                    y="12"
+                    textAnchor="middle"
                   >
                     {marks(c.model)}
-                  </span>
+                  </text>
                 )}
-              </span>
+              </svg>
             </div>
           ))}
           <div className={styles.whiskerRow}>
             <span />
-            <span className={styles.whiskerAxis}>
+            <svg className={styles.whiskerAxis} aria-hidden="true">
               {ticks.map((t) => (
-                <span key={t} className={styles.whiskerTick} style={cssVars({ '--at': scale(t) })}>
+                <text key={t} className={styles.whiskerTick} x={at(t)} y="14" textAnchor="middle">
                   {t.toFixed(3)}
-                </span>
+                </text>
               ))}
-            </span>
+            </svg>
           </div>
-          <span
-            className={styles.cutoffLine}
-            style={cssVars({ '--at': scale(selection.cutoff) })}
-          />
         </div>
       </ChartFrame>
       <p className={styles.cutoffCaption}>{cutoffCaption(selection, leader)}</p>

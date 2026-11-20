@@ -239,7 +239,7 @@ describe('Performance and the simulator, as a public demo', () => {
   it('performance says where its figures come from', async () => {
     server.use(syntheticInfo(), performanceApi());
     renderAt(<App />, '/performance');
-    await screen.findByRole('table', { name: 'Metrics by partition' });
+    await screen.findByRole('tablist', { name: 'Performance sections' });
     await expectNote({ evidence: true });
   });
 
@@ -282,10 +282,18 @@ describe('A public demo that publishes no validation sweep', () => {
         performance({ validation: null, validation_evaluation: null, withheld_reason: null }),
       ),
     );
-    renderAt(<App />, '/performance');
-    await screen.findByRole('table', { name: 'Metrics by partition' });
-    expect((await screen.findAllByText(NOTE)).length).toBeGreaterThanOrEqual(3);
-    expect(screen.queryByText(/not available for the served model/)).not.toBeInTheDocument();
+    // Each tab says it wherever a validation figure would be.
+    for (const [tab, places] of [
+      ['summary', 1],
+      ['errors', 2],
+      ['calibration', 2],
+    ] as const) {
+      const shown = renderAt(<App />, `/performance?tab=${tab}`);
+      await screen.findByRole('tablist', { name: 'Performance sections' });
+      expect(await screen.findAllByText(NOTE)).toHaveLength(places);
+      expect(screen.queryByText(/not available for the served model/)).not.toBeInTheDocument();
+      shown.unmount();
+    }
   });
 });
 
