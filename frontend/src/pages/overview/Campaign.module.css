@@ -1,5 +1,10 @@
 .card {
   flex: 1 1 300px;
+  background: linear-gradient(180deg, var(--sim-soft), transparent 65%), var(--surface);
+}
+.compact .open {
+  align-self: stretch;
+  justify-content: center;
 }
 .label {
   font-size: 12.5px;
@@ -81,4 +86,7 @@
 .open {
   margin-top: auto;
   align-self: flex-start;
+}
+.compact .net {
+  font-size: 28px;
 }

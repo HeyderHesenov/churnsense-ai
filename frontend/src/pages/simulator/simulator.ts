@@ -74,12 +74,22 @@ export type Reading = { value: number; problem: null } | { value: null; problem:
 /**
  * What a number box keeps of what is typed: all of it but spaces, so the
  * address can read it back. Nothing is turned into another number ("12,50"
- * stays "12,50", for ``readField`` to refuse); only the true minus the page
- * writes negatives with is read as a minus. Only a paste far longer than
+ * stays as typed in the box; ``readField`` reads its comma as the point, and
+ * the address is given the point); only the true minus the page writes
+ * negatives with is read as a minus. Only a paste far longer than
  * any number is cut, to ``KEPT_TEXT``, and what is left is still refused.
  */
 export function typedNumber(raw: string): string {
   return raw.replace(/\s+/g, '').replace(/^−/, '-').slice(0, KEPT_TEXT);
+}
+
+/**
+ * A decimal comma read as the point: "12,50" is 12.50. Only one comma, and
+ * only with no point beside it; "1,234.5" and "1,2,3" stay as written, to be
+ * refused, never read as some other number.
+ */
+export function pointed(text: string): string {
+  return /^[^,.]*,[^,.]*$/.test(text) ? text.replace(',', '.') : text;
 }
 
 /** At least one digit, at most one point, a minus in front. */
@@ -96,10 +106,11 @@ function places(text: string): number {
  * is how precisely the field is shown: a money's minor unit, or 2 for a rate
  * (whole percents).
  */
-export function readField(text: string, range: Range, decimals: number): Reading {
+export function readField(written: string, range: Range, decimals: number): Reading {
   const refuse = (problem: FieldProblem): Reading => ({ value: null, problem });
-  if (text === '') return refuse({ reason: 'required' });
-  if (text.length > MAX_TEXT) return refuse({ reason: 'long' });
+  if (written === '') return refuse({ reason: 'required' });
+  if (written.length > MAX_TEXT) return refuse({ reason: 'long' });
+  const text = pointed(written);
   if (!NUMBER.test(text)) return refuse({ reason: 'format' });
   if (range.integer && places(text) > 0) return refuse({ reason: 'whole' });
   if (places(text) > decimals) return refuse({ reason: 'step' });
@@ -247,4 +258,61 @@ export function textsOf(echo: Echo): Record<FieldKey, string> {
     horizon: String(echo.expected_horizon_months),
     margin: String(echo.gross_margin),
   };
+}
+
+/** The two assumptions behind the Advanced controls: the horizon and the margin. */
+export const ADVANCED: readonly FieldKey[] = ['horizon', 'margin'];
+
+/**
+ * The whole percents a rate's fader offers: the served bounds, inclusive, in
+ * the steps the field is sent in (as the native slider before it). Choices of
+ * an assumption, not a sweep: no cut is ever made here.
+ */
+export function percentSteps(range: Range): number[] {
+  const low = Math.ceil(range.min * 100 - 1e-9);
+  const high = Math.floor(range.max * 100 + 1e-9);
+  const steps: number[] = [];
+  for (let step = low; step <= high; step += 1) steps.push(step);
+  return steps;
+}
+
+/** The position of a rate written as a fraction ("0.3") among ``steps``, or ``null``: never the nearest. */
+export function percentIndex(steps: readonly number[], text: string): number | null {
+  const value = Number(pointed(text));
+  if (text === '' || !Number.isFinite(value)) return null;
+  const percent = value * 100;
+  const whole = Math.round(percent);
+  if (Math.abs(percent - whole) > 1e-9) return null;
+  const index = steps.indexOf(whole);
+  return index === -1 ? null : index;
+}
+
+/** A whole percent as the field writes it: 30 is "0.3". */
+export function percentText(step: number): string {
+  return String(step / 100);
+}
+
+/** One field away from its served default, or one that cannot be sent. */
+export interface Change {
+  spec: FieldSpec;
+  /** ``null`` while the field cannot be sent. */
+  value: number | null;
+  fallback: number;
+}
+
+/** The fields set away from the served defaults, and those that cannot be sent, in the fields' order. */
+export function changesOf(scenario: Scenario, defaults: Echo): Change[] {
+  return FIELDS.flatMap((spec) => {
+    const value = scenario.readings[spec.key].value;
+    const fallback = defaults[spec.assumption];
+    return value === fallback ? [] : [{ spec, value, fallback }];
+  });
+}
+
+/**
+ * The index of the point at ``threshold`` itself, or -1: never the point whose
+ * label it rounds to. The tolerance only absorbs the grid's inexact floats.
+ */
+export function pointIndex(points: readonly SweepPoint[], threshold: number): number {
+  return points.findIndex((point) => Math.abs(point.threshold - threshold) <= 1e-9);
 }

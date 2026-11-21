@@ -6,10 +6,11 @@ name: Held-out release governance
 #
 # A best-effort consistency check, not a security boundary. On pull_request GitHub takes this
 # file from the change itself, so a change can edit it: it catches accidents and ordinary
-# mistakes. The maintainer has to read every change to it, and nothing enforces that. It is
-# not in the ruleset today.
+# mistakes. The maintainer has to read every change to it, and nothing enforces that: the
+# ruleset requires no approval. Since 2026-11-09 the `Protect main` ruleset lists this job
+# among its required status checks; that does not make it tamper-resistant.
 #
-# No path filter: should it be added to the ruleset, a listed check that does not run stays
+# No path filter: the ruleset requires this check, and a listed check that does not run stays
 # pending for ever.
 on:
   pull_request:

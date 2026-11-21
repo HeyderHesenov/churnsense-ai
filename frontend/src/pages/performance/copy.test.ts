@@ -80,11 +80,15 @@ describe('the one-standard-error rule', () => {
 
 describe('figures in sentences', () => {
   it('come from the served counts', () => {
-    expect(copy.errorsAt(0.36, 512, 216, 14)).toBe(
-      'At 0.36: 512 flagged; 216 of them stayed, 14 churners not flagged.',
+    expect(copy.readoutAt(0.4, 512, '0.578', '0.955', '0.720')).toBe(
+      'At 0.40: 512 flagged · precision 0.578 · recall 0.955 · F1 0.720.',
+    );
+    expect(copy.recordAt(0.36, 263, 111, 213)).toBe(
+      'At 0.36: 263 churners caught, 111 missed; 213 offers to stayers.',
     );
     expect(copy.churnersFlagged(222, 310)).toBe('222 of 310 churners flagged');
-    expect(copy.flaggedChurned(222, 385)).toBe('222 of 385 flagged churned');
+    // The flagged are told as their two cells, never summed into a third figure.
+    expect(copy.flaggedOutcomes(222, 163)).toBe('of the flagged, 222 churned and 163 stayed');
     expect(copy.offerCost(50, 'USD')).toBe('$50 each if offered, assumed');
     expect(copy.shortSha('0123456789abcdef'.repeat(4))).toBe('01234567…cdef');
   });
@@ -114,7 +118,18 @@ describe('the words', () => {
     copy.UNAVAILABLE,
     copy.MISMATCH,
     copy.FAILED,
-    copy.SCORE_NOTE,
+    copy.VALIDATION_NOTE,
+    copy.TEST_NOTE,
+    copy.REUSED_HOLDOUT,
+    copy.ONE_CUT,
+    copy.waffleSubtitle(1409, 0.36),
+    copy.waffleLabel({ tp: 263, fn: 111, fp: 213, tn: 822 }, 0.36),
+    copy.plainCaught(263, 374),
+    copy.plainOffers(263, 213),
+    copy.plainMissed(111, 0.36),
+    copy.readoutAt(0.4, 512, '0.578', '0.955', '0.720'),
+    copy.recordAt(0.36, 263, 111, 213),
+    copy.segmentsTitle(0.36),
     copy.NOT_OPTIMAL,
     copy.PR_HINT,
     copy.prLabel(points[36], points[50], 310),
@@ -138,12 +153,35 @@ describe('the words', () => {
     expect(sentence).not.toMatch(CERTAIN);
   });
 
+  it('state no ratio, lift or "N in M" the record does not publish', () => {
+    for (const sentence of sentences) {
+      expect(sentence).not.toMatch(/\b\d+ in \d+\b|×|times (better|more)|\blift\b/i);
+    }
+  });
+
   it('never call a re-used holdout independent, or the cut optimal, without saying not', () => {
     for (const sentence of sentences) {
       if (/independent/i.test(sentence)) expect(sentence).toMatch(/not an independent/);
       if (/optim/i.test(sentence))
         expect(sentence).toMatch(/not a universal optimum|optimistic|test-optimal/);
     }
+  });
+});
+
+describe('the test record in plain words', () => {
+  it('writes each card from the record’s own cells', () => {
+    expect(copy.plainCaught(263, 374)).toBe(
+      'Of the 374 test customers who churned, 263 were flagged.',
+    );
+    expect(copy.plainOffers(263, 213)).toBe(
+      'Among the customers flagged, 263 churned and 213 stayed.',
+    );
+    expect(copy.plainMissed(111, 0.36)).toBe(
+      '111 test customers who churned scored below the cut 0.36 and were not flagged.',
+    );
+    expect(copy.waffleLabel({ tp: 263, fn: 111, fp: 213, tn: 822 }, 0.36)).toBe(
+      'Test customers at the cut 0.36, one square each: 263 caught, 111 missed, 213 offers to stayers, 822 left alone.',
+    );
   });
 });
 

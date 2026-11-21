@@ -4,17 +4,31 @@
  * nothing is committed. Opt-in: E2E_SCREENSHOTS=1 npx playwright test review.
  * They land in test-results/review/ (gitignored), from synthetic data only.
  */
-import { settled, test } from './fixtures';
-import { PAGES } from './pages';
+import { expect, settled, test } from './fixtures';
+import {
+  EXPLAINABILITY_TABS,
+  OVERVIEW_TABS,
+  PAGES,
+  PERFORMANCE_TABS,
+  SIMULATOR_TABS,
+} from './pages';
 
 test.skip(!process.env['E2E_SCREENSHOTS'], 'set E2E_SCREENSHOTS=1 to take review screenshots');
 
 for (const width of [375, 1440]) {
   test(`every page at ${String(width)} px, for review`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
-    for (const { path: address, label } of PAGES) {
+    for (const { path: address, label } of [
+      ...PAGES,
+      ...OVERVIEW_TABS,
+      ...PERFORMANCE_TABS,
+      ...SIMULATOR_TABS,
+      ...EXPLAINABILITY_TABS,
+    ]) {
       await page.goto(address);
       await settled(page);
+      // The queue's attributions arrive after its rows: shown as a reader sees them, settled.
+      await expect(page.getByText('Loading attributions')).toHaveCount(0);
       const name = label.toLowerCase().replaceAll(' ', '-');
       await page.screenshot({
         path: `test-results/review/${String(width)}-${name}.png`,

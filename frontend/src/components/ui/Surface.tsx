@@ -73,6 +73,13 @@ interface StatTileProps {
    * name); ``description`` is read after it.
    */
   link?: { to: string; description: string; onFollow?: () => void };
+  /**
+   * A small drawing beside the value (a sparkline, a ring, a stacked bar).
+   * Presentation only: it draws figures the caller already has from the API
+   * and computes none, and it is hidden from screen readers - the label, the
+   * value and the caption say what the tile says.
+   */
+  visual?: ReactNode;
   /** The accent line along the top: the tile the page is about. */
   accent?: boolean;
   compact?: boolean;
@@ -83,6 +90,7 @@ export function StatTile({
   value,
   sub,
   link,
+  visual,
   accent = false,
   compact = false,
 }: StatTileProps) {
@@ -99,7 +107,16 @@ export function StatTile({
         {label}
         {link && <icons.arrowUpRight size={14} />}
       </span>
-      <span className={styles.tileValue}>{value}</span>
+      {visual ? (
+        <span className={styles.tileRow}>
+          <span className={styles.tileValue}>{value}</span>
+          <span className={styles.tileVisual} aria-hidden="true">
+            {visual}
+          </span>
+        </span>
+      ) : (
+        <span className={styles.tileValue}>{value}</span>
+      )}
       {sub && <span className={styles.tileSub}>{sub}</span>}
     </>
   );

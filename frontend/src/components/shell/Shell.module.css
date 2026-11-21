@@ -10,14 +10,14 @@
 /* --- sidebar ------------------------------------------------------------ */
 
 .side {
-  flex: 1 1 232px;
+  flex: 1 1 256px;
   box-sizing: border-box;
   background: var(--sidebar);
   border-right: 1px solid var(--line-soft);
   padding: 18px 12px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 .side[data-collapsed='true'] {
   flex: 0 0 66px;
@@ -51,7 +51,8 @@
   white-space: nowrap;
 }
 
-.nav {
+.nav,
+.navGroup {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -64,7 +65,7 @@
   color: var(--muted);
   padding: 14px 10px 6px;
 }
-.group:first-child {
+.navGroup:first-child .group {
   padding-top: 0;
 }
 .navLink {
@@ -72,9 +73,10 @@
   align-items: center;
   justify-content: flex-start;
   gap: 11px;
-  min-height: 40px;
-  padding: 0 10px;
-  border-radius: var(--radius-9);
+  min-height: 46px;
+  padding: 5px 10px;
+  border-radius: var(--radius-10);
+  font-size: 13.5px;
   color: var(--ink-2);
   transition:
     background-color 0.15s ease,
@@ -87,14 +89,43 @@
 .navLink[aria-current='page'] {
   background: var(--selected);
   color: var(--ink);
-  font-weight: 550;
   box-shadow: inset 2px 0 0 var(--accent);
 }
 .navLink svg {
   flex: none;
 }
+.navText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
 .navLabel {
   white-space: nowrap;
+  font-weight: 500;
+}
+.navLink[aria-current='page'] .navLabel {
+  font-weight: 600;
+}
+.navNote {
+  font-size: 11.5px;
+  color: var(--placeholder);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.navLink[aria-current='page'] .navNote {
+  color: var(--ink-2);
+}
+.badge {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-6);
+  padding: 1px 6px;
 }
 
 .foot {
@@ -102,6 +133,99 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.guide {
+  background: linear-gradient(180deg, var(--guide-glow), transparent 70%), var(--surface);
+  border: 1px solid var(--guide-line);
+  border-radius: var(--radius-12);
+  padding: 12px 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.guideHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px 4px;
+}
+.guideTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.guideClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-7);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.guideClose:hover {
+  background: var(--ghost-hover);
+  color: var(--ink);
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: var(--radius-8);
+  color: var(--ink);
+}
+.step:hover {
+  background: var(--nav-hover);
+  color: var(--ink);
+}
+.stepNumber {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.step[aria-current='step'] .stepNumber {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.stepText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.stepTitle {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.stepNote {
+  font-size: 11px;
+  color: var(--muted);
+}
+.stepHere {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-text);
 }
 .serving {
   background: var(--surface);
@@ -136,6 +260,21 @@
   height: 7px;
   border-radius: 50%;
   background: var(--ok);
+}
+/* A served model breathes; reduced motion stops it (styles/base.css). */
+.status[data-state='up'] .dot {
+  animation: pulse 2.2s ease-out infinite;
+}
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--ok-pulse);
+  }
+  70% {
+    box-shadow: 0 0 0 7px var(--ok-pulse-end);
+  }
+  100% {
+    box-shadow: 0 0 0 0 var(--ok-pulse-end);
+  }
 }
 .status[data-state='down'] .dot {
   background: var(--critical);
@@ -212,6 +351,10 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* The one decorative gradient: two soft lights at the top of the page. */
+  background:
+    radial-gradient(1100px 420px at 12% -8%, var(--ambient-accent), transparent 62%),
+    radial-gradient(900px 380px at 96% -14%, var(--ambient-violet), transparent 60%), var(--ground);
 }
 .main:focus {
   outline: none;

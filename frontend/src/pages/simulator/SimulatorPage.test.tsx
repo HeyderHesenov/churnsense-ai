@@ -51,6 +51,19 @@ function figure(term: string): string {
   return dt.nextElementSibling?.textContent ?? '';
 }
 
+const TABS = { Simulate: /^Simulate/, Compare: /^Compare/, Method: /^Method/ } as const;
+
+/** Opens a tab of the page, as a reader would: a new history entry. */
+async function openTab(name: keyof typeof TABS) {
+  await press(screen.getByRole('tab', { name: TABS[name] }));
+  await screen.findByRole('tab', { name: TABS[name], selected: true });
+}
+
+/** The address's query as a plain object, to compare whatever order it is written in. */
+function address(): Record<string, string> {
+  return Object.fromEntries(new URLSearchParams(window.location.search));
+}
+
 function pinned() {
   return screen.getByRole('table', { name: 'Pinned scenarios' });
 }
@@ -140,9 +153,10 @@ describe('the assumptions', () => {
     expect(success).toHaveAttribute('aria-valuetext', '30%');
     expect(success).toHaveAttribute('min', '0');
     expect(success).toHaveAttribute('max', '80');
+    // Behind the Advanced controls, closed, yet named and read out.
     const margin = screen.getByRole('slider', { name: 'Gross margin' });
-    expect(margin).toHaveAttribute('min', '10');
-    expect(margin).toHaveAttribute('max', '90');
+    expect(margin).toHaveAttribute('aria-valuetext', '65%');
+    expect(margin.closest('details')).not.toHaveAttribute('open');
     expect(screen.getByText('$1 to $500 · default $50')).toBeInTheDocument();
     expect(screen.getByText('0% to 80% · default 30%')).toBeInTheDocument();
     expect(screen.getByText('2 to 60 months · default 12 months')).toBeInTheDocument();
@@ -194,22 +208,17 @@ describe('the assumptions', () => {
     [
       'Cost of one offer',
       '-',
-      'The cost of one offer is a number, written in digits with a point for any decimals.',
-    ],
-    [
-      'Cost of one offer',
-      '12,50',
-      'The cost of one offer is a number, written in digits with a point for any decimals.',
+      'The cost of one offer is a number, written in digits with a point or a comma for any decimals.',
     ],
     [
       'Cost of one offer',
       '1e3',
-      'The cost of one offer is a number, written in digits with a point for any decimals.',
+      'The cost of one offer is a number, written in digits with a point or a comma for any decimals.',
     ],
     [
       'Cost of one offer',
       '$50',
-      'The cost of one offer is a number, written in digits with a point for any decimals.',
+      'The cost of one offer is a number, written in digits with a point or a comma for any decimals.',
     ],
     ['Revenue horizon', '2.5', 'The horizon is a whole number of months.'],
     ['Revenue horizon', '61', 'The horizon is 2 to 60 months.'],
@@ -262,6 +271,7 @@ describe('the assumptions', () => {
       screen.getByText(/^Recommended under these assumptions: 0\.\d\d · [+−]€/),
     ).toBeInTheDocument();
     await press(screen.getByRole('button', { name: 'Pin these figures' }));
+    await openTab('Compare');
     const [row] = pinRows();
     expect(row).toHaveTextContent('€50 · 30% · 12 mo · 65%');
     expect(row).toHaveTextContent('+€31,235');
@@ -277,7 +287,7 @@ describe('the assumptions', () => {
   it('are told apart from what is measured and what is simulated', async () => {
     await showSimulator();
     await figuresFor();
-    expect(screen.getByRole('heading', { name: 'Your assumptions' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Scenario controls' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Measured on validation' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /^Simulated money/ })).toBeInTheDocument();
     expect(screen.getByText(/^Simulated, not measured\./)).toBeInTheDocument();
@@ -390,33 +400,34 @@ describe('figures for other assumptions, in every card', () => {
   it('are named in each reading, and marked once the assumptions set differ', async () => {
     await showSimulator();
     await figuresFor();
-    const cards = [
-      'Where to cut',
-      'Net benefit across every cut',
-      'Why not simply take the peak?',
-      'If the success rate were…',
-    ];
+    const simulate = ['Scenario controls', 'Net benefit across every cut'];
+    const method = ['Why not simply take the peak?', 'If the success rate were…'];
     const charts = [/^Simulated net benefit at /, /^Precision and recall at each cut/];
     const rates = () => screen.getByRole('region', { name: 'If the success rate were…' });
-    for (const name of cards) {
-      const card = screen.getByRole('region', { name });
-      expect(within(card).getByText('For $50 · 30% · 12 mo · 65%')).toBeInTheDocument();
-      expect(within(card).queryByText(STALE)).not.toBeInTheDocument();
-    }
+    const named = (cards: string[], stale: boolean) => {
+      for (const name of cards) {
+        const card = screen.getByRole('region', { name });
+        expect(within(card).getByText('For $50 · 30% · 12 mo · 65%')).toBeInTheDocument();
+        if (stale) expect(within(card).getByText(STALE)).toBeInTheDocument();
+        else expect(within(card).queryByText(STALE)).not.toBeInTheDocument();
+      }
+    };
+    named(simulate, false);
     for (const name of charts) expect(screen.getByRole('img', { name })).toBeInTheDocument();
+    await openTab('Method');
+    named(method, false);
     expect(within(rates()).getByText('YOURS')).toBeInTheDocument();
+    await openTab('Simulate');
     await typeInto('Cost of one offer', '-');
     await screen.findByText(/^Not sent: correct the marked field\./, { selector: 'p' });
-    for (const name of cards) {
-      const card = screen.getByRole('region', { name });
-      expect(within(card).getByText('For $50 · 30% · 12 mo · 65%')).toBeInTheDocument();
-      expect(within(card).getByText(STALE)).toBeInTheDocument();
-    }
+    named(simulate, true);
     const staleCharts = [
       /^Not the assumptions set\. Simulated net benefit at /,
       /^Not the assumptions set\. Precision and recall at each cut/,
     ];
     for (const name of staleCharts) expect(screen.getByRole('img', { name })).toBeInTheDocument();
+    await openTab('Method');
+    named(method, true);
     // The rate those figures were for is not the reader's while another can be set.
     expect(within(rates()).queryByText('YOURS')).not.toBeInTheDocument();
   });
@@ -456,6 +467,7 @@ describe('figures for other assumptions, in every card', () => {
       'aria-disabled',
       'true',
     );
+    await openTab('Method');
     const rate = screen.getByRole('button', { name: 'Apply 20% success' });
     expect(rate).toHaveAttribute('aria-disabled', 'true');
     expect(rate).toHaveAttribute('aria-describedby', 'rates-stale');
@@ -465,10 +477,14 @@ describe('figures for other assumptions, in every card', () => {
     await showSimulator();
     await figuresFor();
     await press(screen.getByRole('button', { name: 'Pin these figures' }));
+    await openTab('Compare');
     expect(screen.getByText('NOW')).toBeInTheDocument();
+    await openTab('Simulate');
     await typeInto('Cost of one offer', '500.01');
     await screen.findByText(/^Not sent: correct the marked field\. The figures/, { selector: 'p' });
+    await openTab('Compare');
     expect(screen.queryByText('NOW')).not.toBeInTheDocument();
+    await openTab('Method');
     expect(screen.getByRole('button', { name: 'Apply 20% success' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -488,7 +504,14 @@ describe('when the sweep cannot be had', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(asked).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Compare scenarios' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pin these figures' })).not.toBeInTheDocument();
+    // The cut cannot be chosen, and says why.
+    expect(screen.getByRole('slider', { name: 'Decision threshold' })).toBeDisabled();
+    expect(
+      screen.getByText('No cut can be chosen while the sweep is withheld.'),
+    ).toBeInTheDocument();
+    await openTab('Compare');
+    expect(screen.queryByRole('heading', { name: 'Pinned scenarios' })).not.toBeInTheDocument();
     expectNoClaims();
   });
 
@@ -518,6 +541,7 @@ describe('when the sweep cannot be had', () => {
     });
     await showSimulator('/simulator', [flaky]);
     await figuresFor();
+    await openTab('Method');
     await press(screen.getByRole('button', { name: 'Apply 20% success' }));
     await screen.findByRole('button', { name: 'Try again' }, { timeout: 3000 });
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: /^At / }));
@@ -537,6 +561,7 @@ describe('when the sweep cannot be had', () => {
     });
     await showSimulator('/simulator', [turning]);
     await figuresFor();
+    await openTab('Method');
     await press(screen.getByRole('button', { name: 'Apply 20% success' }));
     expect(await screen.findByText(/validation outcomes are withheld/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Apply 20% success' })).not.toBeInTheDocument();
@@ -594,7 +619,8 @@ describe('when the sweep cannot be had', () => {
   it('says a request was refused even when the API lists no problem', async () => {
     await showSimulator('/simulator', [refusal(422, 'validation_error')]);
     expect(await screen.findByText('The API refused these assumptions.')).toBeInTheDocument();
-    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    // No list of problems on the page (the sidebar's guide is a list of its own).
+    expect(within(screen.getByRole('main')).queryByRole('list')).not.toBeInTheDocument();
   });
 
   it('lists the problems of a refused request, with nothing to try again', async () => {
@@ -676,11 +702,11 @@ describe('the cut', () => {
 
 describe('if the success rate were…', () => {
   it('applies a rate, follows its recommendation, and keeps the focus', async () => {
-    await showSimulator('/simulator?t=0.40');
+    await showSimulator('/simulator?t=0.40&tab=method');
     await figuresFor();
     const row = screen.getByRole('button', { name: 'Apply 20% success' });
     await press(row);
-    expect(window.location.search).toBe('?success=0.2');
+    expect(address()).toEqual({ tab: 'method', success: '0.2' });
     await figuresFor(/20% success/);
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Apply 20% success' }));
   });
@@ -696,6 +722,7 @@ describe('if the success rate were…', () => {
       }),
     ]);
     await figuresFor();
+    await openTab('Method');
     expect(screen.getByRole('button', { name: 'Apply 50% success' })).toHaveAttribute(
       'aria-disabled',
       'true',
@@ -711,10 +738,13 @@ describe('if the success rate were…', () => {
     await figuresFor();
     await typeInto('Cost of one offer', '60');
     await figuresFor(/^Figures for a \$60 offer/);
+    await openTab('Method');
     await press(screen.getByRole('button', { name: 'Apply 20% success' }));
     await figuresFor(/20% success/);
     act(() => window.history.back());
-    await waitFor(() => expect(window.location.search).toBe('?cost=60'));
+    await waitFor(() => expect(address()).toEqual({ cost: '60', tab: 'method' }));
+    act(() => window.history.back());
+    await waitFor(() => expect(address()).toEqual({ cost: '60' }));
     expect(screen.getByLabelText('Cost of one offer')).toHaveValue('60');
     expect(screen.getByRole('slider', { name: 'Offer success rate' })).toHaveAttribute(
       'aria-valuetext',
@@ -729,21 +759,34 @@ describe('pinned scenarios', () => {
     await showSimulator('/simulator?t=0.40', [with40({ ...AT_40, net_benefit: 24_721.5 })]);
     await figuresFor();
     await press(screen.getByRole('button', { name: 'Pin these figures' }));
-    const [row] = pinRows();
+    await openTab('Compare');
+    let [row] = pinRows();
     if (!row) throw new Error('a pinned row');
     expect(row).toHaveTextContent('$50 · 30% · 12 mo · 65%');
     expect(row).toHaveTextContent('0.40');
     expect(row).toHaveTextContent('512');
     expect(row).toHaveTextContent('0.456');
     expect(row).toHaveTextContent('+$24,722');
+    await openTab('Simulate');
     await typeInto('Cost of one offer', '60');
     await figuresFor(/^Figures for a \$60 offer/);
+    await openTab('Compare');
     const now = within(pinned()).getAllByRole('row')[1];
     expect(now).toHaveTextContent(/^NOW \$60 · 30% · 12 mo · 65%0\.40/);
+    [row] = pinRows();
+    if (!row) throw new Error('the pin, kept across tabs');
     const added = entriesAdded();
     await press(within(row).getByRole('button', { name: /^Apply/ }));
-    expect(window.location.search).toBe('?cost=50&success=0.3&horizon=12&margin=0.65&t=0.40');
+    expect(address()).toEqual({
+      tab: 'compare',
+      cost: '50',
+      success: '0.3',
+      horizon: '12',
+      margin: '0.65',
+      t: '0.40',
+    });
     expect(added()).toBe(1);
+    await openTab('Simulate');
     await figuresFor(/^Figures for a \$50 offer/);
     expect(figure('Net benefit')).toBe('+$24,722 net gain');
   });
@@ -755,18 +798,20 @@ describe('pinned scenarios', () => {
     await press(pin);
     expect(pin).toHaveAttribute('aria-disabled', 'true');
     expect(screen.getByText('These figures are pinned.')).toBeInTheDocument();
+    expect(screen.getByText('1 of 4 pinned')).toBeInTheDocument();
     const slider = screen.getByRole('slider', { name: 'Decision threshold' });
     for (const at of ['41', '42', '43']) {
       fireEvent.change(slider, { target: { value: at } });
       await press(pin);
     }
-    expect(pinRows()).toHaveLength(4);
+    expect(screen.getByText('4 of 4 pinned')).toBeInTheDocument();
     fireEvent.change(slider, { target: { value: '44' } });
     expect(pin).toHaveAttribute('aria-disabled', 'true');
     expect(
       screen.getByText('Four scenarios are pinned: remove one to pin another.'),
     ).toBeInTheDocument();
     await press(pin);
+    await openTab('Compare');
     expect(pinRows()).toHaveLength(4);
   });
 
@@ -779,12 +824,13 @@ describe('pinned scenarios', () => {
       target: { value: '41' },
     });
     await press(pin);
+    await openTab('Compare');
     const [first, second] = within(pinned()).getAllByRole('button', { name: /^Remove/ });
     if (!first || !second) throw new Error('two pins');
     await press(first);
     expect(document.activeElement).toBe(second);
     await press(second);
-    expect(document.activeElement).toBe(pin);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Pin these figures' }));
     expect(screen.getByText(/^Nothing pinned yet/)).toBeInTheDocument();
   });
 
@@ -797,6 +843,7 @@ describe('pinned scenarios', () => {
       target: { value: '41' },
     });
     await press(pin);
+    await openTab('Compare');
     const [first, second] = within(pinned()).getAllByRole('button', { name: /^Remove/ });
     if (!first || !second) throw new Error('two pins');
     await press(second);
@@ -838,7 +885,11 @@ describe('nothing worked out in the page', () => {
       }),
     ]);
     expect(await screen.findByText(/has no point at its own recommended cut/)).toBeInTheDocument();
-    expect(screen.queryByRole('slider', { name: 'Decision threshold' })).not.toBeInTheDocument();
+    // The cut stays in its place, turned off, and says why.
+    expect(screen.getByRole('slider', { name: 'Decision threshold' })).toBeDisabled();
+    expect(
+      screen.getByText('No cut can be chosen: the sweep has no point at its own recommendation.'),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Loading the sweep')).not.toBeInTheDocument();
   });
 
@@ -846,7 +897,7 @@ describe('nothing worked out in the page', () => {
     await showSimulator('/simulator?t=0.40');
     await figuresFor();
     const terms = (heading: string) => {
-      const group = screen.getByRole('heading', { name: heading }).parentElement;
+      const group = screen.getByRole('heading', { name: heading }).parentElement?.parentElement;
       if (!group) throw new Error(heading);
       return within(group)
         .getAllByRole('term')
@@ -859,6 +910,7 @@ describe('nothing worked out in the page', () => {
       'Flagged customers who stayed',
       'Precision',
       'Recall',
+      'F1',
     ]);
     expect(terms('Simulated money')).toEqual(['Net benefit', 'Retained value', 'Campaign cost']);
   });
@@ -942,6 +994,7 @@ describe('nothing worked out in the page', () => {
       })),
     ]);
     await figuresFor();
+    await openTab('Method');
     const item = (name: string) => screen.getByRole('button', { name }).closest('li');
     expect(item('Apply 20% success')).toHaveTextContent('20%cut 0.61+$1,111');
     expect(item('Apply 10% success')).toHaveTextContent('10%cut 0.88−$77');
@@ -1026,21 +1079,27 @@ describe('the rate sliders', () => {
       }),
     ]);
     await figuresFor();
-    const ends = (name: string) => {
+    const ends = async (name: string) => {
       const slider = screen.getByRole('slider', { name });
-      return [slider.getAttribute('min'), slider.getAttribute('max')];
+      act(() => slider.focus());
+      await userEvent.keyboard('{Home}');
+      const low = slider.getAttribute('aria-valuetext');
+      await userEvent.keyboard('{End}');
+      return [low, slider.getAttribute('aria-valuetext'), slider.getAttribute('max')];
     };
-    expect(ends('Offer success rate')).toEqual(['7', '57']);
-    expect(ends('Gross margin')).toEqual(['14', '29']);
+    // The fader moves over whole percents: 7% to 57% is 51 positions, 14% to 29% is 16.
+    expect(await ends('Offer success rate')).toEqual(['7%', '57%', '50']);
+    expect(await ends('Gross margin')).toEqual(['14%', '29%', '15']);
   });
 
   it('mark a rate the address gives that they cannot show', async () => {
     await showSimulator('/simulator?success=0.295');
-    const why = await screen.findByText('The success rate is in whole percents.');
+    await screen.findByText('The success rate is in whole percents.');
     const slider = screen.getByRole('slider', { name: 'Offer success rate' });
     expect(slider).toHaveAttribute('aria-invalid', 'true');
-    expect(slider.getAttribute('aria-describedby')).toContain(why.id);
-    expect(slider).toHaveAttribute('aria-valuetext', 'not set');
+    expect(slider).toHaveAccessibleDescription(/The success rate is in whole percents\./);
+    // Never placed at a rate it was not given.
+    expect(slider).toHaveAttribute('aria-valuetext', 'no value');
   });
 
   it('take the lowest rate the server accepts', async () => {
@@ -1077,14 +1136,14 @@ describe('history', () => {
   });
 
   it('goes Forward again to the later assumptions and their figures', async () => {
-    await showSimulator();
+    await showSimulator('/simulator?tab=method');
     await figuresFor();
     await press(screen.getByRole('button', { name: 'Apply 20% success' }));
     await figuresFor(/20% success/);
     act(() => window.history.back());
     await figuresFor(/30% success/);
     act(() => window.history.forward());
-    await waitFor(() => expect(window.location.search).toBe('?success=0.2'));
+    await waitFor(() => expect(address()).toEqual({ tab: 'method', success: '0.2' }));
     await figuresFor(/20% success/);
   });
 });
@@ -1101,6 +1160,7 @@ describe('pins over time', () => {
     await press(pin);
     await typeInto('Cost of one offer', '60');
     await figuresFor(/^Figures for a \$60 offer/);
+    await openTab('Compare');
     const [first, second] = pinRows();
     if (!first || !second) throw new Error('two pins');
     expect(first).toHaveTextContent(/^\$50 · 30% · 12 mo · 65%0\.40512/);
@@ -1108,18 +1168,28 @@ describe('pins over time', () => {
     expect(first).toHaveTextContent('0.456');
     expect(second).toHaveTextContent(/^\$50 · 30% · 12 mo · 65%0\.45/);
     await press(within(second).getByRole('button', { name: /^Apply/ }));
-    expect(window.location.search).toBe('?cost=50&success=0.3&horizon=12&margin=0.65&t=0.45');
+    expect(address()).toEqual({
+      tab: 'compare',
+      cost: '50',
+      success: '0.3',
+      horizon: '12',
+      margin: '0.65',
+      t: '0.45',
+    });
   });
 
   it('tag a pin at the recommendation, which Apply follows again', async () => {
     await showSimulator();
     await figuresFor();
     await press(screen.getByRole('button', { name: 'Pin these figures' }));
-    const [row] = pinRows();
-    if (!row) throw new Error('a pin');
-    expect(within(row).getByText('REC')).toBeInTheDocument();
+    await openTab('Compare');
+    expect(within(pinRows()[0] ?? document.body).getByText('REC')).toBeInTheDocument();
+    await openTab('Simulate');
     await typeInto('Cost of one offer', '60');
     await figuresFor(/^Figures for a \$60 offer/);
+    await openTab('Compare');
+    const [row] = pinRows();
+    if (!row) throw new Error('a pin');
     await press(within(row).getByRole('button', { name: /^Apply/ }));
     expect(new URLSearchParams(window.location.search).get('t')).toBeNull();
   });
@@ -1139,17 +1209,20 @@ describe('pins over time', () => {
     await waitFor(() => expect(pin).not.toHaveAttribute('aria-disabled', 'true'));
     expect(screen.getByText('Set by hand')).toBeInTheDocument();
     await press(pin);
-    const [row] = pinRows();
-    if (!row) throw new Error('a pin');
-    expect(within(row).getByText('REC')).toBeInTheDocument();
+    await openTab('Compare');
+    expect(within(pinRows()[0] ?? document.body).getByText('REC')).toBeInTheDocument();
+    await openTab('Simulate');
     await typeInto('Cost of one offer', '60');
     await figuresFor(/^Figures for a \$60 offer/);
+    await openTab('Compare');
+    const [row] = pinRows();
+    if (!row) throw new Error('a pin');
     await press(within(row).getByRole('button', { name: /^Apply/ }));
     expect(new URLSearchParams(window.location.search).get('t')).toBe('0.54');
   });
 
   it('are not offered a rate already set, and say so', async () => {
-    await showSimulator();
+    await showSimulator('/simulator?tab=method');
     await figuresFor();
     const set = screen.getByRole('button', { name: 'Apply 30% success' });
     expect(set).toHaveAttribute('aria-disabled', 'true');

@@ -150,3 +150,15 @@ export function amountMessage(problem: AmountProblem): string {
 export function panelCaption(host: string): string {
   return `POST /api/predict · ${host} · same number as the library`;
 }
+
+/** Where each part of the result comes from: the score, then its explanation. */
+export const SOURCES = {
+  output: {
+    tag: 'Model output',
+    text: 'POST /api/predict · probability, band, flag and threshold as served',
+  },
+  explanation: {
+    tag: 'Explanation',
+    text: 'POST /api/explain · attributions of this score, not causal effects',
+  },
+} as const;

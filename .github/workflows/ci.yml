@@ -314,9 +314,16 @@ jobs:
       - name: Build
         run: npm run build
 
-      # What ships in dist/ is audited at every severity. The dev toolchain
-      # blocks at high and above; a moderate dev-only advisory is assessed and
+      # --omit=dev audits the production dependency tree in the lock, dev
+      # dependencies left out (it reads the lock, not the built dist/), and
+      # fails this job on an advisory of any severity. --audit-level=high
+      # audits the whole tree, dev toolchain included, and fails it on a high
+      # or critical advisory; a moderate dev-only advisory is assessed and
       # listed in SECURITY.md ("Dependency audits"), GHSA-g3hv-75wg-m249 today.
+      # This job is not a required check in the `Protect main` ruleset, so a
+      # failure here does not stop a merge in GitHub; the maintainer's merge
+      # rule requires it to pass. The Python audit is the separate, required
+      # `dependency audit` job above.
       - name: npm audit (runtime)
         run: npm audit --omit=dev
 

@@ -51,6 +51,29 @@
   margin: 0;
 }
 
+/* --- the parts of the global tab ------------------------------------------------- */
+.scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  margin: 6px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.scope:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.scope > span:last-child {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 /* --- the method strip ---------------------------------------------------------- */
 .method {
   display: grid;
@@ -227,15 +250,17 @@ a.pick[aria-current='page'] {
   text-transform: uppercase;
   color: var(--muted);
 }
-.axisLabels {
-  position: relative;
+/* Qualified twice: over the chart frame's own `.picture svg { height: auto }`. */
+.swarmHead .axisLabels {
+  width: 100%;
+  height: 18px;
+  overflow: visible;
 }
-.axisLabels > span {
-  position: absolute;
-  left: calc(var(--at) * 100%);
-  transform: translateX(-50%);
-  text-transform: none;
-  white-space: nowrap;
+.axisLabels text {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0;
 }
 .headMean {
   text-align: right;
@@ -246,20 +271,19 @@ a.pick[aria-current='page'] {
 .swarmArea {
   position: relative;
 }
-.swarmPlot .swarmSvg {
+.rowSpace {
   display: block;
-  width: 100%;
-  height: calc(var(--rows) * 26px);
+  height: 26px;
 }
-.swarmRing {
+.swarmArea .swarmSvg,
+.swarmArea .ringLayer {
   position: absolute;
-  left: calc(var(--at) * 100%);
-  top: calc(var(--row) * 26px + 13px);
-  width: 11px;
-  height: 11px;
-  border: 2px solid var(--ink);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.swarmArea .ringLayer {
+  overflow: visible;
   pointer-events: none;
 }
 .selectedBand {

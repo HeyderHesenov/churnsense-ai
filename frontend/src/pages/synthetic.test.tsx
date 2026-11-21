@@ -54,7 +54,7 @@ async function expectNote({
 }
 
 describe('Overview, as a public demo', () => {
-  function show() {
+  function show(path = '/') {
     const rows = QUEUE_ROWS.map(asSynthetic);
     server.use(
       syntheticInfo(),
@@ -64,7 +64,7 @@ describe('Overview, as a public demo', () => {
       ),
       ...overviewApi(overview({ customers: SYNTHETIC.customers })),
     );
-    return renderAt(<App />, '/');
+    return renderAt(<App />, path);
   }
   const queue = () => screen.getByRole('region', { name: /^Retention queue/ });
 
@@ -82,7 +82,7 @@ describe('Overview, as a public demo', () => {
   });
 
   it('labels the retention queue, in the service’s words, as illustrative', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     const heading = within(queue()).getByRole('heading', { name: /^Retention queue/ });
     expect(heading).toHaveTextContent(SYNTHETIC.title);
@@ -92,7 +92,7 @@ describe('Overview, as a public demo', () => {
   });
 
   it('links to everyone flagged without speaking of churned customers: none is recorded', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     const link = within(queue()).getByRole('link', { name: /^See all [\d,]+ flagged/ });
     expect(link).toHaveAccessibleName(/^See all 2,300 flagged in the explorer$/);
@@ -101,13 +101,25 @@ describe('Overview, as a public demo', () => {
   });
 
   it('marks every queued customer as synthetic and offers no partition to filter by', async () => {
-    show();
+    show('/?tab=queue');
     await note();
     await waitFor(() =>
       expect(within(queue()).getAllByText(SYNTHETIC_OUTCOME)).toHaveLength(QUEUE_ROWS.length),
     );
     expect(within(queue()).queryByRole('combobox', { name: 'Partition' })).toBeNull();
     expect(within(queue()).queryByText(/Churned ·|Stayed ·|Withheld ·/)).toBeNull();
+  });
+
+  it('labels the customers to call first, on the summary, as the service names them', async () => {
+    show();
+    await note();
+    const card = screen.getByRole('region', { name: /^Customers to call first/ });
+    expect(
+      within(card).getByRole('heading', { name: /^Customers to call first/ }),
+    ).toHaveTextContent(SYNTHETIC.title);
+    const links = await within(card).findAllByRole('link', { name: /^DEMO-/ });
+    expect(links).toHaveLength(3);
+    expect(card).not.toHaveTextContent(/Churned ·|Stayed ·|Withheld ·/);
   });
 });
 
@@ -227,7 +239,7 @@ describe('Performance and the simulator, as a public demo', () => {
   it('performance says where its figures come from', async () => {
     server.use(syntheticInfo(), performanceApi());
     renderAt(<App />, '/performance');
-    await screen.findByRole('table', { name: 'Metrics by partition' });
+    await screen.findByRole('tablist', { name: 'Performance sections' });
     await expectNote({ evidence: true });
   });
 
@@ -270,10 +282,18 @@ describe('A public demo that publishes no validation sweep', () => {
         performance({ validation: null, validation_evaluation: null, withheld_reason: null }),
       ),
     );
-    renderAt(<App />, '/performance');
-    await screen.findByRole('table', { name: 'Metrics by partition' });
-    expect((await screen.findAllByText(NOTE)).length).toBeGreaterThanOrEqual(3);
-    expect(screen.queryByText(/not available for the served model/)).not.toBeInTheDocument();
+    // Each tab says it wherever a validation figure would be.
+    for (const [tab, places] of [
+      ['summary', 1],
+      ['errors', 2],
+      ['calibration', 2],
+    ] as const) {
+      const shown = renderAt(<App />, `/performance?tab=${tab}`);
+      await screen.findByRole('tablist', { name: 'Performance sections' });
+      expect(await screen.findAllByText(NOTE)).toHaveLength(places);
+      expect(screen.queryByText(/not available for the served model/)).not.toBeInTheDocument();
+      shown.unmount();
+    }
   });
 });
 

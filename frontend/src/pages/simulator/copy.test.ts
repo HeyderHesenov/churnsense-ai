@@ -28,7 +28,7 @@ describe('the fields', () => {
     [
       'cost',
       { reason: 'format' },
-      'The cost of one offer is a number, written in digits with a point for any decimals.',
+      'The cost of one offer is a number, written in digits with a point or a comma for any decimals.',
     ],
     ['cost', { reason: 'step' }, 'The cost of one offer has at most 2 decimal places.'],
     ['cost', { reason: 'long' }, 'The cost of one offer is written in at most 12 characters.'],

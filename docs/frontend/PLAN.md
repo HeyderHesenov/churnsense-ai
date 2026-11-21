@@ -2,6 +2,11 @@
 
 Approved 2026-10-21. The working record of how `docs/design/MASTER_PROMPT.md` is applied to this repository: decisions taken with the maintainer, the architecture, the phases and how each is verified.
 
+> **Read "Design v4" (at the end) first.** The pages were redesigned in November 2026
+> (commits `650d9d5`…`9c0759f`). The page descriptions in Phases 2 and 3 below record the
+> first build, from the v1 artboards; where they differ from "Design v4", that section is
+> the current one. Nothing below is deleted: it is the history of each decision.
+
 ## Context
 
 The maintainer designed an 8-screen dashboard with Claude Design. Every file in the exported bundle was read:
@@ -196,7 +201,7 @@ Supporting changes:
 - focus goes to the `<h1>` and scroll to the top on navigation;
 - pages are lazy-loaded.
 
-**URL state:** typed search-param hooks with validation and defaults. Discrete changes push history; text replaces it after a 250 ms debounce. Only filters and IDs go into URLs. The live form stays in memory. `localStorage` holds only the sidebar collapse state.
+**URL state:** typed search-param hooks with validation and defaults. Discrete changes push history; text replaces it after a 250 ms debounce. Only filters and IDs go into URLs. The live form stays in memory. `localStorage` holds only the sidebar collapse state. *(Superseded in part by Design v4: the URL also holds `?tab=` on four pages and the performance page's `?part=` and `?cut=`; `localStorage` also holds whether the guide card was closed, both through `lib/preferences.ts`.)*
 
 **Styles:**
 - `styles/tokens.css` holds every design colour, radius and type token;
@@ -211,12 +216,12 @@ Supporting changes:
 - one hook per endpoint.
 
 **Shell**, as `build_shell.py` defines it:
-- collapsible sidebar (232 ↔ 66 px) with the Serving card;
+- collapsible sidebar (232 ↔ 66 px) with the Serving card *(Design v4: 256 ↔ 66 px, three navigation groups, two-line links, a guide card)*;
 - header with breadcrumb and an actions slot;
 - drawer at ≤ 860 px with focus trap, `Esc` and focus return.
 
 **UI kit:**
-- Button/Ghost, Chip, Segmented (`aria-pressed`), Tabs, Field/Select/Range, Card, StatTile, SimulatedBadge;
+- Button/Ghost, Chip, Segmented (`aria-pressed`), Tabs, Field/Select/Range, Card, StatTile, SimulatedBadge *(Design v4 adds PageTabs, Fader, TermTip, CountUp, Disclosure and InfoNote, and a mini-visual slot on StatTile)*;
 - Popover (dialog semantics);
 - HTML tooltip that flips at the right edge and follows the pointer and keyboard focus;
 - Skeleton, EmptyState (reason + reset), ErrorState (retry);
@@ -234,6 +239,10 @@ Supporting changes:
 **Tests:** Vitest, Testing Library, and MSW handlers typed from `schema.d.ts`.
 
 ## Phase 3 — pages, in this order, each with unit and e2e tests
+
+*The page layouts in this phase and in Phases 3.1–3.8 are the first build. The current
+layouts, tabs and wording are in "Design v4"; the data each page reads, its guarantees and
+its reviews below still hold unless that section says otherwise.*
 
 1. **Overview (`/`)**
    - Header: search, provenance popover, export.
@@ -272,7 +281,7 @@ Supporting changes:
    - Rows: all or flagged, sort, pages of 12.
    - Scored CSV; template download.
 5. **Simulator**
-   - 4 sliders; the threshold follows the recommendation or is set by hand.
+   - 4 sliders; the threshold follows the recommendation or is set by hand. *(Design v4: three tabs, primary and advanced controls; see "Design v4".)*
    - Net-benefit chart: band, peak, recommendation, hover, click-to-set.
    - Precision/recall chart.
    - Result tiles.
@@ -376,7 +385,7 @@ Same data and same model, so the numbers must match. Every remaining difference 
 ## Risks and notes
 
 - **The first explanation takes about 2.4 s** (numba JIT); later ones about 0.3 s per row. The queue uses one batched call per page, behind skeletons.
-- **The new CI job is not a required check** until the maintainer adds it to the ruleset.
+- **The new CI job is not a required check** until the maintainer adds it to the ruleset. (Status 2026-11-21: the `Protect main` ruleset lists neither `frontend (node 22)` nor `e2e (chromium)`; the maintainer merges only when both pass, an operating rule GitHub does not enforce.)
 - **`make evaluate CONFIRM=yes` is one more test read.** It is recorded in MODEL_CARD, and the numbers must reproduce exactly (the artifact sha is unchanged).
 - **429 is now possible on the legacy `/predict/batch` path.** This is intentional and documented.
 
@@ -1591,7 +1600,8 @@ precision against recall → segments → calibration beside model selection →
 footer ("This page computes nothing from the test partition…").
 
 **Decisions.**
-- **Scorecard, not tiles.** One table, row groups Ranking (PR-AUC primary,
+- **Scorecard, not tiles.** *(Superseded by Design v4: the scorecard was removed for
+  tiles, a waffle and plain-language cards; see "Design v4".)* One table, row groups Ranking (PR-AUC primary,
   with its no-skill tick at the churn rate; ROC-AUC), At the cut (recall,
   precision, F1, each with its counts), Probabilities (Brier, ECE), and
   Context (accuracy, quiet, beside "flagging nobody scores …"). A test
@@ -2155,7 +2165,7 @@ against the real API, fixed what only shows there, and keeps it checked.
   no final evaluation (the test partition stays withheld), SIGTERM turned into
   `SystemExit` so the folder is removed. Startup about 11 s.
 - **Playwright** (`frontend/playwright.config.ts`, `frontend/e2e/`, Chromium,
-  2 workers, dark, UTC, `reducedMotion: 'reduce'`): 13 specs and opt-in review
+  2 workers, dark, UTC, `reducedMotion: 'reduce'`): 13 specs *(16 after Design v4)* and opt-in review
   screenshots (`E2E_SCREENSHOTS=1`, `test-results/review/`). A global setup
   refuses a server whose customers are not `E2E-`. An automatic guard fails
   any test on a page error; a console error the test did not allow (by text
@@ -2236,6 +2246,8 @@ sha256.
 - The new jobs are not required checks until the ruleset lists them;
   `actionlint` was not run, and CI has not run on GitHub (not pushed). CodeQL's
   default setup may need JavaScript added (repository settings, untouched).
+  (Status 2026-11-21: CI has since run on GitHub, CodeQL's default setup covers
+  JavaScript and TypeScript, and the ruleset still does not list these jobs.)
 - The temporary folder is left behind only if the server is killed with
   SIGKILL. `make e2e` builds first, since the server serves `frontend/dist`.
 
@@ -2443,8 +2455,9 @@ procedure and the rules are in `SECURITY.md`, "The held-out release".
 The maintainer's decisions: no `pull_request_target`, and the check is accepted as best-effort.
 
 - **The check is what it is.** `pull_request` lets a change edit its own workflow, and a merged
-  change can replace the script. It is not in the ruleset, and requiring it would not make it
-  tamper-resistant. The documents now say so, a test keeps them saying so, and
+  change can replace the script. It was not in the ruleset then; it has been a required status
+  check since 2026-11-09, and requiring it did not make it tamper-resistant. The documents say
+  so, a test keeps them saying so, and
   `test_known_limit_a_merged_change_can_weaken_the_check_for_the_next_one` holds the limit in code.
 - **Strict schema in both readers.** A closed set of fields per state, a table whose cells, totals
   and rates are checked, the threshold of its identity, exact format and policy (only the
@@ -2487,8 +2500,9 @@ permanently consuming the release, and found the documents saying otherwise.
 
 **Still open.**
 
-- `held-out-release-governance` has to run for the first time on GitHub, and may then be added to
-  the `Protect main` ruleset by hand. Neither has happened.
+- `held-out-release-governance` had to run for the first time on GitHub, and could then be added
+  to the `Protect main` ruleset by hand. Both happened on 2026-11-09: it first ran green, and was
+  then added to the ruleset's required status checks. That does not make it tamper-resistant.
 - The rehearsal and preflight have not met the real artifact: `make evaluate` is what runs them.
 - A reservation that cannot finish has no recovery path until there is an approval that can be
   verified (`SECURITY.md`, "A reservation has no way back").
@@ -3096,3 +3110,156 @@ Two blockers were reported first:
 The whole chain, and what the separate disclosure referee does and does not cover (sums
 of more than three hidden groups only by the guard's own search), are in
 `docs/DEPLOYMENT.md` §8.
+
+## Design v4 (2026-11-18 to 2026-11-21)
+
+The pages were redesigned to a later version of the design, in six local commits on
+`feature/frontend-redesign`: `650d9d5` (shell), `46e5eec` (primitives), `8e1474d`
+(overview), `b593f53` (performance), `ceb4da9` (simulator) and `9c0759f` (explorer,
+explainability, patterns, customer, batch). This section is the current description of
+the pages; the earlier sections are the record of the first build. The API, the data each
+page reads and every guarantee above are unchanged: no endpoint, schema or server rule was
+added or changed for v4.
+
+### Decisions (asked 2026-11-18)
+
+- **D1.** `docs/design/` keeps the sanitised v1 artboards as they are. v4 is recorded here,
+  in words; no file of the v4 bundle is copied into Git.
+- **D2.** The sidebar's Serving card shows four values: the operating threshold (from
+  `/api/model-info`), test precision and test recall (from the release ledger only, so
+  they appear only for a published test record), and validation ECE labelled VALIDATION
+  (from the validation evaluation).
+- **D3.** A page's tab is part of its address (`?tab=`), beside the parameters it already
+  had. Back and Forward move between tabs; an unknown value falls back to the first tab.
+- **D4.** No "Final evaluation" link.
+- **D5.** "Drivers" is renamed "Associations" everywhere it names observed differences.
+- **D6.** Batch scoring's "two biggest reasons" column is removed; no attribution is
+  estimated per uploaded row.
+- **D7.** One feature branch, one local commit per phase, one pull request at the end.
+
+### Shell
+
+- The sidebar is 256 px wide, or 66 px collapsed; the choice is kept in `localStorage`
+  (`churnsense:sidebar`). Links are grouped *Understand* (overview, explorer, patterns),
+  *Trust the model* (performance, explainability) and *Take action* (single customer,
+  simulator, batch), each with a second line saying what the page is for. Collapsed, a
+  link keeps its name as its accessible label.
+- A getting-started guide card links three pages; closing it is remembered
+  (`churnsense:guide`). Both preferences go through `lib/preferences.ts`, which tolerates
+  storage that throws or is empty.
+- At 860 px and below the sidebar is a modal drawer: focus starts on its close button,
+  Esc closes it and focus returns to the menu button.
+- A skip link leads to `main`; after every navigation focus moves to `main` and the page
+  scrolls to the top.
+
+### New primitives (`components/ui/`)
+
+- `PageTabs`: a `tablist` of two-line tabs (label and hint), `aria-selected`, arrow keys,
+  Home and End; the value lives in the URL.
+- `Fader`: a range input for a list of cuts with a readout, used for the performance
+  page's validation cut.
+- `TermTip`: a term with its definition on hover and keyboard focus.
+- `CountUp` (and `lib/useCountUp.ts`): a figure that counts up once; with reduced motion it
+  is shown at once, and the final text is what assistive technology reads.
+- `Disclosure`: native `<details>`/`<summary>`.
+- `InfoNote`: a titled aside for method and scope notes.
+- `StatTile` takes an optional mini visual.
+
+### Pages
+
+- **Overview (`/`)** has four tabs. *Summary*: KPI tiles with mini visuals, risk at a
+  glance (a donut of the served bands), a briefing, the simulated campaign, the customers
+  to call first, segments to watch, churn by tenure, quick actions. *Distribution*: the
+  histogram and the campaign card. *Associations*: churn by segment and what moves the
+  score (churn by tenure moved to the summary). *Queue*: the retention queue, whose rows are explained in one
+  `POST /api/explain` of the shown IDs.
+- **Model performance** has four tabs, plus `?part=` (validation or test, validation when
+  absent) and `?cut=`. *Summary*: provenance, tiles of the chosen partition, and for a
+  published test record a waffle and plain-language cards. *Model choice*: why this model.
+  *Errors & trade-offs*: the errors at the recorded cut, and a `Fader` over the validation
+  cuts. *Calibration*: the reliability diagram and the segments. `Scorecard.tsx` and
+  `Confusion.tsx` were removed.
+- **Retention simulator** has three tabs. *Simulate*: primary controls, advanced controls
+  in a disclosure, the overview, the sweep charts and the results. *Compare*: the served,
+  recommended and selected cuts, and up to four pinned scenarios. *Method*: how the cut
+  was made and why the peak is not chosen. `Assumptions.tsx` was removed.
+- **Explainability** has two tabs. *Global*: the method strip, the swarm and the
+  dependence plot of one attribute, and one customer's explanation (requested only on this
+  tab). *Rankings*: the model's order beside the observed association.
+- **Explorer, patterns, single customer, batch** keep their structure in the v4 style.
+  Batch adds a "what you get" list before upload, a note that scoring sends the file to
+  this app's server (`POST /api/batch/score`), the required columns in a disclosure, and a
+  band bar in the results.
+
+### Retention queue explanations (final QA fix, 2026-11-21)
+
+The queue asks `POST /api/explain` for the eight rows of its page with
+`useExplanations(ids, { outlive: true })`. Before this fix the request was never aborted,
+by design for leaving the page, and so also never when the page or the order changed. A
+trace against the synthetic server showed four quick clicks on *Next page* send four or
+five requests, four of them in flight at once; the server's three explainer places were
+taken, and the page the reader stopped at was refused twice with 503, so it said
+"Attributions are unavailable right now".
+
+- `useExplanations` with `outlive` keeps its own abort controller per query key. When the
+  ids change while the reader stays (another page, another sort, another filter), the old
+  key's query is put back as it was (`cancelQueries`, revert: pending, no error) and its
+  request is aborted. Leaving the page aborts nothing, as before, so Back still reads the
+  answer. The other pages call it without `outlive` and are unchanged.
+- The queue asks for a page's ids only once they have stayed 300 ms (`SETTLE_MS`), except
+  the first page it shows and a page whose answer is cached, which are asked at once.
+  Meanwhile its rows show "Loading attributions", never another page's answer.
+- Aborting frees the browser's connection; it does not refund the rate-limit token the
+  server already counted, and the server goes on computing an explanation it has begun
+  (it holds one of the explainer's places until done). The settle is what saves server
+  work: pages passed on the way are never sent.
+- After the fix, the same trace: four quick clicks send one request, for the last page;
+  with a slow explainer (900 ms), a page left while its request is in flight has it
+  aborted, and no more than one is in flight.
+- A refused request (429 or 503) waits before its one retry; if the reader moves on in
+  that wait, the old ids are not sent again (the query stops retrying once nothing shows
+  it).
+- A table that unmounts and mounts again (filters to an empty queue and back) starts with
+  no request of its own; one its earlier self left in flight runs to its answer, as a left
+  request does.
+- Tests: `src/api/queries.test.tsx` (moving aborts and reverts, quick changes keep one in
+  flight, aborted ids are asked again, leaving still outlives, no retry of old ids after a
+  refusal, StrictMode, the default unchanged), `src/pages/overview/QueueExplanations.test.tsx` (page, sort, quick paging,
+  no old answer on new rows, a cached page at once, leaving after a page change), and two
+  browser tests in `e2e/overview-tabs.spec.ts` with exact request counts. In Vitest, MSW
+  can pass a request identical to one aborted mid-answer through to the network, and the
+  retry asks again; the exact count of "asked again once" is therefore asserted in the
+  browser.
+
+### Accepted as they are
+
+- Explainability: switching *Global* → *Rankings* → *Global* with a customer chosen
+  aborts that customer's explanation if it is unanswered and asks for it again on return
+  (one request of the rate limit). Left as it is (L2 in the final QA).
+- Three shared components set a CSS custom property through React's `style` prop, which
+  writes through the CSSOM and so is allowed by `style-src 'self'`: the probability meter
+  (`--p`), the skeleton (`--h`) and the chart tooltip (`--x`, `--y`). No markup `style`
+  attribute is served.
+- Filling the explorer's selection cache from the listing response of the same filter
+  (O1 in the R6 audit: six requests to five on first load, two to one per new filter)
+  needs a change to the shared `api/queries.ts`; it and O2 were deferred by the maintainer.
+- During loading and error, the overview, performance and explainability pages show the
+  state in place of the whole page, without its `<h1>`; the other pages keep theirs.
+- A profile line in the explorer table and the overview's call-first list is cut with an
+  ellipsis at narrow widths; the full text is in the row's detail.
+
+### Verified on 2026-11-21 (final QA, no commit)
+
+- Every page and tab at 320, 375, 768, 1024 and 1440 px: no page-level horizontal scroll.
+- Every sidebar link, Back and Forward across pages and tabs, revisits (no request within
+  the cache time), tab switches (no request, except the queue's one explain), loading,
+  error with retry and recovery, and the explorer's empty state, in a real browser against
+  the synthetic e2e server.
+- A request in flight is aborted when its page is left, except the retention queue's
+  explanation, which is kept on purpose so that coming back does not ask again; no request
+  is sent twice at once.
+- pytest: 4,630 passed, none skipped, 94 % coverage of `src/churnsense` (Python 3.12.13,
+  25 min).
+- After the queue fix above: Vitest 64 files, 1,654 tests; Playwright 165 passed, 2
+  skipped (16 specs, two projects); typecheck, lint, format, build; OpenAPI no drift; the
+  built bundle's wording scan, 14 passed.

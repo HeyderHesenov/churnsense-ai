@@ -1,9 +1,3 @@
-.rowA {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: 14px;
-}
 .footer {
   display: flex;
   flex-wrap: wrap;

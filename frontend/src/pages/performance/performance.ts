@@ -7,9 +7,8 @@
  * there), and turns served values into positions. Nothing here works out a
  * metric.
  */
-import { scaleLinear, type ScaleLinear } from 'd3-scale';
+import { scaleLinear, scaleSqrt, type ScaleLinear } from 'd3-scale';
 import type { Performance } from '../../api/queries';
-import { param } from '../../app/params';
 import { cut } from '../../lib/format';
 import { level } from '../../lib/labels';
 
@@ -24,11 +23,6 @@ export type SegmentRow = Measured['segments'][number];
 export type Candidate = NonNullable<Performance['candidates']>[number];
 export type Selection = NonNullable<Performance['selection']>;
 export type Calibration = Performance['calibration'];
-
-export const PERFORMANCE_PARAMS = {
-  /** The explored cut as ``cut`` writes it ("0.40"); empty at the served model's own. */
-  cut: param.text({ pattern: /^(0\.\d\d|1\.00)$/, maxLength: 4 }),
-};
 
 /** The point labelled ``label``, by label (the grid's floats are inexact), or -1. */
 export function indexOfLabel(points: readonly Cut[], label: string): number {
@@ -132,6 +126,47 @@ export function binLabel(bin: Pick<Bin, 'low' | 'high'>): string {
 export const REL = { width: 360, height: 360, left: 54, right: 350, top: 12, bottom: 308 };
 export const relX = scaleLinear().domain([0, 1]).range([REL.left, REL.right]);
 export const relY = scaleLinear().domain([0, 1]).range([REL.bottom, REL.top]);
+
+/** A bin's dot, its area following its customers: drawing only, no figure is read from it. */
+export function binRadius(bins: readonly Pick<Bin, 'customers'>[]): (customers: number) => number {
+  const most = Math.max(1, ...bins.map((bin) => bin.customers));
+  const scale = scaleSqrt().domain([0, most]).range([3, 9]).clamp(true);
+  return (customers) => scale(customers);
+}
+
+// --- the test record as one square per customer --------------------------------------
+
+export type Outcome = 'tp' | 'fn' | 'fp' | 'tn';
+export const OUTCOMES: readonly Outcome[] = ['tp', 'fn', 'fp', 'tn'];
+
+/** Squares a row of the waffle holds. */
+export const WAFFLE_COLUMNS = 50;
+/** A square's side and the gap after it, in the picture's own units. */
+export const WAFFLE_CELL = 6;
+export const WAFFLE_GAP = 1.5;
+
+/**
+ * The record's customers, one entry per customer, in outcome order: as many
+ * of each as the record counts, never scaled, rounded or normalised.
+ */
+export function waffleCells(counts: Readonly<Record<Outcome, number>>): Outcome[] {
+  return OUTCOMES.flatMap((outcome) =>
+    Array.from({ length: Math.max(0, counts[outcome]) }, () => outcome),
+  );
+}
+
+/** Where the ``index``-th square sits: column and row arithmetic. */
+export function waffleAt(index: number): { x: number; y: number } {
+  const step = WAFFLE_CELL + WAFFLE_GAP;
+  return { x: (index % WAFFLE_COLUMNS) * step, y: Math.floor(index / WAFFLE_COLUMNS) * step };
+}
+
+/** The picture's size for ``squares`` squares. */
+export function waffleSize(squares: number): { width: number; height: number } {
+  const step = WAFFLE_CELL + WAFFLE_GAP;
+  const rows = Math.max(1, Math.ceil(squares / WAFFLE_COLUMNS));
+  return { width: WAFFLE_COLUMNS * step - WAFFLE_GAP, height: rows * step - WAFFLE_GAP };
+}
 
 // --- the one-standard-error rule ---------------------------------------------------
 

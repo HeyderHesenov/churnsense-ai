@@ -5,7 +5,7 @@ import type { Segments } from '../../api/queries';
 import { App } from '../../app/App';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { entriesAdded } from '../../test/history';
-import { contractAlone, contractByTenure, patternsApi } from '../../test/patternsApi';
+import { contractAlone, contractByTenure, patternsApi, reported } from '../../test/patternsApi';
 import { renderAt } from '../../test/render';
 import { recordRequests, refuse, server } from '../../test/server';
 import { ASSOCIATIONS, FAILED, RANKED, TITLE, WITHHELD } from './copy';
@@ -404,10 +404,12 @@ describe('Patterns: what each state of a group shows', () => {
     const below = cell('Contract One year, tenure 4–72 months');
     expect(below).toHaveAttribute('data-side', 'below');
     const lift = 148 / 988 / 0.25;
-    expect(Number(below.style.getPropertyValue('--t'))).toBeCloseTo(
-      -Math.log(lift) / Math.log(5),
-      6,
+    // Drawn in twenty steps by a class rule (no style): the step nearest the distance.
+    expect(below).toHaveAttribute(
+      'data-shade',
+      String(Math.round((-Math.log(lift) / Math.log(5)) * 20)),
     );
+    expect(below).not.toHaveAttribute('style');
     expect(cell('Contract Month-to-month, tenure 4–72 months')).toHaveAttribute(
       'data-side',
       'above',
@@ -486,5 +488,96 @@ describe('Patterns: a new response starts clear', () => {
         'false',
       ),
     );
+  });
+});
+
+describe('Patterns, design v4: privacy and the served order', () => {
+  // Contract by tenure: Month-to-month has 2,000 customers and 800 churned; its
+  // 4–72 group (1,040, 280) is reported and its 0–3 group (960) held back. What a
+  // subtraction would reveal of the held-back group: 520 churned, 54.2%.
+  const LEAKED = /\b520\b|54\.[0-9]%|0\.54|2\.17×/;
+
+  it.each(['rate', 'customers', 'lift'] as const)(
+    'never shows what subtracting a reported group from its margin would reveal (%s)',
+    async (show) => {
+      await showPatterns(`/patterns?show=${show}`);
+      const heldBack = cell('Contract Month-to-month, tenure 0–3 months');
+      fireEvent.pointerEnter(heldBack);
+      expect(document.body.textContent).not.toMatch(LEAKED);
+      fireEvent.click(heldBack);
+      expect(document.body.textContent).not.toMatch(LEAKED);
+      // Every description a cell carries, read out to assistive technology, too.
+      const described = within(table())
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-describedby') ?? '')
+        .map((id) => document.getElementById(id)?.textContent ?? '');
+      expect(described.join(' ')).not.toMatch(LEAKED);
+    },
+  );
+
+  it('lists the ranking in the served order, not by rate, and cuts nothing off', async () => {
+    const served = contractByTenure({
+      ranked: [
+        reported('Two year', '4-72', 1000, 50),
+        reported('One year', '4-72', 99, 30),
+        reported('Month-to-month', '4-72', 21, 15),
+      ],
+    });
+    await showPatterns('/patterns', [http.get('/api/segments', () => HttpResponse.json(served))]);
+    const items = within(ranked()).getAllByRole('listitem');
+    // 5.0%, 30.3%, 71.4%: ascending, as served; groups of 99 and 21 are kept (no n ≥ 100 rule).
+    expect(items.map((li) => li.textContent)).toEqual([
+      expect.stringContaining('5.0%'),
+      expect.stringContaining('30.3%'),
+      expect.stringContaining('71.4%'),
+    ]);
+    expect(items[1]).toHaveTextContent('n 99');
+    expect(items[2]).toHaveTextContent('n 21');
+  });
+
+  it('draws the ranking and associations as SVG from served figures, setting no style', async () => {
+    await showPatterns();
+    const first = within(ranked()).getAllByRole('listitem')[0];
+    if (!first) throw new Error('item');
+    const whisker = first.querySelectorAll('svg rect')[1];
+    const dot = first.querySelector('svg circle');
+    // Month-to-month 4–72: 280 / 1,040 with its served interval, on an axis to 30%.
+    const served = reported('Month-to-month', '4-72', 1040, 280);
+    const at = (v: number) => (v / 0.3) * 100;
+    expect(parseFloat(whisker?.getAttribute('x') ?? '')).toBeCloseTo(at(served.rate_low), 9);
+    expect(parseFloat(whisker?.getAttribute('width') ?? '')).toBeCloseTo(
+      at(served.rate_high) - at(served.rate_low),
+      9,
+    );
+    expect(parseFloat(dot?.getAttribute('cx') ?? '')).toBeCloseTo(at(served.rate), 9);
+    const main = document.getElementById(MAIN_ID);
+    expect(ranked().querySelector('[style]')).toBeNull();
+    expect(associations().querySelector('[style]')).toBeNull();
+    expect(table().querySelector('[style]')).toBeNull();
+    expect(main).not.toBeNull();
+  });
+
+  it('names the view in the breakdown card, which keeps its region', async () => {
+    await showPatterns();
+    const breakdown = screen.getByRole('region', { name: 'Breakdown' });
+    expect(
+      within(breakdown).getByRole('heading', { level: 2, name: 'Contract × tenure' }),
+    ).toBeVisible();
+    expect(
+      within(breakdown).getByText('Observed churn · training partition · as served'),
+    ).toBeVisible();
+    // The views sit beside it, each a card of its own.
+    expect(within(breakdown).queryByRole('region', { name: RANKED.title })).toBeNull();
+    expect(within(breakdown).queryByRole('region', { name: ASSOCIATIONS.title })).toBeNull();
+  });
+
+  it('asks for one breakdown per view, none for a measure, a pin or a pointer', async () => {
+    const seen = recordRequests();
+    await showPatterns();
+    fireEvent.pointerEnter(cell('Contract One year, tenure 4–72 months'));
+    fireEvent.click(cell('Contract One year, tenure 4–72 months'));
+    await user().click(screen.getByRole('button', { name: 'Lift' }));
+    expect(screen.getByRole('button', { name: 'Lift' })).toHaveAttribute('aria-pressed', 'true');
+    expect(segmentRequests(seen)).toEqual(['?rows=Contract&cols=tenure']);
   });
 });

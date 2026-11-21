@@ -62,17 +62,15 @@
   font-weight: 600;
 }
 .cardTrack {
+  display: block;
   width: 100%;
   height: 4px;
-  overflow: hidden;
-  border-radius: var(--radius-2);
-  background: var(--track-2);
+}
+.cardGround {
+  fill: var(--track-2);
 }
 .cardFill {
-  display: block;
-  width: calc(var(--w) * 100%);
-  height: 100%;
-  background: var(--band, var(--accent));
+  fill: var(--band, var(--accent));
 }
 /* A narrow card puts its line in two: the band, then the partition and outcome. */
 .cardFoot {
@@ -338,6 +336,23 @@
 .cardTitle:focus {
   outline: none;
 }
+/* Where a part of the result comes from: the API call that served it. */
+.source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+.prediction > .source {
+  margin-bottom: 12px;
+}
+.waterfallHead .source {
+  margin-top: 6px;
+}
 .prediction {
   outline-offset: 4px;
   padding: 18px 20px;
@@ -413,84 +428,45 @@
   flex-direction: column;
   gap: 8px;
 }
+/* The scale: one SVG, places as shares of its width (Prediction.tsx). */
 .scale {
-  position: relative;
-  padding-top: 24px;
+  display: block;
+  width: 100%;
+  height: 62px;
+  overflow: visible;
 }
-.marker {
-  position: absolute;
-  top: 0;
-  left: calc(var(--p) * 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transform: translateX(-50%);
-  transition: left 0.3s ease;
-}
-.marker[data-lean='start'] {
-  align-items: flex-start;
-  transform: translateX(-1px);
-}
-.marker[data-lean='end'] {
-  align-items: flex-end;
-  transform: translateX(calc(-100% + 1px));
-}
-.markerLabel {
-  padding: 0 6px;
-  border-radius: var(--radius-5);
-  background: var(--ink);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 18px;
-  color: var(--on-light);
-}
-.markerStem {
-  width: 2px;
-  height: 16px;
-  background: var(--ink);
-}
-.bands {
-  display: flex;
-  gap: 2px;
-  height: 10px;
-  overflow: hidden;
-  border-radius: var(--radius-5);
-}
-.bands > span {
-  flex: var(--w) 1 0;
-  background: var(--band);
+.bandRect {
+  fill: var(--band);
   opacity: 0.45;
+  /* A hairline of the card between bands. */
+  stroke: var(--surface);
+  stroke-width: 2px;
 }
-.bands > span[data-on='true'] {
+.bandRect[data-on='true'] {
   opacity: 1;
 }
 .thresholdLine {
-  position: absolute;
-  top: 20px;
-  left: calc(var(--t) * 100%);
-  height: 22px;
-  border-left: 1.5px dashed var(--ink-2);
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
 }
-.axis {
-  position: relative;
-  height: 16px;
+.markerPill {
+  fill: var(--ink);
+}
+.markerLabel {
+  fill: var(--on-light);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--muted);
+  font-weight: 600;
 }
-.axis > span {
-  position: absolute;
-  left: 0;
+.markerStem {
+  stroke: var(--ink);
+  stroke-width: 2;
 }
-.axis > span:last-child {
-  left: auto;
-  right: 0;
-}
-.axis > .axisThreshold {
-  left: calc(var(--t) * 100%);
-  transform: translateX(-50%);
-  white-space: nowrap;
+.axisText {
+  fill: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 .gap {
   margin-top: 2px;
@@ -605,44 +581,34 @@
 }
 .wfTrack {
   grid-area: track;
-  position: relative;
+  display: block;
+  width: 100%;
   height: 16px;
+  overflow: visible;
 }
 .wfBar {
-  position: absolute;
-  top: 3px;
-  left: calc(var(--l) * 100%);
-  width: calc(var(--w) * 100%);
-  height: 10px;
-  border-radius: var(--radius-3);
-  background: var(--line-dash);
-  transition:
-    left 0.3s ease,
-    width 0.3s ease;
+  fill: var(--line-dash);
 }
 .wfBar[data-direction='raises'] {
-  background: var(--raises);
+  fill: var(--raises);
 }
 .wfBar[data-direction='lowers'] {
-  background: var(--lowers);
+  fill: var(--lowers);
 }
 .wfBar[data-direction='total'] {
-  background: var(--band, var(--line-axis));
+  fill: var(--band, var(--line-axis));
 }
 .wfRow[data-rest='true'] .wfBar {
   opacity: 0.5;
 }
 .wfThreshold {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: calc(var(--t) * 100%);
-  border-left: 1px dashed var(--line-dash);
+  stroke: var(--line-dash);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
 }
 .wfRow[data-total='true'] .wfThreshold {
-  top: -6px;
-  bottom: -6px;
-  border-left: 1.5px dashed var(--ink-2);
+  stroke: var(--ink-2);
+  stroke-width: 1.5;
 }
 .wfValue {
   grid-area: value;

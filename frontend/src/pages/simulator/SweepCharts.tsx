@@ -13,11 +13,10 @@ import { scaleLinear } from 'd3-scale';
 import { useState, type MouseEvent } from 'react';
 import type { Sweep, SweepPoint } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
-import { ChartTooltip, TipLine } from '../../components/charts/ChartTooltip';
 import { Card, CardHeader, SimulatedBadge } from '../../components/ui/Surface';
 import { tabledCuts } from '../../lib/cuts';
 import { cut, int, moneyShort, signedMoney } from '../../lib/format';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { precisionText, recallText } from './copy';
 import { ForAssumptions, STALE_MARK } from './ForAssumptions';
 import type { Selection } from './simulator';
@@ -133,49 +132,41 @@ export function SweepCharts({ sweep, selected, stale, onPick }: ChartsProps) {
         }}
         overlay={
           <>
-            {ticks.map((tick) => (
-              <span
-                key={tick}
-                className={styles.yTick}
-                style={cssVars({ '--y': y(tick) / NET.height })}
-                aria-hidden="true"
-              >
-                {moneyShort(tick, currency)}
-              </span>
-            ))}
+            {/* Over the plot (LEFT to RIGHT, NET.top to NET.bottom), placed by the stylesheet. */}
             <div
               aria-hidden="true"
               className={styles.capture}
-              style={cssVars({
-                '--top': NET.top / NET.height,
-                '--h': (NET.bottom - NET.top) / NET.height,
-              })}
               onPointerMove={(event) => setHover(nearest(points, event))}
               onPointerDown={(event) => setHover(nearest(points, event))}
               onPointerLeave={() => setHover(null)}
               onClick={(event) => onPick(nearest(points, event))}
             />
-            <ChartTooltip
-              visible={shown !== undefined}
-              x={shown ? x(shown.threshold) / WIDTH : 0}
-              y={NET.top / NET.height}
-              flip={shown !== undefined && shown.threshold > 0.56}
-              title={
-                shown ? `${cut(shown.threshold)} · ${signedMoney(shown.net_benefit, currency)}` : ''
-              }
+            {/*
+              The hovered cut's figures, for the eye only (the table and the
+              fader say them to assistive technology). It sits in the plot's
+              corner away from the pointer, placed by a class, so the page
+              sets no style attribute.
+            */}
+            <div
+              aria-hidden="true"
+              className={cx(styles.hoverTip, shown && shown.threshold <= 0.5 && styles.hoverTipEnd)}
+              data-visible={shown !== undefined}
             >
               {shown && (
                 <>
-                  <TipLine>
+                  <span className={styles.hoverTipTitle}>
+                    {cut(shown.threshold)} · {signedMoney(shown.net_benefit, currency)}
+                  </span>
+                  <span className={styles.hoverTipLine}>
                     flagged {int(shown.flagged)} · P {precisionText(shown)}
-                  </TipLine>
-                  <TipLine>
+                  </span>
+                  <span className={styles.hoverTipLine}>
                     churners flagged {int(shown.true_positives)} · R{' '}
                     {recallText(shown, sweep.churners)}
-                  </TipLine>
+                  </span>
                 </>
               )}
-            </ChartTooltip>
+            </div>
           </>
         }
         legend={
@@ -210,14 +201,12 @@ export function SweepCharts({ sweep, selected, stale, onPick }: ChartsProps) {
       >
         <svg viewBox={`0 0 ${WIDTH} ${NET.height}`}>
           {ticks.map((tick) => (
-            <line
-              key={tick}
-              className={styles.grid}
-              x1={LEFT}
-              x2={RIGHT}
-              y1={y(tick)}
-              y2={y(tick)}
-            />
+            <g key={tick}>
+              <line className={styles.grid} x1={LEFT} x2={RIGHT} y1={y(tick)} y2={y(tick)} />
+              <text className={styles.tick} x={LEFT - 8} y={y(tick) + 4} textAnchor="end">
+                {moneyShort(tick, currency)}
+              </text>
+            </g>
           ))}
           <rect
             className={styles.band}

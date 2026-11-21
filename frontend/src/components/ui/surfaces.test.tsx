@@ -62,6 +62,46 @@ describe('StatTile', () => {
     expect(onFollow).toHaveBeenCalledTimes(1);
     expect(window.location.search).toBe('?bands=High');
   });
+
+  it('draws a visual beside the value, hidden from screen readers', () => {
+    const { container } = render(
+      <StatTile
+        label="High or Critical"
+        value="1,457"
+        visual={
+          <svg role="img" aria-label="Ring at 20.7%">
+            <circle r="10" />
+          </svg>
+        }
+      />,
+    );
+    const visual = container.querySelector('svg');
+    expect(visual?.parentElement).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    // The value and the visual share a row; the value is first.
+    expect(visual?.parentElement?.previousElementSibling).toHaveTextContent('1,457');
+  });
+
+  it('keeps a linked tile named by its words alone when it has a visual', () => {
+    window.history.replaceState(null, '', '/');
+    render(
+      <StatTile
+        label="Flagged at 0.36"
+        value="2,306"
+        visual={<svg role="img" aria-label="Ring at 32.7%" />}
+        link={{ to: '/?bands=High#queue', description: 'Show them in the queue' }}
+      />,
+    );
+    expect(screen.getByRole('link')).toHaveAccessibleName(/^Flagged at 0\.36\s*2,306$/);
+  });
+
+  it('adds nothing around the value without a visual', () => {
+    const plain = render(<StatTile label="Customers scored" value="7,043" />);
+    const tile = plain.container.firstElementChild;
+    expect(tile?.children).toHaveLength(2);
+    expect(tile?.children[1]).toHaveTextContent(/^7,043$/);
+    expect(tile?.querySelector('[aria-hidden]')).not.toBeInTheDocument();
+  });
 });
 
 describe('PageHeader', () => {

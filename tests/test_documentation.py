@@ -564,13 +564,31 @@ def test_the_security_policy_tells_the_levels_apart():
         assert needed in text, needed
 
 
-def test_the_documents_keep_the_levels_of_the_release():
-    for name in ("README.md", "docs/MODEL_CARD.md", "SECURITY.md"):
-        text = " ".join((ROOT / name).read_text().split())
-        assert "working tree" in text, name
-        assert "best-effort consistency check" in text, name
-        assert "not a required check" in text, name
-        assert "public dataset" in text, name
+@pytest.mark.parametrize("name", ["README.md", "docs/MODEL_CARD.md", "SECURITY.md"])
+def test_the_documents_keep_the_levels_of_the_release(name: str):
+    """Required by GitHub, and still only best-effort: each document says both.
+
+    Since 2026-11-09 the `Protect main` ruleset lists `held-out-release-governance` among its
+    required status checks. A pull request can still edit the workflow and the checker it is
+    judged by, so being required does not make the check tamper-resistant, and the maintainer
+    still reads every governance change. The stale "not required" wording is refused by
+    `_FALSE_CLAIMS`, in these documents and the other governance texts.
+    """
+    text = " ".join((ROOT / name).read_text().split())
+    lower = text.lower()
+    assert "working tree" in text
+    assert "best-effort consistency check" in text
+    assert "public dataset" in text
+    assert re.search(r"ruleset requires it|ruleset's required status checks", lower)
+    # The check by its name, said to be a required status check in the same sentence, with no
+    # "not" in between.
+    assert re.search(
+        r"`held-out-release-governance`(?:(?!\bnot\b)[^.]){0,160}\brequired status checks?\b",
+        lower,
+    )
+    assert "does not make it tamper-resistant" in lower
+    assert re.search(r"pull request can (?:still )?edit (?:its own |the )?workflow", lower)
+    assert re.search(r"maintainer (?:reading|inspects) every", lower)
 
 
 #: Everything that describes the ledger's check, in code as well as in prose.
@@ -586,7 +604,12 @@ _GOVERNANCE_TEXTS = (
     ".github/workflows/held-out-release-governance.yml",
 )
 
-#: Claims the audit found untrue of a ``pull_request`` check that is in no ruleset.
+#: Claims untrue of the ledger's check. The audit found the first group when the check was in
+#: no ruleset; they stay, because each of its examples gives the check a power it still lacks
+#: (stopping a second release, guarding ``main``). The ruleset has required it since
+#: 2026-11-09, so saying it is not required is now false too. Required or not, a pull request
+#: can edit its own workflow and the checker, so nothing makes it tamper-resistant, and the
+#: ruleset requires no approval.
 _FALSE_CLAIMS = (
     r"the required check",
     r"a required check on\b",
@@ -613,6 +636,21 @@ _FALSE_CLAIMS = (
     r"no dry run",
     r"first runs after the reservation",
     r"(dry run|rehearsal) (removes|eliminates|guarantees)",
+    # The check's status before 2026-11-09, said as if it still held.
+    r"not a required check today",
+    r"not in the ruleset today",
+    r"held-out-release-governance`?,? (?:is |it is )?not (?:a |one of the )?required",
+    r"(?:has not|not yet) been added to the ruleset",
+    r"reports and blocks nothing",
+    r"neither has happened",
+    # Being required, or anything else, does not make it tamper-resistant.
+    r"\bis tamper-resistant",
+    r"\b(?:makes|made|would make|will make) it tamper-resistant",
+    r"tamper-resistant because",
+    r"(?:pull request|change) cannot (?:edit|change|remove) (?:its own |the )?(?:workflow|checker)",
+    # The ruleset requires no approval.
+    r"ruleset requires (?:an?|one|at least one|two) (?:\w+ )?approv",
+    r"approvals? (?:is|are) required",
 )
 
 
@@ -622,7 +660,8 @@ def _false_claims_in(text: str) -> list[str]:
 
 
 @pytest.mark.parametrize("name", _GOVERNANCE_TEXTS)
-def test_no_document_calls_the_check_an_active_gate(name: str):
+def test_no_document_overstates_or_misstates_the_check(name: str):
+    """No text gives the check a power it lacks, or a status it no longer has."""
     found = _false_claims_in((ROOT / name).read_text())
     assert not found, f"{name}: {found}"
 
@@ -652,6 +691,22 @@ def test_no_document_calls_the_check_an_active_gate(name: str):
         "The model first runs after the reservation.",
         "This rehearsal eliminates the risk.",
         "The dry run guarantees it cannot fail.",
+        "It is not a required check today.",
+        "It is not in the ruleset today.",
+        "`held-out-release-governance` is not a required check.",
+        "held-out-release-governance, not one of the required status checks",
+        "The check has not been added to the ruleset.",
+        "The ruleset does not list it, so today it reports and blocks nothing.",
+        "It may then be added to the ruleset by hand. Neither has happened.",
+        "Because the ruleset requires it, the check is tamper-resistant.",
+        "Requiring it makes it tamper-resistant.",
+        "Adding it to the ruleset would make it tamper-resistant.",
+        "It is tamper-resistant because GitHub runs it.",
+        "A pull request cannot edit its own workflow.",
+        "A change cannot remove the checker.",
+        "The ruleset requires an approval from the maintainer.",
+        "The ruleset requires one approval.",
+        "Approval is required before a merge.",
     ],
 )
 def test_the_scan_would_notice_each_false_claim(sentence: str):
@@ -661,9 +716,19 @@ def test_the_scan_would_notice_each_false_claim(sentence: str):
 
 def test_the_scan_leaves_an_honest_sentence_alone():
     for honest in (
-        "It is not a required check today.",
         "`score()` refuses a second press by the live request.",
         "The job is a required check, so any known vulnerability blocks merging.",
+        "`held-out-release-governance` is a required status check, but a pull request can edit"
+        " its own workflow and checker, so that does not make it tamper-resistant.",
+        "The `main` ruleset requires it, which does not make it tamper-resistant.",
+        "Requiring it does not make it tamper-resistant, for the reasons above.",
+        "Requiring it would not make it tamper-resistant.",
+        "It is not tamper-resistant, and not a trusted boundary.",
+        "It has been one of the ruleset's required status checks since 2026-11-09.",
+        "`frontend (node 22)` is not a required check: the ruleset does not list it.",
+        "The ruleset requires no approval.",
+        "a ruleset with at least one required approval from someone other than the author,"
+        " and a check that the pull request cannot edit.",
     ):
         assert not _false_claims_in(honest), honest
 
@@ -680,6 +745,7 @@ def test_the_policy_states_the_trust_limit_and_the_manual_review():
         "`src/churnsense/evaluation/disclosure.py`",
         "trusted GitHub App",
         "pull_request_target",
+        "The ruleset requires no approval",
     ):
         assert needed in text, needed
 
@@ -803,10 +869,14 @@ def test_the_policy_limits_the_next_policy():
 
 
 def test_the_code_says_what_the_check_is():
+    """Required by the ruleset, and still not a trusted boundary, in the code's own words."""
     for name in ("src/churnsense/evaluation/release.py", "scripts/check_release_ledger.py"):
         text = " ".join((ROOT / name).read_text().split())
+        lower = text.lower()
         assert "best-effort consistency check" in text, name
-        assert "not a required check" in text, name
+        assert "required status check of the ``protect main`` ruleset" in lower, name
+        assert "not a trusted boundary" in lower, name
+        assert re.search(r"pull request can edit its own workflow", lower), name
 
 
 def test_validation_keeps_its_ranking_metrics_under_its_own_name():

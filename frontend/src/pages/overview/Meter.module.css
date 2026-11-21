@@ -1,0 +1,51 @@
+/* The svg is 6px taller than its track, so the tick stands 3px out on each side. */
+.meter {
+  display: block;
+  width: 100%;
+  height: 14px;
+  overflow: visible;
+}
+.thin {
+  height: 12px;
+}
+.track,
+.fill {
+  y: 3px;
+  height: 8px;
+  rx: 3px;
+}
+.thin .track,
+.thin .fill {
+  height: 6px;
+}
+.track {
+  fill: var(--track);
+}
+.fill {
+  fill: var(--accent);
+  transition: width 0.3s ease;
+  animation: growx 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transform-box: fill-box;
+  transform-origin: left;
+}
+.meter[data-tone='sim'] .fill {
+  fill: var(--sim);
+}
+.meter[data-tone='risk'] .fill {
+  fill: var(--critical);
+}
+.tick {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+@keyframes growx {
+  from {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    transition: none;
+    animation: none;
+  }
+}

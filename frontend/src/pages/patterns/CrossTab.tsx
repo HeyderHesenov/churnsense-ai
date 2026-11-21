@@ -8,9 +8,18 @@ import { useId } from 'react';
 import type { Cell, Segments } from '../../api/queries';
 import { int, pct } from '../../lib/format';
 import { level } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { cellText, focusText, hiddenMark, legendText, measureName, viewName } from './copy';
-import { grid, sameGroup, scaleOf, shadeOf, type Measure, type Scale, type View } from './patterns';
+import {
+  grid,
+  sameGroup,
+  scaleOf,
+  shadeOf,
+  shadeStep,
+  type Measure,
+  type Scale,
+  type View,
+} from './patterns';
 import styles from './Patterns.module.css';
 
 interface Props {
@@ -154,7 +163,7 @@ function CellButton({
       aria-pressed={pinned}
       data-measure={measure}
       data-side={shade !== null && shade < 0 ? 'below' : 'above'}
-      style={cssVars({ '--t': shade === null ? 0 : Math.abs(shade) })}
+      data-shade={shadeStep(shade)}
       onPointerEnter={() => onActive(cell)}
       onPointerLeave={() => onActive(null)}
       onFocus={() => onActive(cell)}

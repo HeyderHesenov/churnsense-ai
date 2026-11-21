@@ -8,7 +8,11 @@
 import type { Sweep, SweepPoint } from '../../api/queries';
 import { cut, int, minorDigits, pct, price, signedMoney } from '../../lib/format';
 import {
+  ADVANCED,
+  FIELDS,
   MAX_TEXT,
+  type Change,
+  type Scenario,
   type Echo,
   type FieldKey,
   type FieldProblem,
@@ -48,7 +52,11 @@ export function fieldValue(spec: FieldSpec, value: number, currency: string): st
   return `${int(value)} ${value === 1 ? 'month' : 'months'}`;
 }
 
-function rangeText(spec: FieldSpec, range: Pick<Range, 'min' | 'max'>, currency: string): string {
+export function rangeText(
+  spec: FieldSpec,
+  range: Pick<Range, 'min' | 'max'>,
+  currency: string,
+): string {
   if (spec.unit === 'months') return `${int(range.min)} to ${int(range.max)} months`;
   return `${fieldValue(spec, range.min, currency)} to ${fieldValue(spec, range.max, currency)}`;
 }
@@ -66,7 +74,7 @@ export function fieldMessage(spec: FieldSpec, problem: FieldProblem, currency: s
     case 'long':
       return `${capital(noun)} is written in at most ${MAX_TEXT} characters.`;
     case 'format':
-      return `${capital(noun)} is a number, written in digits with a point for any decimals.`;
+      return `${capital(noun)} is a number, written in digits with a point or a comma for any decimals.`;
     case 'whole':
       return `${capital(noun)} is a whole number of months.`;
     case 'step': {
@@ -194,3 +202,55 @@ export function sensitivityNote(rows: Sweep['sensitivity']): string | null {
     `${pct(last.offer_success_rate, 0)}: where to cut is a business decision as much as a model’s.`
   );
 }
+
+/** F1 is not defined where nothing is flagged or no one churned; the API writes it as 0 then. */
+export function f1Text(point: Pick<SweepPoint, 'flagged' | 'f1'>, churners: number): string {
+  return point.flagged === 0 || churners === 0 ? '—' : point.f1.toFixed(3);
+}
+
+/** The cut's figures in one line, each the response's own at that cut. */
+export function readout(point: SweepPoint, churners: number): string {
+  return (
+    `At ${cut(point.threshold)}: ${int(point.flagged)} flagged · precision ${precisionText(point)} · ` +
+    `recall ${recallText(point, churners)} · F1 ${f1Text(point, churners)}.`
+  );
+}
+
+export const CUT_CAPTION =
+  'Customers scored at or above the cut get an offer. Only the cuts the API sent can be chosen; the labelled tick is the served cut.';
+
+/** Why the cut cannot be chosen yet, by what the figures are. */
+export function cutUnavailable(status: Status, malformed: boolean): string {
+  if (status === 'withheld') return 'No cut can be chosen while the sweep is withheld.';
+  if (status === 'failed') return 'No cut can be chosen: the sweep for these assumptions failed.';
+  if (status === 'unsent') return 'No cut can be chosen until every assumption can be sent.';
+  if (malformed) return 'No cut can be chosen: the sweep has no point at its own recommendation.';
+  return 'The cuts arrive with the sweep.';
+}
+
+/** The Advanced controls' summary: the two values behind it, as set. */
+export function advancedSummary(scenario: Scenario, currency: string): string {
+  return FIELDS.filter((spec) => ADVANCED.includes(spec.key))
+    .map((spec) => {
+      const value = scenario.readings[spec.key].value;
+      return `${FIELD_COPY[spec.key].label} ${value === null ? 'not set' : fieldValue(spec, value, currency)}`;
+    })
+    .join(' · ');
+}
+
+/** One changed field: "Cost of one offer $80 (default $50)". */
+export function changeLine(change: Change, currency: string): string {
+  const { spec, value, fallback } = change;
+  const now = value === null ? 'cannot be sent' : fieldValue(spec, value, currency);
+  return `${FIELD_COPY[spec.key].label} ${now} (default ${fieldValue(spec, fallback, currency)})`;
+}
+
+export const AT_DEFAULTS = 'Every assumption is at the served default.';
+
+export const SIDE_BY_SIDE =
+  'Three cuts of the same response, read side by side: each figure is the API’s own at its cut, and nothing is subtracted from anything.';
+
+export const NOT_A_POINT = 'not one of the cuts the API sent';
+
+export const FORMULA_NOTE =
+  'The API works every amount out from the counts at a cut and the assumptions as named; the page writes them and works none out.';

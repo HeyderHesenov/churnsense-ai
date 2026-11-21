@@ -7,10 +7,9 @@
  * published (`evaluation.disclosure`).
  */
 import type { Performance } from '../../api/queries';
-import { Card, CardHeader } from '../../components/ui/Surface';
+import { Card, CardHeader, Tag } from '../../components/ui/Surface';
 import { cut, int, pct } from '../../lib/format';
-import { cssVars } from '../../lib/style';
-import { GENDER, segmentsSubtitle, SMALL, UNSCANNED, unavailableText } from './copy';
+import { GENDER, segmentsSubtitle, segmentsTitle, SMALL, UNSCANNED, unavailableText } from './copy';
 import {
   dimensionName,
   groups,
@@ -21,6 +20,22 @@ import {
 } from './performance';
 import styles from './Performance.module.css';
 import { useSweepNote } from '../../components/ui/DataSourceNote';
+
+/** A served rate on a small 0-to-1 bar; the cell's text says the figure. */
+function RateBar({ value, kind }: { value: number; kind: 'precision' | 'recall' }) {
+  return (
+    <svg
+      className={styles.rateBar}
+      data-rate={kind}
+      viewBox="0 0 100 5"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <rect className={styles.rateTrack} x={0} y={0} width={100} height={5} rx={2.5} />
+      <rect className={styles.rateFill} x={0} y={0} width={value * 100} height={5} rx={2.5} />
+    </svg>
+  );
+}
 
 /** A rate with its interval, when the row carries one. */
 function withInterval(value: string, low?: number | null, high?: number | null): string {
@@ -70,15 +85,18 @@ function Row({ row }: { row: SegmentRow }) {
       <td>{int(row.churners)}</td>
       <td>{row.churn_rate === null ? '—' : pct(row.churn_rate)}</td>
       <td>{int(row.flagged)}</td>
-      <td>{precision}</td>
       <td>
-        <span className={styles.recallCell}>
-          {recall}
-          {row.recall !== null && row.churners > 0 && (
-            <span className={styles.recallBar} aria-hidden="true">
-              <span style={cssVars({ '--w': row.recall })} />
-            </span>
+        <span className={styles.rateCell}>
+          {precision}
+          {row.flagged > 0 && row.precision !== null && (
+            <RateBar value={row.precision} kind="precision" />
           )}
+        </span>
+      </td>
+      <td>
+        <span className={styles.rateCell}>
+          {recall}
+          {row.recall !== null && row.churners > 0 && <RateBar value={row.recall} kind="recall" />}
         </span>
       </td>
       <td>{row.roc_auc == null ? '—' : score(row.roc_auc)}</td>
@@ -95,8 +113,9 @@ export function Segments({ figures }: { figures: Performance }) {
     <Card titleId="segments-title">
       <CardHeader
         id="segments-title"
-        title="Does one cut serve every segment?"
+        title={segmentsTitle(threshold)}
         subtitle={segmentsSubtitle(threshold)}
+        aside={<Tag>VALIDATION</Tag>}
       />
       {rows === null ? (
         <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>

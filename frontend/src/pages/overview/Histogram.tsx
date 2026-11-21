@@ -6,7 +6,7 @@
  * The geometry is the artboard's (a 640 x 214 box, the plot from x 40 to 600
  * and y 180 up to 30); the scales come from the data. A bin is chosen by
  * pointer or keyboard (the plot is a slider over the 20 bins), and choosing
- * it filters the queue to the bin's band.
+ * it opens the retention queue on the bin's band.
  */
 import { scaleLinear } from 'd3-scale';
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
@@ -14,7 +14,7 @@ import type { Overview } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
 import { ChartTooltip, TipLine } from '../../components/charts/ChartTooltip';
 import { cut, int, money, moneyShort, pct } from '../../lib/format';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { binIndex } from './bins';
 import styles from './Histogram.module.css';
 
@@ -80,12 +80,10 @@ function observedPath(bins: readonly Bin[]): string {
 interface HistogramProps {
   book: Overview;
   measure: Measure;
-  /** The one band the queue shows, if it shows exactly one. */
-  only: string | null;
   onPickBand: (band: string) => void;
 }
 
-export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
+export function Histogram({ book, measure, onPickBand }: HistogramProps) {
   const [active, setActive] = useState<number | null>(null);
   const bins = book.histogram;
   const valueOf = (bin: Bin) => (measure === 'customers' ? bin.customers : bin.monthly_charges);
@@ -153,18 +151,11 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
       }}
       overlay={
         <>
-          <span
-            className={styles.yTick}
-            style={cssVars({ '--y': TOP / HEIGHT })}
-            aria-hidden="true"
-          >
+          {/* The scale starts at 0, so its top is at TOP and its middle halfway down: fixed places. */}
+          <span className={cx(styles.yTick, styles.yTop)} aria-hidden="true">
             {axis(top)}
           </span>
-          <span
-            className={styles.yTick}
-            style={cssVars({ '--y': y(top / 2) / HEIGHT })}
-            aria-hidden="true"
-          >
+          <span className={cx(styles.yTick, styles.yMiddle)} aria-hidden="true">
             {axis(top / 2)}
           </span>
           <div
@@ -236,7 +227,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
           <rect
             key={band.name}
             data-band={band.name}
-            className={cx(styles.zone, only === band.name && styles.zoneOn)}
+            className={styles.zone}
             x={x(band.min)}
             y={TOP}
             width={x(Math.min(band.max, 1)) - x(band.min)}
@@ -283,7 +274,7 @@ export function Histogram({ book, measure, only, onPickBand }: HistogramProps) {
             <rect
               key={i}
               data-band={b.band}
-              className={cx(styles.bar, only !== null && only !== b.band && styles.faded)}
+              className={styles.bar}
               x={left}
               y={y(valueOf(b))}
               width={width}

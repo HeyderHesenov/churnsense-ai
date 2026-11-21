@@ -2,8 +2,11 @@
  * Does a probability mean what it says? The served model's validation
  * customers in tenths of probability, each bin's observed churn against its
  * mean stated probability, beside the diagonal where the two are equal. A bin
- * of fewer than 20 customers has no observed rate and is not drawn. Below it, training's record: the uncalibrated candidate and the
- * served model at a cut of 0.50, and why calibration was kept (or not).
+ * of fewer than 20 customers has no observed rate and is not drawn; a drawn
+ * bin's dot is as large as its customers make it (drawing only). The ECE is
+ * the served figure, in the header. Beside it, training's record: the
+ * uncalibrated candidate and the served model at a cut of 0.50, and why
+ * calibration was kept (or not).
  */
 import type { Performance } from '../../api/queries';
 import { ChartFrame } from '../../components/charts/ChartFrame';
@@ -18,7 +21,7 @@ import {
   SMALL,
   unavailableText,
 } from './copy';
-import { binLabel, REL, relX, relY, score, type Bin } from './performance';
+import { binLabel, binRadius, REL, relX, relY, score, type Bin } from './performance';
 import styles from './Performance.module.css';
 import { useSweepNote } from '../../components/ui/DataSourceNote';
 
@@ -33,6 +36,7 @@ function Reliability({ bins }: { bins: readonly Bin[] }) {
     )
     .join(' ');
   const hidden = bins.length - drawn.length;
+  const radius = binRadius(drawn);
   return (
     <ChartFrame
       className={styles.reliability}
@@ -56,7 +60,7 @@ function Reliability({ bins }: { bins: readonly Bin[] }) {
         <>
           <span className={styles.legendItem}>
             <span className={styles.binKey} aria-hidden="true" />
-            validation bin: mean stated against observed
+            validation bin: mean stated against observed, sized by its customers
           </span>
           <span className={styles.legendItem}>
             <span className={styles.diagonalKey} aria-hidden="true" />
@@ -86,7 +90,7 @@ function Reliability({ bins }: { bins: readonly Bin[] }) {
             className={styles.binMark}
             cx={relX(bin.mean_predicted)}
             cy={relY(bin.rate)}
-            r={5}
+            r={radius(bin.customers)}
           >
             <title>
               {`${binLabel(bin)}: ${int(bin.customers)} customers, stated ${score(bin.mean_predicted)}, observed ${score(bin.rate)}`}
@@ -133,42 +137,55 @@ export function Calibration({ figures }: { figures: Performance }) {
         id="calibration-title"
         title="Does a probability mean what it says?"
         subtitle={calibrationSubtitle(measured?.reliability ?? null)}
-        aside={<Tag>VALIDATION</Tag>}
+        aside={
+          <span className={styles.headStat}>
+            {measured && <span className={styles.mono}>ECE {score(measured.ece)}</span>}
+            <Tag>VALIDATION</Tag>
+          </span>
+        }
       />
-      {measured ? (
-        <>
-          <Reliability bins={measured.reliability} />
-          {notDrawn(measured.reliability) && (
-            <p className={styles.note}>{notDrawn(measured.reliability)}</p>
+      <div className={styles.calLayout}>
+        <div className={styles.calChart}>
+          {measured ? (
+            <>
+              <Reliability bins={measured.reliability} />
+              {notDrawn(measured.reliability) && (
+                <p className={styles.note}>{notDrawn(measured.reliability)}</p>
+              )}
+              <p className={styles.note}>
+                ECE {score(measured.ece)}. {ECE_NOTE}
+              </p>
+            </>
+          ) : (
+            <p className={styles.unavailable}>
+              {unavailableText(figures.withheld_reason, sweepNote)}
+            </p>
           )}
-          <p className={styles.note}>
-            ECE {score(measured.ece)}. {ECE_NOTE}
-          </p>
-        </>
-      ) : (
-        <p className={styles.unavailable}>{unavailableText(figures.withheld_reason, sweepNote)}</p>
-      )}
-      <table className={styles.halfTable}>
-        <caption className={styles.tableCaption}>At a cut of 0.50</caption>
-        <thead>
-          <tr>
-            <td />
-            <th scope="col">Uncalibrated</th>
-            <th scope="col">Served</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <th scope="row">{row.label}</th>
-              <td>{at('uncalibrated', row.key)}</td>
-              <td className={styles.servedCell}>{at('calibrated', row.key)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className={styles.note}>{AT_HALF_CAVEAT}</p>
-      <p className={styles.sentence}>{calibrationSentence(calibration)}</p>
+        </div>
+        <div className={styles.calSide}>
+          <table className={styles.halfTable}>
+            <caption className={styles.tableCaption}>At a cut of 0.50</caption>
+            <thead>
+              <tr>
+                <td />
+                <th scope="col">Uncalibrated</th>
+                <th scope="col">Served</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.key}>
+                  <th scope="row">{row.label}</th>
+                  <td>{at('uncalibrated', row.key)}</td>
+                  <td className={styles.servedCell}>{at('calibrated', row.key)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className={styles.note}>{AT_HALF_CAVEAT}</p>
+          <p className={styles.sentence}>{calibrationSentence(calibration)}</p>
+        </div>
+      </div>
     </Card>
   );
 }

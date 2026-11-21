@@ -8,7 +8,7 @@ import { ApiError } from '../../api/client';
 import { useCustomer, type CustomerDetail, type Prediction } from '../../api/queries';
 import { Link } from '../../app/router';
 import { probabilityPct } from '../../lib/format';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import { cardMeta, LIVE_META, README_META } from './copy';
 import { choiceKey, type Shown } from './customer';
 import type { Score } from './Prediction';
@@ -146,12 +146,19 @@ function Card({
           {score ? probabilityPct(score.probability) : pending}
         </span>
       </span>
-      <span className={styles.cardTrack} aria-hidden="true">
-        <span
-          className={styles.cardFill}
-          style={cssVars({ '--w': score ? score.probability : 0 })}
-        />
-      </span>{' '}
+      <svg className={styles.cardTrack} aria-hidden="true">
+        <rect className={styles.cardGround} x="0" y="0" width="100%" height="4" rx="2" />
+        {score && (
+          <rect
+            className={styles.cardFill}
+            x="0"
+            y="0"
+            width={`${String(score.probability * 100)}%`}
+            height="4"
+            rx="2"
+          />
+        )}
+      </svg>{' '}
       <span className={styles.cardFoot}>
         <span className={styles.cardBand}>
           <span className={styles.swatch} aria-hidden="true" />

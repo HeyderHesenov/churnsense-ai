@@ -229,8 +229,14 @@ describe('Explorer: loading the book', () => {
     const rows = await within(table).findAllByRole('row');
     const churned = rows.find((row) => within(row).queryByText(/^Churned/));
     if (!churned) throw new Error('the first page holds no churned customer');
+    // The at-risk cell's figure: its folded-card label is hidden from assistive technology.
     const cells = within(churned).getAllByRole('cell');
-    expect(cells.some((cell) => cell.textContent === '—')).toBe(true);
+    const shown = (cell: HTMLElement) =>
+      [...cell.childNodes]
+        .filter((node) => !(node instanceof Element && node.getAttribute('aria-hidden') === 'true'))
+        .map((node) => node.textContent)
+        .join('');
+    expect(cells.some((cell) => shown(cell) === '—')).toBe(true);
   });
 
   it('gives no observed rate for fewer than 20 customers with outcomes', async () => {
@@ -1065,5 +1071,100 @@ describe('Explorer: export', () => {
       '/api/customers/export?contract=One+year&sort=tenure&dir=asc',
     );
     expect(link).toHaveAttribute('download');
+  });
+});
+
+describe('Explorer: design v4', () => {
+  /** Requests to ``path`` (exact), or under it with ``prefix``. */
+  const to = (seen: URL[], path: string) => seen.filter((url) => url.pathname === path);
+
+  it('asks for six listings and counts on first load, and nothing to explain', async () => {
+    const seen = recordRequests();
+    showExplorer();
+    await table();
+    // Each saved view's count is in, so every request the page makes as it opens has gone.
+    const views = screen.getByRole('group', { name: 'Saved views' });
+    await waitFor(() => expect(within(views).queryByText('…')).not.toBeInTheDocument());
+    await still();
+    // One page, the whole book's selection (the current filters are the default, the
+    // same key), and the four saved views other than "All customers" (that key again).
+    expect(to(seen, '/api/customers')).toHaveLength(6);
+    expect(listings(seen)).toHaveLength(1);
+    expect(to(seen, '/api/model-info')).toHaveLength(1);
+    expect(seen.some((url) => url.pathname === '/api/explain')).toBe(false);
+    expect(seen.some((url) => url.pathname.startsWith('/api/customers/'))).toBe(false);
+  });
+
+  it('opens a row with one request, and pages with one listing and nothing else', async () => {
+    showExplorer();
+    const found = await table();
+    const views = screen.getByRole('group', { name: 'Saved views' });
+    await waitFor(() => expect(within(views).queryByText('…')).not.toBeInTheDocument());
+    await still();
+    const seen = recordRequests();
+    await userEvent.click(rowButtons(found)[0] as HTMLElement);
+    await within(detail()).findByText('Churn probability');
+    await still();
+    expect(seen.map((url) => url.pathname)).toEqual(['/api/customers/DEMO-0001']);
+    seen.length = 0;
+    await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    await waitFor(() => expect(listings(seen)).toHaveLength(1));
+    await still();
+    expect(seen).toHaveLength(1);
+    expect(listings(seen)[0]?.searchParams.get('page')).toBe('2');
+  });
+
+  it('names the list and the order it asked the API for, and sorts on the server', async () => {
+    const seen = recordRequests();
+    showExplorer();
+    await table();
+    const list = customers();
+    expect(within(list).getByRole('heading', { level: 2, name: 'Scored customers' })).toBeVisible();
+    expect(
+      within(list).getByText('Sorted by probability, highest first, by the API'),
+    ).toBeVisible();
+    seen.length = 0;
+    await userEvent.click(within(list).getByRole('button', { name: /^Tenure/ }));
+    expect(
+      await within(list).findByText('Sorted by tenure, lowest first, by the API'),
+    ).toBeVisible();
+    await waitFor(() => expect(listings(seen).length).toBeGreaterThan(0));
+    const asked = listings(seen).at(-1);
+    expect(asked?.searchParams.get('sort')).toBe('tenure');
+    expect(asked?.searchParams.get('dir')).toBe('asc');
+  });
+
+  it('draws each attribution as an SVG bar from the axis, the strongest shown reaching the edge', async () => {
+    showExplorer('/explorer?id=DEMO-0001');
+    await table();
+    const panel = detail();
+    await userEvent.click(within(panel).getByRole('button', { name: 'Explain this customer' }));
+    const list = await within(panel).findByRole('list', { name: 'Attributions' });
+    const bars = [...list.querySelectorAll('rect[data-direction]')];
+    expect(bars).toHaveLength(7);
+    // Tenure +0.317 is the strongest shown: half the track, right of the middle.
+    expect(bars[0]).toHaveAttribute('data-direction', 'raises');
+    expect(bars[0]).toHaveAttribute('x', '50');
+    expect(bars[0]).toHaveAttribute('width', '50');
+    // Monthly charges −0.209: to the left of the middle, in proportion.
+    const width = Number(bars[1]?.getAttribute('width'));
+    expect(width).toBeCloseTo((0.209 / 0.317) * 50, 9);
+    expect(bars[1]).toHaveAttribute('data-direction', 'lowers');
+    expect(Number(bars[1]?.getAttribute('x'))).toBeCloseTo(50 - width, 9);
+    // The shared probability meter in the list still sets a CSS variable (src/components);
+    // the panel's own drawing sets none.
+    expect(list.querySelector('[style]')).toBeNull();
+  });
+
+  it('names each figure beside it for a folded card, hidden from assistive technology', async () => {
+    showExplorer();
+    const found = await table();
+    const [row] = within(found).getAllByRole('row').slice(1);
+    if (!row) throw new Error('row');
+    const labels = [...row.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent);
+    expect(labels).toEqual(expect.arrayContaining(['Tenure', 'Monthly', 'At risk']));
+    // The non-sorting headers stay headers for a screen reader when they fold away.
+    expect(within(found).getByRole('columnheader', { name: 'Band' })).toBeInTheDocument();
+    expect(within(found).getByRole('columnheader', { name: 'Outcome' })).toBeInTheDocument();
   });
 });

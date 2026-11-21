@@ -91,6 +91,20 @@
   letter-spacing: -0.025em;
   line-height: 1.2;
 }
+.tileRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+.tileVisual {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  max-width: 50%;
+  overflow: hidden;
+}
 .tileSub {
   font-size: 12px;
   color: var(--muted);

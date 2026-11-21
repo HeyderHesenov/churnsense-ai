@@ -1,0 +1,146 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+/* 18 px drawn; the hit area reaches 32 px around it without moving the text. */
+.button {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--term-line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: help;
+}
+.button::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+}
+.button:hover,
+.button[aria-describedby]:focus-visible {
+  border-color: var(--line-hover);
+  color: var(--ink);
+}
+
+/* Placed by data-side (above or below) and data-shift (0 to 8): the tip's left
+   edge sits at its button's centre less shift eighths of its own width. */
+.tip {
+  position: absolute;
+  z-index: 40;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  translate: -50% 0;
+  width: min(260px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border-radius: var(--radius-10);
+  background: var(--tip-ground);
+  box-shadow: var(--shadow-term);
+  color: var(--tip-ink);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+}
+.tip[hidden] {
+  display: none;
+}
+/* The caret, under the button's centre, and a bridge over the gap so the
+   pointer can cross to the tip without it closing. */
+.tip::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 10px;
+}
+.tip::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  translate: -50% 0;
+  border: 5px solid transparent;
+  border-top-color: var(--tip-ground);
+}
+.tip[data-side='below'] {
+  bottom: auto;
+  top: calc(100% + 8px);
+}
+.tip[data-side='below']::before {
+  top: auto;
+  bottom: 100%;
+}
+.tip[data-side='below']::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--tip-ground);
+}
+.tip[data-shift='0'] {
+  translate: 0 0;
+}
+.tip[data-shift='1'] {
+  translate: -12.5% 0;
+}
+.tip[data-shift='1']::after {
+  left: 12.5%;
+}
+.tip[data-shift='2'] {
+  translate: -25% 0;
+}
+.tip[data-shift='2']::after {
+  left: 25%;
+}
+.tip[data-shift='3'] {
+  translate: -37.5% 0;
+}
+.tip[data-shift='3']::after {
+  left: 37.5%;
+}
+.tip[data-shift='5'] {
+  translate: -62.5% 0;
+}
+.tip[data-shift='5']::after {
+  left: 62.5%;
+}
+.tip[data-shift='6'] {
+  translate: -75% 0;
+}
+.tip[data-shift='6']::after {
+  left: 75%;
+}
+.tip[data-shift='7'] {
+  translate: -87.5% 0;
+}
+.tip[data-shift='7']::after {
+  left: 87.5%;
+}
+.tip[data-shift='8'] {
+  translate: -100% 0;
+}
+.tip[data-shift='8']::after {
+  left: 100%;
+}
+/* The caret stays inside the tip's rounded corners at the two ends. */
+.tip[data-shift='0']::after {
+  left: 9px;
+}
+.tip[data-shift='8']::after {
+  left: calc(100% - 9px);
+}

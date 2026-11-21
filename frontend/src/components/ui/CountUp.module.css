@@ -1,0 +1,4 @@
+/* Figures of one width, so a counting number does not jitter as it runs. */
+.figure {
+  font-variant-numeric: tabular-nums;
+}

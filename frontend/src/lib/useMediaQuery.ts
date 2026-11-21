@@ -16,3 +16,6 @@ export function useMediaQuery(query: string): boolean {
 
 /** The width at which the sidebar becomes a drawer, as the design sets it. */
 export const SMALL_SCREEN = '(max-width: 860px)';
+
+/** The reader asked for less motion: animations end where they would have ended, at once. */
+export const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';

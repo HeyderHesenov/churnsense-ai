@@ -163,8 +163,10 @@ make evaluate CONFIRM=yes   # FINAL evaluation: the official release, under the 
 **Only `make evaluate CONFIRM=yes` reads the test partition. In one working tree the first run
 freezes a release, and that checkout evaluates nothing else afterwards. The project publishes one
 release as an operating policy: one operator on one machine, with the maintainer reading every
-governance change. A best-effort consistency check looks at ledger changes in pull requests; it
-is not a required check today and not a tamper-resistant one. Another clone or a fork can still
+governance change. A best-effort consistency check, `held-out-release-governance`, looks at ledger
+changes in pull requests; it is one of the `main` ruleset's required status checks, but a pull
+request can edit the workflow and the checker it runs, so that does not make it tamper-resistant.
+Another clone or a fork can still
 calculate what it likes on this public dataset; that is not this project's release**
 (`SECURITY.md`, "The held-out release"). **It is the
 only command that does** (and `make all
@@ -569,11 +571,17 @@ make api        # the API serves the built app at http://localhost:8000/
 ```
 
 The same eight views as the dashboard, built with React, TypeScript and Vite in
-[`frontend/`](frontend/). The API serves it from its own origin, so the browser
-talks to nothing else: every page is sent under a strict
-Content-Security-Policy (no inline script or style, no third-party origin), and
-an address the app does not have gets its own *Not found* page with status 404.
-The design and the record of every decision are in
+[`frontend/`](frontend/), grouped in the sidebar as *Understand* (overview,
+explorer, patterns), *Trust the model* (performance, explainability) and *Take
+action* (single customer, simulator, batch). Four pages are split into tabs
+whose choice is part of the address (`?tab=`), so a tab can be linked and Back
+and Forward move between tabs. The API serves it from its own origin, so the
+browser talks to nothing else: every page is sent under a strict
+Content-Security-Policy (no inline script or style, no third-party origin;
+`style-src 'self'` refuses a `style` attribute written in markup, and the few
+dynamic values a shared component needs are set through the CSSOM, which the
+policy allows), and an address the app does not have gets its own *Not found*
+page with status 404. The design and the record of every decision are in
 [`docs/frontend/PLAN.md`](docs/frontend/PLAN.md).
 
 ```bash
@@ -584,7 +592,11 @@ make e2e             # browser tests (Playwright, Chromium) of the built app
 `make e2e` never touches `data/`, `artifacts/` or `reports/`.
 [`scripts/e2e_server.py`](scripts/e2e_server.py) generates a synthetic book
 (every ID prefixed `E2E-`), trains a small model on it in a temporary folder,
-and serves the real API on `127.0.0.1:8799`. The tests refuse to run against a
+and serves the real API. Playwright starts two such servers and runs two
+projects: `chromium` (every spec but one) against `127.0.0.1:8799`, and
+`public-demo` against a second server on `127.0.0.1:8798` started with
+`--public`, as the deployed demo is, whose "dataset" is deleted before it
+serves. The tests refuse to run against a
 server whose customers are not synthetic, and every model figure they check is
 taken from the API response that page received, never typed into a test.
 Besides each page's own flows, every test fails on:
@@ -612,12 +624,36 @@ review.
 make api     # http://localhost:8000/docs
 ```
 
+The public service, at the root and again under `/api`:
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | liveness, and whether a model is actually loaded |
+| `GET /ready` | readiness: 200 only when the model, the book and the built front end are in place, else 503 |
 | `GET /model-info` | what is served: metrics, threshold, features, limitations |
 | `POST /predict` | score one customer |
 | `POST /predict/batch` | score a CSV upload |
+
+The web front end's own endpoints, under `/api` only:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/overview` | the book's headline figures for the overview |
+| `GET /api/customers` | a filtered, sorted page of the book, with the selection's summary |
+| `GET /api/customers/export` | the same selection as a CSV, formula cells neutralised |
+| `GET /api/customers/examples` | the example customers the pages offer |
+| `GET /api/customers/{customer_id}` | one customer's record and score |
+| `POST /api/explain` | signed SHAP attributions for 1–8 book customers by ID, or for one record |
+| `GET /api/explain/global` | the cached global attributions (`make explain`) |
+| `GET /api/segments` | observed churn by one attribute or two crossed, small groups suppressed |
+| `GET /api/threshold/sweep` | the simulator's curve under stated campaign assumptions |
+| `GET /api/performance` | validation figures, and the test record when one is published |
+| `POST /api/batch/score` | the batch page's upload: every row scored, plus a scored CSV |
+
+The API serves its OpenAPI schema at `/openapi.json` and interactive
+documentation at `/docs`. The front end's TypeScript types are committed in
+[`frontend/src/api/schema.d.ts`](frontend/src/api/schema.d.ts); CI regenerates
+them from the API and fails if the committed copy has drifted.
 
 ```bash
 curl -s -X POST http://localhost:8000/predict \
@@ -671,16 +707,18 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**634 tests, all passing on Python 3.12.13** (2026-10-17). Measured, not
-claimed:
+**4,630 tests, all passing on Python 3.12.13** (2026-11-21, 94 % coverage of
+`src/churnsense`, 25 minutes). Measured, not claimed:
 
 ```
-$ make test
-634 passed
+$ pytest --cov=churnsense
+4630 passed
 ```
 
-The same 634 pass on a fresh copy of the tracked files with no dataset and no
-trained artifact — the state GitHub Actions runs in. No test reads the real
+On a fresh copy of the tracked files with no dataset and no trained artifact —
+the state GitHub Actions runs in — 4,617 pass and 13 are skipped, because they
+need the local disclosure evidence, the untracked comparison reports or a built
+front end (CI, 2026-11-15). No test reads the real
 dataset: the dashboard tests run the real app script on a synthetic model and
 book, and fail if anything tries to load the real file.
 
@@ -724,7 +762,12 @@ environment and both locks. A third job installs the dev lock through
 suite against those exact pins. It then installs the runtime lock on its own,
 imports every module, runs the dashboard script and starts the API on it, and
 keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
-`main` also run a dependency review, and only merge once every required check passes.
+`main` also run a dependency review and the held-out release check. The `main`
+ruleset requires six of these checks to pass, listed in
+[SECURITY.md](SECURITY.md#dependency-audits); `frontend (node 22)`, which runs
+both npm audits, and `e2e (chromium)` are not among them. The maintainer merges
+only when those two have passed as well, an operating rule GitHub does not
+enforce.
 
 CI needs no dataset and no network beyond the package index.
 
@@ -771,11 +814,15 @@ src/churnsense/
                              ← predict.py is the only inference path, and it validates
   evaluation/ metrics, threshold, report, figures
   explainability/ shap_explain
-  api/       main, schemas
+  api/       main, schemas, dashboard, dashboard_schemas, middleware, spa,
+             state, uploads
 app/                         Streamlit dashboard (theme, components, 8 sections)
+frontend/                    React + TypeScript web front end (Vite), its unit and
+                             browser tests, and the OpenAPI types it is checked against
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       634 tests + seeded synthetic fixtures
-docs/                        walkthrough, interview prep, model card
+tests/                       4,630 tests + seeded synthetic fixtures
+docs/                        walkthrough, interview prep, model card, deployment,
+                             the front end's plan (frontend/PLAN.md) and its design source
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
 ```
@@ -854,13 +901,19 @@ Found a vulnerability? Please report it privately, as described in
   CI audits both the resolved environment and the locks, with a read-only
   `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot raises alerts
   and fix pull requests for known advisories and proposes weekly version
-  updates; CodeQL scans the Python code and the workflows.
-- **`main` takes only checked, signed commits.** A ruleset blocks direct
-  pushes, force-pushes and deletion, requires the CI checks to pass, blocks
-  merging new high-severity CodeQL alerts, and requires verified signatures.
-  Commits are signed with an SSH key. A pull request lands by fast-forwarding
-  `main` to its checked head, because GitHub's rebase-and-merge rewrites
-  commits and drops their signatures.
+  updates; CodeQL scans the Python and TypeScript code and the workflows.
+- **`main` takes only checked, signed commits.** A ruleset requires a pull
+  request, so no direct pushes, and refuses force-pushes and deletion. It
+  requires six status checks to pass on a branch up to date with `main`: the
+  Python tests on 3.12, 3.13 and against the lock, `dependency audit`,
+  `dependency review` and `held-out-release-governance`. It blocks merging new
+  CodeQL alerts of `error` severity or of high security severity and above, and
+  requires verified signatures. `frontend (node 22)` and `e2e (chromium)` are
+  not in the ruleset; the maintainer's own rule is to merge only when they pass
+  too ([SECURITY.md](SECURITY.md#dependency-audits)). Commits are signed with an
+  SSH key. A pull request lands through a merge commit, which GitHub signs;
+  rebase-and-merge is not used, because it rewrites commits and drops their
+  signatures.
 
 > **Local by design.** There is no authentication (the API only budgets its two
 > costly endpoints, explanations and batch uploads, per client), so
@@ -888,8 +941,10 @@ Found a vulnerability? Please report it privately, as described in
 > unauthenticated portfolio demo of the API and front end (not the Streamlit
 > dashboard), behind Caddy with TLS: its configuration,
 > the trusted-proxy rule that keeps `LoopbackOnly` meaningful there, and its
-> limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It is not a
-> multi-user product and must never hold real customer data.
+> limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It runs at
+> `https://churnsense.brimbyway.com` (its status, as checked on 2026-11-21, is in
+> that document). It is not a multi-user product and must never hold real customer
+> data.
 >
 > **The public demo serves no row of the dataset.** It is configured as
 > `deployment: {mode: public_demo, customer_records: synthetic}`: every customer

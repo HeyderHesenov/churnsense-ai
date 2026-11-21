@@ -91,7 +91,7 @@ describe('Overview: the book at a glance', () => {
     expect(within(scale).getByText('–100%')).toBeInTheDocument();
   });
 
-  it('names the tenure card by what its figures show', async () => {
+  it('names the tenure card by what it shows, drawing no trend of its own', async () => {
     showOverview('/', overview({ lifecycle: null, withheld_reason: 'the split is unverified.' }));
     await loaded();
     expect(screen.getByRole('region', { name: 'Churn by tenure' })).toBeInTheDocument();
@@ -103,9 +103,10 @@ describe('Overview: the book at a glance', () => {
     await loaded();
     const figures = screen.getByRole('region', { name: 'Key figures' });
     expect(within(figures).getByText('Withheld')).toBeInTheDocument();
-    expect(
-      screen.getByText((text) => text.includes(`Observed outcomes are withheld: ${reason}`)),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Overview' })).toHaveTextContent(
+      `Observed outcomes are withheld: ${reason}`,
+    );
+    await userEvent.click(screen.getByRole('tab', { name: /^Risk distribution/ }));
     const distribution = screen.getByRole('region', {
       name: 'Where the book sits on the probability scale',
     });
@@ -119,7 +120,7 @@ describe('Overview: the book at a glance', () => {
   it('claims no observed churn where the service publishes none, though nothing is withheld', async () => {
     // A public demo: validation customers per 0.05 of score would cut its sweep finer (E8).
     const book = overview();
-    showOverview('/', {
+    showOverview('/?tab=distribution', {
       ...book,
       histogram: book.histogram.map((bin) => ({ ...bin, observed: null, observed_mean: null })),
     });
@@ -145,7 +146,7 @@ describe('Overview: the book at a glance', () => {
       histogram: book.histogram.map((bin) => ({ ...bin, observed_mean: mean })),
     });
     const centres = async (body: typeof book) => {
-      const shown = showOverview('/', body);
+      const shown = showOverview('/?tab=distribution', body);
       await loaded();
       const dots = screen
         .getByRole('region', { name: 'Where the book sits on the probability scale' })
@@ -158,7 +159,7 @@ describe('Overview: the book at a glance', () => {
   });
 
   it('names validation wherever the histogram states observed churn', async () => {
-    showOverview();
+    showOverview('/?tab=distribution');
     await loaded();
     const distribution = screen.getByRole('region', {
       name: 'Where the book sits on the probability scale',
@@ -237,6 +238,9 @@ describe('Overview: header', () => {
     await waitFor(() =>
       expect(new URLSearchParams(window.location.search).get('q')).toBe('demo-1'),
     );
+    // Typed on the summary, the search opens the queue it filters.
+    expect(new URLSearchParams(window.location.search).get('tab')).toBe('queue');
+    expect(screen.getByRole('searchbox')).toHaveFocus();
     await waitFor(() =>
       expect(seen.some((url) => url.searchParams.get('q') === 'demo-1')).toBe(true),
     );
@@ -262,7 +266,7 @@ describe('Overview: retention queue', () => {
   }
 
   it('links to every flagged customer in the explorer, which reads the same address', async () => {
-    showOverview();
+    showOverview('/?tab=queue');
     await loaded();
     const link = await within(queue()).findByRole('link', {
       name: /^See all 2,300 flagged, churned included, in the explorer/,
@@ -272,7 +276,7 @@ describe('Overview: retention queue', () => {
 
   it('lists flagged customers in every band that holds them, by revenue at risk', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     expect(
       await within(await screen.findByRole('table', { name: 'Flagged customers' })).findByText(
         'DEMO-0001',
@@ -298,7 +302,7 @@ describe('Overview: retention queue', () => {
 
   it('explains the page’s customers in one request and shows their two strongest attributions', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     const table = await screen.findByRole('table', { name: 'Flagged customers' });
     const first = (await within(table).findByText('DEMO-0001')).closest(
       '[role="row"]',
@@ -311,7 +315,7 @@ describe('Overview: retention queue', () => {
 
   it('marks attributions as unavailable when the explainer refuses', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     server.use(refuse('post', '/api/explain', 503, 'explanations_busy'));
     const table = await screen.findByRole('table', { name: 'Flagged customers' });
     expect(
@@ -327,7 +331,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('counts each chip by the customers its list can show, not those recorded as churned', async () => {
-    showOverview();
+    showOverview('/?tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     expect(within(queue()).getByRole('button', { name: /^Moderate/ })).toHaveTextContent(
       /^\D+700$/,
@@ -340,7 +344,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('counts chips in the partition and search the list is narrowed to, not the whole book', async () => {
-    showOverview('/?part=test&q=ZZZ');
+    showOverview('/?part=test&q=ZZZ&tab=queue');
     await loaded();
     await within(queue()).findByText('No flagged customer matches');
     for (const name of [/^Moderate/, /^High/, /^Critical/]) {
@@ -353,7 +357,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('a chip says what choosing it lists, and the list then holds that many', async () => {
-    showOverview('/?bands=Critical');
+    showOverview('/?bands=Critical&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     expect(queueTitle()).toHaveTextContent(
       /^Retention queue 300 flagged: 225 active, 75 status unknown$/,
@@ -366,7 +370,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('keeps the chip counts when no band is chosen', async () => {
-    showOverview('/?bands=High');
+    showOverview('/?bands=High&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(within(queue()).getByRole('button', { name: /^High/ }));
     expect(await within(queue()).findByText('No band selected')).toBeInTheDocument();
@@ -387,7 +391,7 @@ describe('Overview: retention queue', () => {
       respond('get', '/api/customers', () => customerPage([known, unknown])),
       ...overviewApi(),
     );
-    renderAt(<App />, '/');
+    renderAt(<App />, '/?tab=queue');
     const table = await screen.findByRole('table', { name: 'Flagged customers' });
     const row = (id: string) => {
       const found = within(table)
@@ -398,8 +402,9 @@ describe('Overview: retention queue', () => {
     };
     expect(within(row('DEMO-7777')).getByText('Status unknown')).toBeInTheDocument();
     expect(within(row('DEMO-8888')).queryByText('Status unknown')).toBeNull();
-    expect(within(row('DEMO-7777')).getAllByRole('cell')[6]).toHaveTextContent(/^—$/);
-    expect(within(row('DEMO-8888')).getAllByRole('cell')[6]).toHaveTextContent(/^\$72\.00$/);
+    // As assistive technology reads the cell: the column's name a narrow queue shows beside it is hidden.
+    expect(within(row('DEMO-7777')).getAllByRole('cell')[6]).toHaveAccessibleName('—');
+    expect(within(row('DEMO-8888')).getAllByRole('cell')[6]).toHaveAccessibleName('$72.00');
     expect(queueTitle()).toHaveTextContent(
       /^Retention queue 2 flagged: 1 active, 1 status unknown$/,
     );
@@ -409,7 +414,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('says a no-band queue lists nobody, in the heading too', async () => {
-    showOverview('/?bands=High');
+    showOverview('/?bands=High&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(within(queue()).getByRole('button', { name: /^High/ }));
     await within(queue()).findByText('No band selected');
@@ -451,7 +456,7 @@ describe('Overview: retention queue', () => {
 
   it('says why a band lists nobody when everyone flagged in it is recorded as churned', async () => {
     const book = overview();
-    showOverview('/?bands=High', {
+    showOverview('/?bands=High&tab=queue', {
       ...book,
       bands: book.bands.map((band) =>
         band.name === 'High' ? { ...band, flagged_not_churned: 0 } : band,
@@ -467,7 +472,7 @@ describe('Overview: retention queue', () => {
 
   it('says the same of several bands, and offers no reset where nothing is filtered', async () => {
     const book = overview();
-    showOverview('/', {
+    showOverview('/?tab=queue', {
       ...book,
       bands: book.bands.map((band) => ({ ...band, flagged_not_churned: 0 })),
     });
@@ -483,7 +488,7 @@ describe('Overview: retention queue', () => {
 
   it('does not blame churners when a partition or search empties the list', async () => {
     const book = overview();
-    showOverview('/?part=test&bands=High', {
+    showOverview('/?part=test&bands=High&tab=queue', {
       ...book,
       bands: book.bands.map((band) =>
         band.name === 'High' ? { ...band, flagged_not_churned: 0 } : band,
@@ -496,7 +501,7 @@ describe('Overview: retention queue', () => {
 
   it('filters by band chip, and asks for nothing when no band is left', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(within(queue()).getByRole('button', { name: /^High/ }));
     expect(new URLSearchParams(window.location.search).getAll('bands')).toEqual([
@@ -515,7 +520,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('forgets a band choice that is the default again', async () => {
-    showOverview();
+    showOverview('/?tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(within(queue()).getByRole('button', { name: /^High/ }));
     await userEvent.click(within(queue()).getByRole('button', { name: /^High/ }));
@@ -528,7 +533,10 @@ describe('Overview: retention queue', () => {
   it('says so when the threshold flags nobody, and asks for nothing', async () => {
     const seen = recordRequests();
     const book = overview();
-    showOverview('/', { ...book, bands: book.bands.map((band) => ({ ...band, flagged: 0 })) });
+    showOverview('/?tab=queue', {
+      ...book,
+      bands: book.bands.map((band) => ({ ...band, flagged: 0 })),
+    });
     await loaded();
     expect(await within(queue()).findByText('Nobody is flagged')).toBeInTheDocument();
     expect(
@@ -560,7 +568,7 @@ describe('Overview: retention queue', () => {
 
   it('sorts by a column and pages through the queue', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(within(queue()).getByRole('button', { name: 'Tenure' }));
     expect(window.location.search).toContain('sort=tenure');
@@ -572,16 +580,16 @@ describe('Overview: retention queue', () => {
 
   it('keeps the page a link opens on: the search box writes nothing until something is typed', async () => {
     const seen = recordRequests();
-    showOverview('/?page=2');
+    showOverview('/?page=2&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(window.location.search).toBe('?page=2');
+    expect(window.location.search).toBe('?page=2&tab=queue');
     expect(lastListing(seen)?.searchParams.get('page')).toBe('2');
   });
 
   it('filters by partition', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.selectOptions(
       within(queue()).getByRole('combobox', { name: 'Partition' }),
@@ -593,7 +601,7 @@ describe('Overview: retention queue', () => {
 
   it('totals a selection on the server and exports exactly it', async () => {
     const seen = recordRequests();
-    showOverview();
+    showOverview('/?tab=queue');
     const table = await screen.findByRole('table', { name: 'Flagged customers' });
     await userEvent.click(await within(table).findByRole('checkbox', { name: 'Select DEMO-0001' }));
     await userEvent.click(within(table).getByRole('checkbox', { name: 'Select DEMO-0002' }));
@@ -616,7 +624,7 @@ describe('Overview: retention queue', () => {
   it('never shows the last selection’s total for a new selection', async () => {
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    showOverview();
+    showOverview('/?tab=queue');
     server.use(
       respond('get', '/api/customers', async (request) => {
         const ids = new URL(request.url).searchParams.getAll('ids');
@@ -640,7 +648,7 @@ describe('Overview: retention queue', () => {
   });
 
   it('shows the search as a chip that clears it, and the box with it', async () => {
-    showOverview('/?q=DEMO');
+    showOverview('/?q=DEMO&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     expect(screen.getByRole('searchbox')).toHaveValue('DEMO');
     await userEvent.click(within(queue()).getByRole('button', { name: /^Clear search/ }));
@@ -664,7 +672,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
   }
 
   it('moves the focus to the queue when the bar’s reset goes away with the filters', async () => {
-    showOverview('/?part=train');
+    showOverview('/?part=train&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await press(within(queue()).getByRole('button', { name: 'Reset filters' }));
     expect(new URLSearchParams(window.location.search).has('part')).toBe(false);
@@ -676,7 +684,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
   });
 
   it('moves the focus to the queue when no band was left and the reset brings them back', async () => {
-    showOverview('/?bands=');
+    showOverview('/?bands=&tab=queue');
     await screen.findByText('No band selected');
     await press(
       within(emptyState('No band selected')).getByRole('button', { name: 'Reset filters' }),
@@ -695,7 +703,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
           : customerPage(QUEUE_ROWS, { total: 1900, pages: 238 }),
       ),
     );
-    renderAt(<App />, '/?q=NOBODY');
+    renderAt(<App />, '/?q=NOBODY&tab=queue');
     await screen.findByText('No flagged customer matches');
     await press(
       within(emptyState('No flagged customer matches')).getByRole('button', {
@@ -708,7 +716,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
   });
 
   it('moves the focus to the queue when the search chip clears the search', async () => {
-    showOverview('/?q=DEMO');
+    showOverview('/?q=DEMO&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     await press(within(queue()).getByRole('button', { name: /^Clear search/ }));
     expect(new URLSearchParams(window.location.search).has('q')).toBe(false);
@@ -718,7 +726,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
   it('keeps the focus in the queue when a failed page is asked for again', async () => {
     server.use(...overviewApi());
     server.use(refuse('get', '/api/customers', 500, 'internal_error'));
-    renderAt(<App />, '/');
+    renderAt(<App />, '/?tab=queue');
     await loaded();
     const alert = await within(queue()).findByRole('alert');
     expect(alert).toHaveTextContent('The queue could not be loaded.');
@@ -733,7 +741,7 @@ describe('Overview: the queue keeps the keyboard’s place', () => {
     server.use(
       answer('get', '/api/customers', customerPage(QUEUE_ROWS, { page: 3, pages: 3, total: 20 })),
     );
-    renderAt(<App />, '/?page=3');
+    renderAt(<App />, '/?page=3&tab=queue');
     await screen.findByRole('table', { name: 'Flagged customers' });
     const next = within(queue()).getByRole('button', { name: 'Next page' });
     expect(next).toHaveAttribute('aria-disabled', 'true');
@@ -749,10 +757,10 @@ describe('Overview: where the book sits', () => {
   }
 
   it('summarises each band, and switches the measure to monthly charges', async () => {
-    showOverview();
+    showOverview('/?tab=distribution');
     await loaded();
-    const low = within(card()).getByRole('button', { name: /^Low 0–0.25 4,000/ });
-    expect(low).toHaveAccessibleDescription('Filters the queue to this band.');
+    const low = within(card()).getByRole('link', { name: /^Low 0–0.25 4,000/ });
+    expect(low).toHaveAccessibleDescription('Shows its flagged customers in the retention queue.');
     expect(low).toHaveTextContent('4,000');
     expect(low).toHaveTextContent('57.1%');
     expect(low).toHaveTextContent('churned, train + val 8.0%');
@@ -764,20 +772,31 @@ describe('Overview: where the book sits', () => {
     expect(low).toHaveTextContent('48.9%');
   });
 
-  it('filters the queue to one band, and back to every flagged band', async () => {
-    showOverview();
+  it('opens the queue tab on one band, and Back returns to the distribution', async () => {
+    showOverview('/?tab=distribution');
     await loaded();
-    const high = within(card()).getByRole('button', { name: /^High / });
+    const high = within(card()).getByRole('link', { name: /^High / });
+    expect(high).toHaveAttribute('href', '/?tab=queue&bands=High');
     await userEvent.click(high);
-    expect(new URLSearchParams(window.location.search).getAll('bands')).toEqual(['High']);
-    expect(high).toHaveAttribute('aria-pressed', 'true');
-    expect(high).toHaveAccessibleDescription('Shows every flagged band in the queue again.');
-    await userEvent.click(high);
+    const query = new URLSearchParams(window.location.search);
+    expect(query.getAll('bands')).toEqual(['High']);
+    expect(query.get('tab')).toBe('queue');
+    expect(screen.getByRole('heading', { name: /^Retention queue/ })).toHaveFocus();
+    expect(
+      await screen.findByText('900 flagged: 675 active, 225 status unknown, in scope.'),
+    ).toBeInTheDocument();
+    act(() => window.history.back());
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /^Risk distribution/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
+    );
     expect(new URLSearchParams(window.location.search).has('bands')).toBe(false);
   });
 
   it('gives the histogram’s figures as a table, small bins without a rate', async () => {
-    showOverview();
+    showOverview('/?tab=distribution');
     await loaded();
     const table = within(card()).getByRole('table', { name: 'Customers per 0.05 of probability' });
     const rows = within(table).getAllByRole('row');
@@ -791,8 +810,8 @@ describe('Overview: where the book sits', () => {
     ).toBeInTheDocument();
   });
 
-  it('walks the bins with the keyboard and filters the queue to a bin’s band', async () => {
-    showOverview();
+  it('walks the bins with the keyboard and opens the queue on a bin’s band', async () => {
+    showOverview('/?tab=distribution');
     await loaded();
     const bins = within(card()).getByRole('slider', { name: 'Probability bin' });
     bins.focus();
@@ -806,8 +825,9 @@ describe('Overview: where the book sits', () => {
     expect(tip).toHaveTextContent('350 customers · $22,500/mo');
     await userEvent.keyboard('{Enter}');
     expect(new URLSearchParams(window.location.search).getAll('bands')).toEqual(['Low']);
+    expect(new URLSearchParams(window.location.search).get('tab')).toBe('queue');
     expect(await screen.findByText('Nobody in the Low band is flagged')).toBeInTheDocument();
-    expect(bins).toHaveAttribute('aria-valuetext', expect.stringMatching(/^p 0.05–0.10, Low/));
+    expect(screen.getByRole('heading', { name: /^Retention queue/ })).toHaveFocus();
     expect(
       screen.getByText(
         'Low tops out at a probability of 0.25, below the 0.36 threshold, so these 4,000 customers never enter the queue.',
@@ -818,13 +838,13 @@ describe('Overview: where the book sits', () => {
 
 describe('Overview: simulated campaign', () => {
   it('shows the campaign at the shipped threshold, marked as simulated', async () => {
-    showOverview();
+    showOverview('/?tab=distribution');
     await loaded();
     const card = screen.getByRole('region', { name: /Campaign at 0.36/ });
     expect(within(card).getByText('SIMULATED')).toBeInTheDocument();
-    expect(within(card).getByText('Net benefit on validation').parentElement).toHaveTextContent(
-      '$26,400',
-    );
+    expect(
+      within(card).getByText('net benefit on validation, 450 offers').parentElement,
+    ).toHaveTextContent('$26,400');
     expect(within(card).getByText('0.36 shipped · 0.30 peak, $32 higher')).toBeInTheDocument();
     expect(within(card).getByText('450')).toBeInTheDocument();
     expect(within(card).getByText('/ 1,400')).toBeInTheDocument();
@@ -835,7 +855,22 @@ describe('Overview: simulated campaign', () => {
     expect(
       within(card).getByRole('img', { name: /^Simulated net benefit by threshold/ }),
     ).toBeInTheDocument();
-    expect(within(card).getByRole('link', { name: 'Open simulator' })).toHaveAttribute(
+    expect(within(card).getByRole('link', { name: 'Plan a campaign' })).toHaveAttribute(
+      'href',
+      '/simulator',
+    );
+  });
+
+  it('keeps the summary’s campaign tile to the net benefit, the curve and the assumptions', async () => {
+    showOverview();
+    await loaded();
+    const card = screen.getByRole('region', { name: /Campaign at 0.36/ });
+    expect(within(card).getByText('SIMULATED')).toBeInTheDocument();
+    // The figure as shown; the chart's table for a screen reader repeats it.
+    expect(within(card).getByText('$26,400', { selector: 'div' })).toBeInTheDocument();
+    expect(within(card).getByText(/^Assumed: offer \$50, success 30%/)).toBeInTheDocument();
+    expect(within(card).queryByText('Precision · recall')).toBeNull();
+    expect(within(card).getByRole('link', { name: 'Plan a campaign' })).toHaveAttribute(
       'href',
       '/simulator',
     );
@@ -851,7 +886,7 @@ describe('Overview: simulated campaign', () => {
 
 describe('Overview: what the risk is associated with', () => {
   it('breaks churn down by segment on the training partition', async () => {
-    showOverview();
+    showOverview('/?tab=associations');
     await loaded();
     const card = screen.getByRole('region', { name: 'Churn by segment' });
     expect(within(card).getByText('TRAIN · 4,200')).toBeInTheDocument();
@@ -876,7 +911,7 @@ describe('Overview: what the risk is associated with', () => {
   });
 
   it('says which customers its observed rates are read from, and claims no calibration', async () => {
-    showOverview();
+    showOverview('/?tab=distribution');
     await loaded();
     const card = screen.getByRole('region', {
       name: 'Where the book sits on the probability scale',
@@ -893,7 +928,7 @@ describe('Overview: what the risk is associated with', () => {
   });
 
   it('says nothing of observed churn on the histogram while outcomes are withheld', async () => {
-    showOverview('/', overview({ withheld_reason: 'the split is unverified.' }));
+    showOverview('/?tab=distribution', overview({ withheld_reason: 'the split is unverified.' }));
     await loaded();
     const card = screen.getByRole('region', {
       name: 'Where the book sits on the probability scale',
@@ -906,23 +941,20 @@ describe('Overview: what the risk is associated with', () => {
   it('shows when in the relationship customers left', async () => {
     showOverview();
     await loaded();
+    // Every reported bucket at or below the one before: the title may say churn falls.
     const card = screen.getByRole('region', { name: 'Churn by tenure' });
     expect(card).not.toHaveTextContent(/front-loaded/i);
-    expect(card).toHaveTextContent('median tenure 10 mo churned · 37 stayed');
-    const first = within(card).getByRole('button', {
-      name: '0–3 months: 360 of 640 churned, 56.3%',
+    expect(card).toHaveTextContent('median 10 mo churned · 37 stayed');
+    const table = within(card).getByRole('table', {
+      name: 'Observed churn by tenure, training partition',
     });
-    act(() => first.focus());
-    // Drawn for the eye; the bar's own name already says it.
-    expect(within(card).getByText('0–3 months').parentElement).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
+    expect(within(table).getAllByRole('row')[1]).toHaveTextContent('0–3 months56.3% (360 of 640)');
     expect(card).toHaveTextContent('avg 25.0%');
+    expect(within(card).getByText('TRAIN · 4,200')).toBeInTheDocument();
   });
 
   it('ranks what moves the score, in the model and on its own', async () => {
-    showOverview();
+    showOverview('/?tab=associations');
     await loaded();
     const card = screen.getByRole('region', { name: 'What moves the score' });
     expect(card).toHaveTextContent(
@@ -934,5 +966,104 @@ describe('Overview: what the risk is associated with', () => {
     await userEvent.click(within(card).getByRole('button', { name: 'On its own' }));
     expect(card).toHaveTextContent('Contract typeV 0.42');
     expect(card).toHaveTextContent('Tenure|r| 0.35');
+  });
+});
+
+describe('Overview: a queue wider than its box', () => {
+  /** Every observer the page made: calling one is a resize it is told of. */
+  const observers: (() => void)[] = [];
+
+  /**
+   * jsdom lays nothing out: the box's widths and the observer that reads them
+   * are given here. The returned function restores them; ``resize`` changes them.
+   */
+  function widths(scroll: number, client: number) {
+    const size = { scroll, client };
+    const restore = [
+      vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(() => size.scroll),
+      vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => size.client),
+    ];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly measure: () => void) {
+          observers.push(measure);
+        }
+        observe() {
+          this.measure();
+        }
+        disconnect() {}
+      },
+    );
+    const done = () => {
+      for (const spy of restore) spy.mockRestore();
+      vi.unstubAllGlobals();
+      observers.length = 0;
+    };
+    done.resize = (next: { scroll: number; client: number }) => {
+      Object.assign(size, next);
+      act(() => {
+        for (const measure of observers) measure();
+      });
+    };
+    return done;
+  }
+
+  it('is a labelled region the keyboard can reach and scroll, and says how', async () => {
+    const restore = widths(1102, 704);
+    try {
+      showOverview('/?tab=queue');
+      const region = await screen.findByRole('region', {
+        name: 'Flagged customers, scrolls sideways',
+      });
+      expect(region).toHaveAttribute('tabindex', '0');
+      expect(region).toHaveAccessibleDescription(
+        'Wider than the screen: scroll sideways for every column, or focus the table and use the arrow keys.',
+      );
+      expect(within(region).getByRole('table', { name: 'Flagged customers' })).toBeInTheDocument();
+      // Every column is still there to scroll to.
+      expect(within(region).getAllByRole('columnheader')).toHaveLength(10);
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the reader’s place when it stops scrolling while it holds the focus', async () => {
+    const restore = widths(1102, 704);
+    try {
+      showOverview('/?tab=queue');
+      const region = await screen.findByRole('region', {
+        name: 'Flagged customers, scrolls sideways',
+      });
+      act(() => region.focus());
+      // The window widens: the table fits, the hint goes, the focus stays where it was.
+      restore.resize({ scroll: 1120, client: 1120 });
+      expect(screen.queryByText(/scroll sideways/)).toBeNull();
+      expect(region).toHaveFocus();
+      expect(region).toHaveAttribute('tabindex', '0');
+      expect(region).not.toHaveAttribute('aria-describedby');
+      // Once the focus moves on, the box is no stop any more.
+      await userEvent.tab();
+      expect(region).not.toHaveFocus();
+      expect(screen.queryByRole('region', { name: /scrolls sideways/ })).toBeNull();
+      expect(
+        screen.getByRole('table', { name: 'Flagged customers' }).parentElement,
+      ).not.toHaveAttribute('tabindex');
+    } finally {
+      restore();
+    }
+  });
+
+  it('is no region, no stop for the keyboard and says nothing when the table fits', async () => {
+    const restore = widths(1120, 1120);
+    try {
+      showOverview('/?tab=queue');
+      const table = await screen.findByRole('table', { name: 'Flagged customers' });
+      expect(screen.queryByRole('region', { name: /scrolls sideways/ })).toBeNull();
+      expect(table.parentElement).not.toHaveAttribute('tabindex');
+      expect(screen.queryByText(/scroll sideways/)).toBeNull();
+    } finally {
+      restore();
+    }
   });
 });

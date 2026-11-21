@@ -1,11 +1,13 @@
 /**
  * The executive overview's API, answered from the fixtures: the overview,
  * the queue's listing (and a selection by ids, whose total is a figure the
- * test can name), and explanations of whichever customers are asked for.
+ * test can name), explanations of whichever customers are asked for, and the
+ * contract-by-tenure breakdown the summary's "segments to watch" reads.
  */
 import { matches } from './explorerApi';
 import type { CustomerRow, Overview } from '../api/queries';
 import { customerPage, customerRow, explanations, overview } from './overviewFixtures';
+import { contractByTenure } from './patternsApi';
 import { answer, respond } from './server';
 
 /** Eight flagged customers, most revenue at risk first. */
@@ -69,6 +71,7 @@ export function overviewApi(book: Overview = overview()) {
       const page = customerPage(chosen);
       return { ...page, summary: { ...page.summary, at_risk: SELECTION_AT_RISK } };
     }),
+    answer('get', '/api/segments', contractByTenure()),
     respond('post', '/api/explain', async (request) => {
       const body = (await request.json()) as { customer_ids: string[] };
       return explanations(body.customer_ids);

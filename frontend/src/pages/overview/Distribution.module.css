@@ -25,11 +25,8 @@
     border-color 0.15s ease;
 }
 .band:hover {
-  background: var(--hover);
-}
-.band[aria-pressed='true'] {
   border-color: var(--band-line);
-  background: var(--band-soft);
+  background: var(--hover);
 }
 .bandHead,
 .bandFoot {
@@ -63,9 +60,13 @@
   font-size: 11.5px;
   color: var(--muted);
 }
+/* Beside the campaign card a band card is narrow: its two figures wrap as wholes. */
 .bandFoot {
+  flex-wrap: wrap;
   font-size: 11.5px;
   color: var(--muted);
+}
+.bandFoot > span {
   white-space: nowrap;
 }
 .figure {

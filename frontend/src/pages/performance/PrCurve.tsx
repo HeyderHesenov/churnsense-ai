@@ -4,8 +4,9 @@
  * no-skill line is the precision of flagging everyone (the sweep's cut at 0),
  * which is the churn rate. The F1 contours are geometry, not data.
  *
- * Hover reads a cut and a click loads it into the errors card; the slider
- * there is the keyboard control, and the table says what the picture shows.
+ * Hover reads a cut and a click loads it into the fader beside it, the
+ * keyboard control; the table says what the picture shows. A cut is read as
+ * flagged, precision, recall and F1: no cell of a validation table is shown.
  */
 import { useState, type MouseEvent } from 'react';
 import type { Performance } from '../../api/queries';
@@ -136,9 +137,7 @@ export function PrCurve({ figures, index, onPick }: Props) {
                     {recallOf(curve.churners, shown.recall)} · F1{' '}
                     {f1Of(shown.flagged, curve.churners, shown.f1)}
                   </TipLine>
-                  <TipLine>
-                    {int(shown.flagged)} flagged · {int(shown.true_positives)} of them churned
-                  </TipLine>
+                  <TipLine>{int(shown.flagged)} flagged</TipLine>
                 </>
               )}
             </ChartTooltip>

@@ -15,10 +15,11 @@ import { Header } from '../../components/shell/Header';
 import { Button } from '../../components/ui/Button';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader } from '../../components/ui/Surface';
 import { toCsv } from '../../lib/csv';
 import { useDownload } from '../../lib/useDownload';
 import { canScore, INITIAL, reducer, type Stage } from './batch';
-import { LEDE, steps } from './copy';
+import { LEDE, steps, WHAT_YOU_GET } from './copy';
 import { Results } from './Results';
 import { Upload } from './Upload';
 import { Validation } from './Validation';
@@ -154,7 +155,11 @@ export default function BatchPage() {
             />
           )}
         </div>
-        {stage.kind === 'accepted' && <Results key={id} stage={stage} onSave={save} />}
+        {stage.kind === 'accepted' ? (
+          <Results key={id} stage={stage} onSave={save} />
+        ) : stage.kind === 'idle' || stage.kind === 'staged' ? (
+          <WhatYouGet />
+        ) : null}
       </Page>
     </>
   );
@@ -178,5 +183,20 @@ function Steps({ stage }: { stage: Stage }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Before a file is scored: what scoring one gives back, in words, with no figure. */
+function WhatYouGet() {
+  return (
+    <Card titleId="what-you-get" variant="dense" className={styles.getBack}>
+      <CardHeader id="what-you-get" title={WHAT_YOU_GET.title} />
+      <ul className={styles.getList}>
+        {WHAT_YOU_GET.items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+      <p className={styles.note}>{WHAT_YOU_GET.note}</p>
+    </Card>
   );
 }

@@ -16,6 +16,7 @@ import {
 import { modelInfo } from '../../test/fixtures';
 import { entriesAdded } from '../../test/history';
 import { renderAt } from '../../test/render';
+import { CAUSAL } from '../../test/wording';
 import { answer, recordRequests, refuse, server } from '../../test/server';
 import {
   EXPLAIN_FAILED,
@@ -155,15 +156,20 @@ describe('the cached attributions', () => {
   });
 
   it('draws a ranking line only for an attribute ranked both ways, and picks by it', async () => {
-    await showExplain();
+    await showExplain('/explainability?tab=rankings');
     const rankings = card('Two rankings, both published');
     const chips = within(rankings).getAllByRole('button');
     expect(chips).toHaveLength(7);
     expect(chips[0]).toHaveTextContent('Contract#1 → #2');
     const added = entriesAdded();
-    await userEvent.click(within(rankings).getByRole('button', { name: /^Online security/ }));
-    expect(row('Online security')).toHaveAttribute('aria-pressed', 'true');
+    const chip = within(rankings).getByRole('button', { name: /^Online security/ });
+    await userEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-pressed', 'true');
+    // A pick is a view of the same figures: no entry. The other tab shows the same choice.
     expect(added()).toBe(0);
+    await userEvent.click(screen.getByRole('tab', { name: /^Global attributions/ }));
+    expect(row('Online security')).toHaveAttribute('aria-pressed', 'true');
+    expect(added()).toBe(1);
   });
 });
 
@@ -527,5 +533,116 @@ describe('one customer', () => {
       'href',
       '/customer',
     );
+  });
+});
+
+describe('design v4: two tabs, global and individual apart', () => {
+  const tabs = () => screen.getByRole('tablist', { name: 'Explainability sections' });
+  const tab = (name: RegExp) => within(tabs()).getByRole('tab', { name });
+  const search = () => new URLSearchParams(window.location.search);
+
+  it('opens on the global attributions, the one customer below them, apart', async () => {
+    await showExplain();
+    expect(tab(/^Global attributions/)).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('region', { name: 'Method' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Attributes' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Two rankings, both published' })).toBeNull();
+    const global = screen.getByText('Global explanation');
+    const individual = screen.getByText('Individual explanation');
+    const method = screen.getByRole('region', { name: 'Method' });
+    const customer = customerCard();
+    // Global first, then the method and charts, then the one customer under its own line.
+    const follows = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(follows(global, method)).toBe(true);
+    expect(follows(method, individual)).toBe(true);
+    expect(follows(individual, customer)).toBe(true);
+    const served = globalExplanation();
+    expect(global.parentElement).toHaveTextContent(
+      `Across ${String(served.n_explained)} explained validation customers`,
+    );
+    expect(individual.parentElement).toHaveTextContent('not why the customer would leave');
+  });
+
+  it('shows the two rankings on their own tab, and nothing of the global charts', async () => {
+    await showExplain('/explainability?tab=rankings');
+    expect(tab(/^Two rankings/)).toHaveAttribute('aria-selected', 'true');
+    expect(card('Two rankings, both published')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Method' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Attributes' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'One customer' })).toBeNull();
+  });
+
+  it('reads an unknown tab as the global one', async () => {
+    await showExplain('/explainability?tab=bogus');
+    expect(tab(/^Global attributions/)).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('makes a tab change one history entry that Back undoes, keeping the customer', async () => {
+    await showExplain(`/explainability?id=${FIRST.id}`);
+    const added = entriesAdded();
+    await userEvent.click(tab(/^Two rankings/));
+    expect(search().get('tab')).toBe('rankings');
+    expect(search().get('id')).toBe(FIRST.id);
+    expect(added()).toBe(1);
+    act(() => window.history.back());
+    await waitFor(() =>
+      expect(tab(/^Global attributions/)).toHaveAttribute('aria-selected', 'true'),
+    );
+    expect(search().get('id')).toBe(FIRST.id);
+  });
+
+  it('asks for the cached figures once across tabs and attributes, and one customer once', async () => {
+    const seen = recordRequests();
+    await showExplain(`/explainability?id=${FIRST.id}`);
+    await within(customerCard()).findByRole('table');
+    await userEvent.click(tab(/^Two rankings/));
+    await userEvent.click(
+      within(card('Two rankings, both published')).getByRole('button', { name: /^Contract/ }),
+    );
+    await userEvent.click(tab(/^Global attributions/));
+    await within(customerCard()).findByRole('table');
+    const count = (path: string) => seen.filter((u) => u.pathname === path).length;
+    expect(count('/api/explain/global')).toBe(1);
+    expect(count('/api/explain')).toBe(1);
+    expect(count('/api/customers/examples')).toBe(1);
+  });
+
+  it('spends no explanation on a link to the rankings, and asks once the customer is shown', async () => {
+    const seen = recordRequests();
+    await showExplain(`/explainability?tab=rankings&id=${FIRST.id}`);
+    await screen.findByRole('region', { name: 'Two rankings, both published' });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const explains = () => seen.filter((u) => u.pathname === '/api/explain').length;
+    expect(explains()).toBe(0);
+    await userEvent.click(tab(/^Global attributions/));
+    await within(customerCard()).findByRole('table');
+    expect(explains()).toBe(1);
+  });
+
+  it('asks to explain no one until a customer is placed', async () => {
+    const seen = recordRequests();
+    await showExplain();
+    await userEvent.click(tab(/^Two rankings/));
+    await userEvent.click(tab(/^Global attributions/));
+    expect(seen.some((u) => u.pathname === '/api/explain')).toBe(false);
+  });
+
+  it('prints the served method figures only, and no figure the page did not get', async () => {
+    const served = globalExplanation({ max_additivity_gap: 3.7e-11, permutations: 13 });
+    await showExplain('/explainability', [answer('get', '/api/explain/global', served)]);
+    const method = screen.getByRole('region', { name: 'Method' });
+    expect(method).toHaveTextContent('3.7e-11');
+    expect(method).toHaveTextContent('13');
+    const text = document.body.textContent;
+    expect(text).not.toMatch(/1e-12|0\.9996|r = 0\.\d|Cramér’s V \d/);
+  });
+
+  it('makes no causal claim on either tab', async () => {
+    await showExplain(`/explainability?id=${FIRST.id}`);
+    await within(customerCard()).findByRole('table');
+    expect(document.body.textContent).not.toMatch(CAUSAL);
+    await userEvent.click(tab(/^Two rankings/));
+    expect(document.body.textContent).not.toMatch(CAUSAL);
   });
 });

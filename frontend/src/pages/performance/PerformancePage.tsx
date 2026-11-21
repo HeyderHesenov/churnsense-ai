@@ -6,10 +6,14 @@
  * there is none); ``/api/model-info`` describes the artifact. The page shows
  * their figures and works none out.
  *
+ * Four tabs (summary, model choice, errors and trade-offs, calibration and
+ * blind spots); the tab, the partition and the explored cut live in the
+ * address, so a view can be linked and Back undoes a change. Every tab reads
+ * the one shared response: changing tab or partition asks the server nothing.
+ *
  * The two responses must describe one artifact: if they name different
  * ones, no figure is shown until both are asked again.
  */
-import { useState } from 'react';
 import { useModelInfo, usePerformance } from '../../api/queries';
 import { useParams } from '../../app/params';
 import { icons } from '../../components/icons';
@@ -17,19 +21,25 @@ import { Header } from '../../components/shell/Header';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { Button, ButtonLink } from '../../components/ui/Button';
 import { DataSourceNote } from '../../components/ui/DataSourceNote';
+import { InfoNote } from '../../components/ui/InfoNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
+import { PageTabs } from '../../components/ui/PageTabs';
 import { ErrorState, Skeleton } from '../../components/ui/States';
+import { Card, CardHeader } from '../../components/ui/Surface';
 import { cut } from '../../lib/format';
 import { Calibration } from './Calibration';
-import { Confusion, type View } from './Confusion';
-import { FAILED, FOOTER, lede, MISMATCH, shortSha, TITLE } from './copy';
-import { explored, PERFORMANCE_PARAMS } from './performance';
-import { PrCurve } from './PrCurve';
+import { FAILED, FOOTER, lede, MISMATCH, REUSED_HOLDOUT, ROLES, shortSha, TITLE } from './copy';
+import { ErrorsTab } from './Errors';
+import { PartitionSwitch } from './Partition';
+import { explored } from './performance';
+import { PlainCards } from './Plain';
 import { Provenance } from './Provenance';
-import { Scorecard } from './Scorecard';
 import { Segments } from './Segments';
 import { Selection } from './Selection';
+import { PERFORMANCE_PARAMS, PERFORMANCE_TABS, type Partition, type PerformanceTab } from './tabs';
+import { TestTiles, ValidationTiles } from './Tiles';
+import { Waffle } from './Waffle';
 import styles from './Performance.module.css';
 
 const REPO = 'https://github.com/HeyderHesenov/churnsense-ai/blob/main';
@@ -38,10 +48,15 @@ export default function PerformancePage() {
   const [state, set] = useParams(PERFORMANCE_PARAMS);
   const info = useModelInfo();
   const performance = usePerformance();
-  const [view, setView] = useState<View>('validation');
   const reload = () => {
     void info.refetch();
     void performance.refetch();
+  };
+  const choose = (tab: PerformanceTab) => {
+    if (tab !== state.tab) set({ tab });
+  };
+  const choosePart = (part: Partition) => {
+    if (part !== state.part) set({ part });
   };
 
   let body;
@@ -79,13 +94,75 @@ export default function PerformancePage() {
     const points = figures.validation?.points ?? [];
     const index = explored(points, state.cut, figures.threshold);
     const served = cut(figures.threshold);
-    const setCut = (i: number, replace: boolean) => {
+    const setCut = (i: number, replace: boolean, extra: { part?: Partition } = {}) => {
       const point = points[i];
       if (!point) return;
       const label = cut(point.threshold);
-      set({ cut: label === served ? '' : label }, { replace });
+      set({ cut: label === served ? '' : label, ...extra }, { replace });
     };
     const sha = figures.model_sha256 ?? model.model_sha256 ?? null;
+    const tab = state.tab;
+    const part = state.part;
+
+    let panel;
+    if (tab === 'summary') {
+      panel = (
+        <div className={styles.tab}>
+          <Provenance model={model} figures={figures} />
+          <Card titleId="figures-title">
+            <CardHeader
+              id="figures-title"
+              title="How well it performs"
+              subtitle={
+                figures.test
+                  ? 'How churners are ranked and whether the probabilities hold up (validation), and what the recorded cut caught (test).'
+                  : 'How churners are ranked and whether the probabilities hold up (validation).'
+              }
+              aside={<PartitionSwitch value={part} onChange={choosePart} />}
+            />
+            {part === 'test' ? (
+              <TestTiles figures={figures} />
+            ) : (
+              <ValidationTiles figures={figures} />
+            )}
+          </Card>
+          {part === 'test' && figures.test && (
+            <div className={styles.wafflePair}>
+              <Waffle record={figures.test} />
+              <PlainCards record={figures.test} />
+            </div>
+          )}
+        </div>
+      );
+    } else if (tab === 'choice') {
+      panel = (
+        <div className={styles.tab}>
+          <Selection figures={figures} />
+        </div>
+      );
+    } else if (tab === 'errors') {
+      panel = (
+        <div className={styles.tab}>
+          <ErrorsTab
+            figures={figures}
+            model={model}
+            index={index}
+            onCut={(i) => setCut(i, true)}
+            onPick={(i) => setCut(i, false, { part: 'validation' })}
+            part={part}
+            onPart={choosePart}
+          />
+        </div>
+      );
+    } else {
+      panel = (
+        <div className={styles.tab}>
+          <Calibration figures={figures} />
+          <Segments figures={figures} />
+        </div>
+      );
+    }
+
     body = (
       <>
         <PageHeader eyebrow="Model performance" title={TITLE}>
@@ -96,31 +173,10 @@ export default function PerformancePage() {
             figures.test !== null,
           )}
         </PageHeader>
-        <Provenance model={model} figures={figures} />
-        <Scorecard figures={figures} />
-        <div className={styles.pair}>
-          <Confusion
-            figures={figures}
-            model={model}
-            index={index}
-            onCut={(i) => setCut(i, true)}
-            view={view}
-            onView={setView}
-          />
-          <PrCurve
-            figures={figures}
-            index={index}
-            onPick={(i) => {
-              setView('validation');
-              setCut(i, false);
-            }}
-          />
-        </div>
-        <Segments figures={figures} />
-        <div className={styles.pair}>
-          <Calibration figures={figures} />
-          <Selection figures={figures} />
-        </div>
+        {figures.test && <InfoNote title={REUSED_HOLDOUT}>{ROLES.recorded}</InfoNote>}
+        <PageTabs def={PERFORMANCE_TABS} label="Performance sections" value={tab} onChange={choose}>
+          {panel}
+        </PageTabs>
         <div className={styles.footer}>
           <p>{FOOTER}</p>
           {sha && <p className={styles.mono}>artifact {shortSha(sha)}</p>}

@@ -314,8 +314,9 @@ by hand from an ad hoc scoring.
 recorded in `governance/held_out_release.json`. A working tree's ledger stops that checkout
 evaluating anything else. What makes the release the project's is an operating policy: one
 operator on one machine, with the maintainer reading every governance change. A best-effort
-consistency check looks at ledger changes in pull requests; it is not a required check today
-and not a tamper-resistant one. Nothing stops a separate calculation elsewhere on a public
+consistency check, `held-out-release-governance`, looks at ledger changes in pull requests; it is
+one of the `main` ruleset's required status checks, but a pull request can edit the workflow and
+the checker it runs, so that does not make it tamper-resistant. Nothing stops a separate calculation elsewhere on a public
 dataset (`SECURITY.md`, "The held-out release"). It has not been made yet: the
 counts in this card come from the earlier runs above, and that first release is itself one
 more scoring of a partition that has already been read. Two tables on one partition say

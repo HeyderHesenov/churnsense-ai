@@ -1,26 +1,43 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw/http';
+import type { Performance } from '../../api/queries';
 import { App } from '../../app/App';
+import { navigate } from '../../app/router';
 import { MAIN_ID } from '../../components/shell/Shell';
 import { modelInfo } from '../../test/fixtures';
 import { entriesAdded } from '../../test/history';
 import { curve, measured, performance, performanceApi, recorded } from '../../test/performanceApi';
 import { renderAt } from '../../test/render';
-import { answer, refuse, server } from '../../test/server';
-import { FAILED, GENDER, MISMATCH, TEST_SCOPE, TITLE, UNAVAILABLE, UNSCANNED } from './copy';
+import { answer, recordRequests, refuse, server } from '../../test/server';
+import {
+  FAILED,
+  GENDER,
+  MISMATCH,
+  REUSED_HOLDOUT,
+  TEST_SCOPE,
+  TITLE,
+  UNAVAILABLE,
+  UNSCANNED,
+} from './copy';
 import { PR, prX, prY } from './performance';
+import { PERFORMANCE_TABS } from './tabs';
 
 /** The page at ``path``, with ``body`` as the performance response. */
 async function showPerformance(path = '/performance', body = performance()) {
   server.use(performanceApi(body));
   const rendered = renderAt(<App />, path);
   await screen.findByRole('heading', { level: 1, name: TITLE });
-  await screen.findByRole('table', { name: 'Metrics by partition' });
+  await screen.findByRole('tablist', { name: 'Performance sections' });
   return rendered;
 }
 
 const RECORDED = performance({ test: recorded(), test_reason: null });
+
+/** The page's own sections, shown only once the figures are in. */
+function sections() {
+  return screen.queryByRole('tablist', { name: 'Performance sections' });
+}
 
 /** The text of each data cell in the row a table names ``header``. */
 function cells(table: HTMLElement, header: string | RegExp): string[] {
@@ -43,20 +60,20 @@ function chartRow(table: HTMLElement, label: string): string[] {
     .map((cell) => cell.textContent);
 }
 
-function scorecard() {
-  return screen.getByRole('table', { name: 'Metrics by partition' });
-}
-
-function card(name: string) {
+function card(name: string | RegExp) {
   return screen.getByRole('region', { name });
 }
 
-/** The value a term names in the errors card's summary strip. */
-function strip(term: string): string {
-  return (
-    within(card('Errors at a cut')).getByText(term, { selector: 'dt' }).nextElementSibling
-      ?.textContent ?? ''
-  );
+/** A tile's whole text (label, value, caption), found by its label. */
+function tile(group: HTMLElement, label: string): string {
+  const root = within(group).getByText(label, { exact: true }).closest('div');
+  if (!root) throw new Error(`no tile ${label}`);
+  return root.textContent;
+}
+
+/** The value a term names in a card's figure strip. */
+function strip(term: string, within_: HTMLElement = document.body): string {
+  return within(within_).getByText(term, { selector: 'dt' }).nextElementSibling?.textContent ?? '';
 }
 
 function errorsTable() {
@@ -79,6 +96,14 @@ function prTable() {
   return screen.getByRole('table', { name: 'Validation precision and recall by cut' });
 }
 
+function partition() {
+  return screen.getByRole('group', { name: 'Partition' });
+}
+
+function search(key: string): string | null {
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 /** A click on the precision–recall picture at point ``i`` of the fixture curve. */
 function pick(i: number) {
   const capture = screen.getByTestId('pr-capture');
@@ -88,13 +113,14 @@ function pick(i: number) {
   fireEvent.click(capture, { clientX: prX(at(i).recall), clientY: prY(at(i).precision) });
 }
 
-/** Every word on the page: none claims a cause, a rescue or a verdict. */
+/** Every word on the page: none claims a cause, a rescue, a verdict or a made-up ratio. */
 function expectNoClaims() {
   const text = document.body.textContent;
   expect(text).not.toMatch(
     /\b(causes|caused by|causing|drives|driven by|driving|will prevent|prevents|guarantee[sd]?)\b/i,
   );
   expect(text).not.toMatch(/\b(saved?|saves|rescued?|prevented|excellent)\b/i);
+  expect(text).not.toMatch(/\b\d+ in \d+\b|×|times (better|more)|\blift\b/i);
   for (const sentence of text.split(/(?<=[.:])\s/)) {
     if (/independent/i.test(sentence)) expect(sentence).toMatch(/not an independent/);
     if (/optimum|optimal/i.test(sentence)) expect(sentence).toMatch(/not a universal|test-optimal/);
@@ -125,15 +151,21 @@ afterEach(() => {
   for (const open of gates.splice(0)) open();
 });
 
+const EVERY_VIEW = PERFORMANCE_TABS.tabs.flatMap((tab) =>
+  ['validation', 'test'].map((part) => `/performance?tab=${tab.value}&part=${part}`),
+);
+
 describe('loading and failure', () => {
   it('says it is loading until the evaluation arrives', async () => {
     const slow = held('/api/performance', performance());
     server.use(slow.handler);
     renderAt(<App />, '/performance');
     expect(await screen.findByText('Loading the model’s evaluation')).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'Metrics by partition' })).not.toBeInTheDocument();
+    expect(sections()).not.toBeInTheDocument();
     slow.release();
-    expect(await screen.findByRole('table', { name: 'Metrics by partition' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('tablist', { name: 'Performance sections' }),
+    ).toBeInTheDocument();
   });
 
   it('waits for the model’s description too', async () => {
@@ -149,9 +181,11 @@ describe('loading and failure', () => {
     // The evaluation is in; the page still waits for the artifact it describes.
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.getByText('Loading the model’s evaluation')).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'Metrics by partition' })).toBeNull();
+    expect(sections()).toBeNull();
     slow.release();
-    expect(await screen.findByRole('table', { name: 'Metrics by partition' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('tablist', { name: 'Performance sections' }),
+    ).toBeInTheDocument();
   });
 
   it('says the evaluation failed in its own words, and a retry keeps the focus on the page', async () => {
@@ -163,14 +197,16 @@ describe('loading and failure', () => {
     server.use(performanceApi());
     await userEvent.click(within(alert).getByRole('button', { name: 'Try again' }));
     expect(document.activeElement?.id).toBe(MAIN_ID);
-    expect(await screen.findByRole('table', { name: 'Metrics by partition' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('tablist', { name: 'Performance sections' }),
+    ).toBeInTheDocument();
   });
 
   it('fails the same way when the model’s description cannot be had', async () => {
     server.use(performanceApi(), refuse('get', '/api/model-info', 500, 'internal_error'));
     renderAt(<App />, '/performance');
     expect(await screen.findByText(FAILED)).toBeInTheDocument();
-    expect(screen.queryByRole('table', { name: 'Metrics by partition' })).not.toBeInTheDocument();
+    expect(sections()).not.toBeInTheDocument();
   });
 
   it('shows no figure when the evaluation describes another artifact than the model', async () => {
@@ -178,10 +214,12 @@ describe('loading and failure', () => {
     renderAt(<App />, '/performance');
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(MISMATCH);
-    expect(screen.queryByRole('table', { name: 'Metrics by partition' })).not.toBeInTheDocument();
+    expect(sections()).not.toBeInTheDocument();
     server.use(performanceApi());
     await userEvent.click(within(alert).getByRole('button', { name: 'Reload figures' }));
-    expect(await screen.findByRole('table', { name: 'Metrics by partition' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('tablist', { name: 'Performance sections' }),
+    ).toBeInTheDocument();
     expect(screen.queryByText(MISMATCH)).not.toBeInTheDocument();
     // The button went with the alert: the focus waits on the page, not the body.
     expect(document.activeElement?.id).toBe(MAIN_ID);
@@ -199,12 +237,115 @@ describe('loading and failure', () => {
       // The first handler of one call answers: the case's own goes first.
       server.use(handler(), performanceApi());
       renderAt(<App />, '/performance');
-      expect(
-        await screen.findByRole('table', { name: 'Metrics by partition' }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole('group', { name: 'Validation figures' })).toBeInTheDocument();
       expect(screen.queryByText(MISMATCH)).not.toBeInTheDocument();
     },
   );
+});
+
+describe('the tabs and the address', () => {
+  it('opens on the summary, and each tab at its own address', async () => {
+    const first = await showPerformance();
+    const tabs = screen.getByRole('tablist', { name: 'Performance sections' });
+    expect(
+      within(tabs)
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent),
+    ).toEqual([
+      '1Summary The headline figures',
+      '2Model choice Why this model',
+      '3Errors & trade-offs What each cut-off costs',
+      '4Calibration & blind spots Can you trust a score',
+    ]);
+    expect(within(tabs).getByRole('tab', { selected: true })).toHaveTextContent('Summary');
+    expect(card('How well it performs')).toBeInTheDocument();
+    first.unmount();
+
+    const expected: Record<string, string | RegExp> = {
+      choice: 'Model selection: the one-standard-error rule',
+      errors: 'Explore a cut',
+      calibration: 'Does a probability mean what it says?',
+    };
+    for (const [tab, name] of Object.entries(expected)) {
+      const shown = await showPerformance(`/performance?tab=${tab}`);
+      expect(card(name)).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'How well it performs' })).toBeNull();
+      shown.unmount();
+    }
+  });
+
+  it('reads an unknown tab as the summary, and leaves the address alone', async () => {
+    await showPerformance('/performance?tab=bogus');
+    expect(card('How well it performs')).toBeInTheDocument();
+    expect(search('tab')).toBe('bogus');
+  });
+
+  it('adds one history entry per tab chosen, and Back and Forward step through them', async () => {
+    await showPerformance('/performance?cut=0.50');
+    const added = entriesAdded();
+    await userEvent.click(screen.getByRole('tab', { name: /Errors & trade-offs/ }));
+    expect(search('tab')).toBe('errors');
+    expect(added()).toBe(1);
+    // The explored cut stays in the address whatever tab is shown.
+    expect(search('cut')).toBe('0.50');
+    expect(screen.getByText(/^At 0\.50: /)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /Errors & trade-offs/ }));
+    expect(added()).toBe(1);
+    act(() => window.history.back());
+    expect(await screen.findByRole('region', { name: 'How well it performs' })).toBeVisible();
+    act(() => window.history.forward());
+    expect(await screen.findByRole('region', { name: 'Explore a cut' })).toBeVisible();
+  });
+
+  it('moves between tabs with the arrow keys, Home and End, choosing as it goes', async () => {
+    await showPerformance();
+    const summary = screen.getByRole('tab', { name: /Summary/ });
+    summary.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: /Model choice/ })).toHaveFocus();
+    expect(search('tab')).toBe('choice');
+    await userEvent.keyboard('{End}');
+    expect(screen.getByRole('tab', { name: /Calibration & blind spots/ })).toHaveFocus();
+    expect(search('tab')).toBe('calibration');
+    await userEvent.keyboard('{ArrowRight}');
+    expect(search('tab')).toBeNull();
+    await userEvent.keyboard('{Home}{ArrowLeft}');
+    expect(search('tab')).toBe('calibration');
+  });
+});
+
+describe('the partition', () => {
+  it('offers validation and test only, never training', async () => {
+    await showPerformance('/performance', RECORDED);
+    const buttons = within(partition()).getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual(['Validation', 'Test']);
+    expect(within(partition()).getByRole('button', { name: 'Validation' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: /train/i })).toBeNull();
+  });
+
+  it('reads a partition it does not offer as validation', async () => {
+    await showPerformance('/performance?part=train', RECORDED);
+    expect(screen.getByRole('group', { name: 'Validation figures' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Test figures' })).toBeNull();
+  });
+
+  it('is one choice in the address, shared by the summary and the errors tab', async () => {
+    await showPerformance('/performance', RECORDED);
+    const added = entriesAdded();
+    await userEvent.click(within(partition()).getByRole('button', { name: 'Test' }));
+    expect(search('part')).toBe('test');
+    expect(added()).toBe(1);
+    expect(screen.getByRole('group', { name: 'Test figures' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: /Errors & trade-offs/ }));
+    expect(errorsTable()).toHaveAccessibleName('Errors at 0.40, test record');
+    act(() => window.history.back());
+    expect(await screen.findByRole('group', { name: 'Test figures' })).toBeInTheDocument();
+    act(() => window.history.back());
+    expect(await screen.findByRole('group', { name: 'Validation figures' })).toBeInTheDocument();
+  });
 });
 
 describe('where each figure comes from', () => {
@@ -236,10 +377,15 @@ describe('where each figure comes from', () => {
   });
 
   it('calls a recorded test evaluation a re-used holdout, never an independent one', async () => {
-    await showPerformance('/performance', RECORDED);
+    const first = await showPerformance('/performance', RECORDED);
     const evidence = card('Where each figure comes from');
     expect(evidence).toHaveTextContent('Recorded 2026-10-21');
     expect(evidence).toHaveTextContent('a re-checked estimate, not an independent one');
+    const note = screen.getByText(REUSED_HOLDOUT).closest('[role="note"]');
+    expect(note).toHaveTextContent('a re-checked estimate, not an independent one');
+    first.unmount();
+    await showPerformance();
+    expect(screen.queryByText(REUSED_HOLDOUT)).toBeNull();
   });
 
   it('writes the lede from the served counts, and the footer names the artifact', async () => {
@@ -260,257 +406,373 @@ describe('where each figure comes from', () => {
   });
 });
 
-describe('the scorecard', () => {
-  it('reads each validation figure from its own field, with counts behind the rates', async () => {
-    await showPerformance();
-    const table = scorecard();
-    expect(cells(table, /^PR-AUC \(average precision\)/)).toEqual([
-      expect.stringMatching(/^0\.654.*flagging at random scores 0\.271$/),
-    ]);
-    expect(cells(table, /^ROC-AUC/)).toEqual(['0.841']);
-    expect(cells(table, /^Recall/)).toEqual(['0.743222 of 310 churners flagged']);
-    expect(cells(table, /^Precision/)).toEqual(['0.601222 of 385 flagged churned']);
-    expect(cells(table, /^F1/)).toEqual(['0.654']);
-    expect(cells(table, /^Brier/)).toEqual(['0.137']);
-    expect(cells(table, /^ECE/)).toEqual(['0.031']);
-    expect(cells(table, /^Accuracy/)).toEqual(['0.812flagging nobody scores 0.733']);
-    expect(within(table).getByRole('columnheader', { name: /Validation/ })).toHaveTextContent(
-      '1,250',
-    );
-    expect(within(table).getByRole('rowgroup', { name: 'At the cut 0.36' })).toBeInTheDocument();
-  });
-
-  it('has no test column without a record, and never puts validation under a test label', async () => {
-    await showPerformance();
-    expect(within(scorecard()).queryByRole('columnheader', { name: /Test/ })).toBeNull();
-    const note = screen.getByRole('note', { name: 'Test evaluation' });
-    expect(note).toHaveTextContent('No test figures shown');
-    expect(note).toHaveTextContent('No test evaluation is recorded for this model.');
-  });
-
-  it('adds the recorded test column beside validation, every figure its own', async () => {
+describe('the summary: validation', () => {
+  it('shows exactly the four ranking and probability figures, each from its own field', async () => {
     await showPerformance('/performance', RECORDED);
-    const table = scorecard();
-    expect(within(table).getByRole('columnheader', { name: /Test · recorded/ })).toHaveTextContent(
-      '1,400',
+    const group = screen.getByRole('group', { name: 'Validation figures' });
+    expect(group).toHaveTextContent(/^VALIDATION 1,250 customers, measured live/);
+    expect(tile(group, 'PR-AUC (average precision)')).toMatch(
+      /^PR-AUC \(average precision\)0\.654primary · precision averaged over recall levels$/,
     );
-    const test = (row: RegExp) => cells(table, row)[1];
-    expect(test(/^PR-AUC/)).toBe('—not published for test');
-    expect(test(/^ROC-AUC/)).toBe('—not published for test');
-    expect(test(/^Recall/)).toBe('0.712250 of 350 churners flagged');
-    expect(test(/^Precision/)).toBe('0.499250 of 500 flagged churned');
-    expect(test(/^F1/)).toBe('0.587');
-    expect(test(/^Brier/)).toBe('—not published for test');
-    expect(test(/^ECE/)).toBe('—not published for test');
-    expect(test(/^Accuracy/)).toBe('0.751flagging nobody scores 0.750');
-    expect(within(table).getByRole('rowgroup', { name: 'At the cut 0.36' })).toBeInTheDocument();
-    expect(screen.getByText(TEST_SCOPE)).toBeInTheDocument();
-    expect(screen.queryByText(/test-optimal/)).toBeNull();
-    expect(screen.queryByRole('note', { name: 'Test evaluation' })).toBeNull();
-  });
-
-  it('never fills a withheld test figure from validation, and validation keeps its own', async () => {
-    await showPerformance('/performance', RECORDED);
-    const table = scorecard();
-    const [validation, test] = [0, 1].map((i) => (row: RegExp) => cells(table, row)[i]);
-    expect(validation?.(/^ROC-AUC/)).toBe('0.841');
-    expect(validation?.(/^Brier/)).toBe('0.137');
-    expect(validation?.(/^PR-AUC/)).toMatch(/^0\.654/);
-    for (const row of [/^PR-AUC/, /^ROC-AUC/, /^Brier/, /^ECE/]) {
-      expect(test?.(row)).toBe('—not published for test');
+    expect(tile(group, 'ROC-AUC')).toMatch(/^ROC-AUC0\.841/);
+    expect(tile(group, 'Brier score')).toMatch(/^Brier score0\.137/);
+    expect(tile(group, 'ECE')).toMatch(/^ECE0\.031/);
+    // The figures at the cut are the test record's: validation shows none of them.
+    expect(group).not.toHaveTextContent(/Recall|Precision|\bF1\b|Accuracy/);
+    // Nor any other validation figure: not its churn rate, nor its no-skill accuracy.
+    for (const figure of ['0.601', '0.743', '0.812', '0.733', '0.271']) {
+      expect(group).not.toHaveTextContent(figure);
     }
-    expect(test?.(/^Recall/)).toBe('0.712250 of 350 churners flagged');
   });
 
-  it('says the same whatever kept a recorded evaluation from being shown', async () => {
-    const reason = 'The recorded test evaluation is withheld under the disclosure policy.';
-    await showPerformance('/performance', performance({ test: null, test_reason: reason }));
-    const note = screen.getByRole('note', { name: 'Test evaluation' });
-    expect(note).toHaveTextContent('No test figures shown');
-    expect(note).toHaveTextContent(reason);
-    expect(note).not.toHaveTextContent(/not recorded/i);
-    expect(card('Where each figure comes from')).not.toHaveTextContent('Not recorded');
+  it('draws PR-AUC on a bar, and nothing else, hidden from screen readers', async () => {
+    await showPerformance();
+    const group = screen.getByRole('group', { name: 'Validation figures' });
+    const bar = group.querySelector('svg');
+    expect(bar?.closest('[aria-hidden="true"]')).not.toBeNull();
+    const [, fill] = bar?.querySelectorAll('rect') ?? [];
+    expect(fill).toHaveAttribute('width', String(measured().metrics.average_precision * 100));
+    expect(bar).toHaveAttribute('aria-hidden', 'true');
+    expect(bar?.querySelector('line')).toBeNull();
   });
 
   it('says validation is withheld, with the reason, wherever a validation figure would be', async () => {
     const reason = 'the split differs from the one the model was trained on';
-    await showPerformance(
-      '/performance',
-      performance({ validation: null, validation_evaluation: null, withheld_reason: reason }),
-    );
+    const withheld = performance({
+      validation: null,
+      validation_evaluation: null,
+      withheld_reason: reason,
+    });
     const said = `Validation outcomes are withheld: ${reason}`;
-    expect(scorecard()).toHaveTextContent(said);
-    expect(within(card('Where each figure comes from')).getByRole('note')).toHaveTextContent(said);
-    for (const name of [
-      'Errors at a cut',
-      'Precision against recall',
-      'Does one cut serve every segment?',
-      'Does a probability mean what it says?',
-    ])
+    const views: [string, string][] = [
+      ['/performance', 'How well it performs'],
+      ['/performance?tab=errors', 'Explore a cut'],
+      ['/performance?tab=errors', 'Precision against recall'],
+      ['/performance?tab=calibration', 'Performance by segment at 0.36'],
+      ['/performance?tab=calibration', 'Does a probability mean what it says?'],
+    ];
+    for (const [path, name] of views) {
+      const shown = await showPerformance(path, withheld);
       expect(card(name)).toHaveTextContent(said);
-    // The training records do not rest on the book, so they still show.
-    expect(screen.getByRole('table', { name: 'At a cut of 0.50' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('table', { name: 'Candidate scores, uncalibrated' }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('slider')).toBeNull();
+      expect(screen.queryByRole('slider')).toBeNull();
+      shown.unmount();
+    }
+    await showPerformance('/performance', withheld);
+    expect(within(card('Where each figure comes from')).getByRole('note')).toHaveTextContent(said);
   });
 
   it('says validation is unavailable, without inventing a reason, when nothing is served', async () => {
-    await showPerformance(
-      '/performance',
-      performance({ validation: null, validation_evaluation: null }),
-    );
-    expect(cells(scorecard(), /^Recall/)).toEqual(['—']);
-    expect(scorecard()).toHaveTextContent(UNAVAILABLE);
+    const nothing = performance({ validation: null, validation_evaluation: null });
+    const first = await showPerformance('/performance', nothing);
+    expect(card('How well it performs')).toHaveTextContent(UNAVAILABLE);
     expect(document.body).not.toHaveTextContent('withheld');
-    for (const name of [
-      'Errors at a cut',
-      'Precision against recall',
-      'Does one cut serve every segment?',
-    ])
-      expect(card(name)).toHaveTextContent(UNAVAILABLE);
+    first.unmount();
+    await showPerformance('/performance?tab=errors', nothing);
+    expect(card('Explore a cut')).toHaveTextContent(UNAVAILABLE);
+    expect(card('Precision against recall')).toHaveTextContent(UNAVAILABLE);
     expect(screen.queryByRole('slider')).toBeNull();
   });
 
   it('says the measured figures are unavailable when only the sweep is served', async () => {
-    await showPerformance('/performance', performance({ validation_evaluation: null }));
-    expect(scorecard()).toHaveTextContent(UNAVAILABLE);
+    const sweepOnly = performance({ validation_evaluation: null });
+    const first = await showPerformance('/performance', sweepOnly);
+    expect(card('How well it performs')).toHaveTextContent(UNAVAILABLE);
+    first.unmount();
     // The sweep is a separate figure and still shows.
+    const second = await showPerformance('/performance?tab=errors', sweepOnly);
     expect(screen.getByRole('slider', { name: 'Explored cut' })).toBeInTheDocument();
-    expect(card('Does one cut serve every segment?')).toHaveTextContent(UNAVAILABLE);
+    second.unmount();
+    await showPerformance('/performance?tab=calibration', sweepOnly);
+    expect(card('Performance by segment at 0.36')).toHaveTextContent(UNAVAILABLE);
   });
 });
 
-describe('errors at a cut', () => {
-  it('starts at the served cut, with the sweep’s own counts there', async () => {
-    await showPerformance();
-    const slider = screen.getByRole('slider', { name: 'Explored cut' });
-    expect(slider).toHaveAttribute('aria-valuetext', 'threshold 0.36');
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.36');
-    // 701 is the served figure; customers less churners less offers would be 724.
-    expect(matrix()).toEqual({ tn: '701', fp: '216', fn: '14', tp: '296' });
-    expect(
-      within(errorsTable()).getByRole('cell', { name: /(?<!not )flagged, stayed/ }),
-    ).toHaveTextContent('$50 each if offered, assumed');
-    expect(strip('Flagged')).toBe('512');
-    expect(strip('Precision')).toBe(at(36).precision.toFixed(3));
-    expect(strip('Recall')).toBe(at(36).recall.toFixed(3));
-    expect(strip('F1')).toBe(at(36).f1.toFixed(3));
-    const summary = screen.getByText(
-      'At 0.36: 512 flagged; 216 of them stayed, 14 churners not flagged.',
+describe('the summary: test', () => {
+  it('shows the record’s rates under TEST, with the counts behind them and nothing else', async () => {
+    await showPerformance('/performance?part=test', RECORDED);
+    const group = screen.getByRole('group', { name: 'Test figures' });
+    expect(group).toHaveTextContent(/^TEST 1,400 customers, recorded 2026-10-21 at the cut 0\.40/);
+    expect(tile(group, 'Recall')).toBe('Recall0.712250 of 350 churners flagged');
+    expect(tile(group, 'Precision')).toBe(
+      'Precision0.499of the flagged, 250 churned and 250 stayed',
     );
-    expect(summary).toHaveAttribute('aria-live', 'polite');
+    expect(tile(group, 'F1')).toBe('F10.587balance of precision and recall');
+    expect(tile(group, 'Accuracy')).toBe('Accuracy0.751share classified right');
+    expect(group).toHaveTextContent(TEST_SCOPE);
+    // No ranking or probability figure exists for test, and none is borrowed from validation.
+    expect(group).not.toHaveTextContent(/PR-AUC|ROC-AUC|Brier|\bECE\b/);
+    for (const figure of ['0.654', '0.841', '0.137', '0.031']) {
+      expect(group).not.toHaveTextContent(figure);
+    }
+    // The record's churn rate and no-skill accuracy are not part of the release shown.
+    expect(document.body).not.toHaveTextContent('0.261');
+    expect(document.body).not.toHaveTextContent('0.750');
+    expect(document.body).not.toHaveTextContent(/flagging nobody scores \d/);
+    expect(screen.queryByRole('group', { name: 'Validation figures' })).toBeNull();
   });
 
-  it('moves with the slider, replacing the address rather than adding to the history', async () => {
-    await showPerformance();
+  it('draws one square per test customer, as many of each outcome as the record counts', async () => {
+    await showPerformance('/performance?part=test', RECORDED);
+    const waffle = screen.getByRole('img', { name: /one square each/ });
+    expect(waffle).toHaveAccessibleName(
+      'Test customers at the cut 0.40, one square each: 250 caught, 100 missed, 250 offers to stayers, 800 left alone.',
+    );
+    const count = (outcome: string) =>
+      waffle.querySelectorAll(`rect[data-outcome="${outcome}"]`).length;
+    expect([count('tp'), count('fn'), count('fp'), count('tn')]).toEqual([250, 100, 250, 800]);
+    expect(waffle.querySelectorAll('rect')).toHaveLength(recorded().metrics.n);
+    const legend = card('Every test customer, by outcome');
+    expect(legend).toHaveTextContent('Each square is one of the 1,400 test customers');
+    for (const [name, value] of [
+      ['caught', '250'],
+      ['missed', '100'],
+      ['offers to stayers', '250'],
+      ['left alone', '800'],
+    ] as const) {
+      const told = within(legend).getByText(name, { selector: 'dt' }).nextElementSibling;
+      expect(told?.textContent.startsWith(`${value} `)).toBe(true);
+    }
+  });
+
+  it('says the record in plain words, from its own counts', async () => {
+    await showPerformance('/performance?part=test', RECORDED);
+    const plain = card('In plain words');
+    expect(plain).toHaveTextContent('Of the 350 test customers who churned, 250 were flagged.');
+    expect(plain).toHaveTextContent('recall 0.712');
+    expect(plain).toHaveTextContent('Among the customers flagged, 250 churned and 250 stayed.');
+    expect(plain).toHaveTextContent('precision 0.499');
+    expect(plain).toHaveTextContent(
+      '100 test customers who churned scored below the cut 0.40 and were not flagged.',
+    );
+    expect(within(plain).getByText('TEST')).toBeInTheDocument();
+  });
+
+  it('draws no bar for two empty cells, rather than one that looks full', async () => {
+    const empty = recorded();
+    await showPerformance(
+      '/performance?part=test',
+      performance({
+        test: {
+          ...empty,
+          metrics: {
+            ...empty.metrics,
+            positives: 0,
+            tp: 0,
+            fn: 0,
+            fp: 0,
+            tn: 1400,
+            precision: 0,
+            recall: 0,
+            f1: 0,
+          },
+        },
+        test_reason: null,
+      }),
+    );
+    const items = within(card('In plain words')).getAllByRole('listitem');
+    expect(items.map((item) => item.querySelectorAll('svg').length)).toEqual([0, 0, 0]);
+    expect(items[0]).toHaveTextContent('recall —');
+    expect(items[1]).toHaveTextContent('precision —');
+  });
+
+  it('draws no square per customer when the cells do not add up to the customers', async () => {
+    const odd = recorded();
+    await showPerformance(
+      '/performance?part=test',
+      performance({ test: { ...odd, metrics: { ...odd.metrics, n: 1401 } }, test_reason: null }),
+    );
+    const waffle = card('Every test customer, by outcome');
+    expect(within(waffle).queryByRole('img')).toBeNull();
+    expect(waffle).toHaveTextContent('do not add up to its customers');
+    expect(waffle).not.toHaveTextContent('Each square is one of');
+    // The legend still states the record's own counts.
+    expect(waffle).toHaveTextContent('800');
+  });
+
+  it('shows no test figure without a record, and says why', async () => {
+    const reason = 'The recorded test evaluation is withheld under the disclosure policy.';
+    await showPerformance(
+      '/performance?part=test',
+      performance({ test: null, test_reason: reason }),
+    );
+    const note = screen.getByRole('note', { name: 'Test evaluation' });
+    expect(note).toHaveTextContent('No test figures shown');
+    expect(note).toHaveTextContent(reason);
+    expect(note).not.toHaveTextContent(/not recorded/i);
+    expect(screen.queryByRole('group', { name: 'Test figures' })).toBeNull();
+    expect(screen.queryByRole('img', { name: /one square each/ })).toBeNull();
+    expect(within(card('How well it performs')).queryByText('TEST')).toBeNull();
+    expect(card('How well it performs')).not.toHaveTextContent('what the recorded cut caught');
+  });
+
+  it('never puts a validation figure under a test label when there is no record', async () => {
+    await showPerformance('/performance?part=test');
+    const note = screen.getByRole('note', { name: 'Test evaluation' });
+    expect(note).toHaveTextContent('No test evaluation is recorded for this model.');
+    for (const figure of ['0.654', '0.841', '0.137', '0.031', '0.601', '0.743']) {
+      expect(card('How well it performs')).not.toHaveTextContent(figure);
+    }
+  });
+});
+
+describe('the held-out test partition', () => {
+  /** A record carrying fields the release does not publish, each a value found nowhere else. */
+  const smuggled = {
+    ...recorded(),
+    metrics: {
+      ...recorded().metrics,
+      roc_auc: 0.9876,
+      average_precision: 0.9654,
+      brier: 0.0789,
+      ece: 0.0567,
+    },
+    ece: 0.0543,
+    brier: 0.0821,
+    roc_auc: 0.9822,
+    average_precision: 0.9733,
+    optimal_threshold: 0.8765,
+    reliability: [{ low: 0, high: 0.1, customers: 4321, mean_predicted: 0.0444, rate: 0.0456 }],
+    segments: [{ dimension: 'Contract', segment: 'Month-to-month', customers: 8765 }],
+    churn_rate: 0.3456,
+    no_skill_accuracy: 0.6789,
+  } as unknown as NonNullable<Performance['test']>;
+  const SENTINELS = [
+    ...['0.988', '0.9876', '0.965', '0.079', '0.057', '0.054', '0.082', '0.982', '0.973'],
+    ...['0.877', '0.88', '4,321', '4321', '8,765', '8765', '0.346', '0.679', '0.046'],
+  ];
+
+  /** Every piece of text a reader or a screen reader meets, one node or label at a time. */
+  function readable(): string[] {
+    const out: string[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.nodeValue) out.push(node.nodeValue);
+    }
+    for (const element of document.body.querySelectorAll('[aria-label],[aria-valuetext],[title]')) {
+      for (const name of ['aria-label', 'aria-valuetext', 'title']) {
+        const value = element.getAttribute(name);
+        if (value) out.push(value);
+      }
+    }
+    return out;
+  }
+
+  function found(): string[] {
+    const pieces = readable();
+    return SENTINELS.filter((value) => pieces.some((piece) => piece.includes(value)));
+  }
+
+  it.each(EVERY_VIEW)('shows no unpublished test figure at %s', async (path) => {
+    // The same view without the extra fields shows none of the values either,
+    // so their absence below is the page's doing, not the fixture's.
+    const plain = await showPerformance(path, RECORDED);
+    expect(found()).toEqual([]);
+    plain.unmount();
+    await showPerformance(path, performance({ test: smuggled, test_reason: null }));
+    expect(found()).toEqual([]);
+    expect(document.body.textContent).not.toMatch(/test-optimal|optimal threshold/i);
+  });
+
+  it('labels every test figure TEST and every validation figure VALIDATION', async () => {
+    await showPerformance('/performance?part=test', RECORDED);
+    expect(
+      within(screen.getByRole('group', { name: 'Test figures' })).getByText('TEST'),
+    ).toBeVisible();
+    for (const name of ['Every test customer, by outcome', 'In plain words']) {
+      expect(within(card(name)).getByText('TEST')).toBeVisible();
+    }
+    expect(screen.queryByText('VALIDATION', { selector: '[role="group"] *' })).toBeNull();
+  });
+});
+
+describe('errors and trade-offs: validation', () => {
+  it('starts at the served cut, with the sweep point’s own figures and no two-by-two table', async () => {
+    await showPerformance('/performance?tab=errors', RECORDED);
+    const slider = screen.getByRole('slider', { name: 'Explored cut' });
+    expect(slider).toHaveAttribute('aria-valuetext', '0.36');
+    expect(screen.queryByRole('table', { name: /^Errors at / })).toBeNull();
+    const explore = card('Explore a cut');
+    expect(within(explore).getByText('VALIDATION')).toBeVisible();
+    expect(strip('Flagged', explore)).toBe('512');
+    expect(strip('Precision', explore)).toBe(at(36).precision.toFixed(3));
+    expect(strip('Recall', explore)).toBe(at(36).recall.toFixed(3));
+    expect(strip('F1', explore)).toBe(at(36).f1.toFixed(3));
+    const readout = screen.getByText(/^At 0\.36: 512 flagged · precision /);
+    expect(readout).toHaveAttribute('aria-live', 'polite');
+    // A validation cut is read as its rates: no cell of a validation table is told.
+    expect(explore).not.toHaveTextContent(/stayed|churned|caught|missed|left alone/);
+    expect(explore).not.toHaveTextContent('$50');
+  });
+
+  it('moves with the fader, replacing the address rather than adding to the history', async () => {
+    await showPerformance('/performance?tab=errors');
     const added = entriesAdded();
     fireEvent.change(screen.getByRole('slider', { name: 'Explored cut' }), {
       target: { value: '50' },
     });
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.50');
     expect(strip('Flagged')).toBe(String(at(50).flagged));
     expect(screen.getByText(/^At 0\.50: /)).toHaveAttribute('aria-live', 'polite');
-    expect(new URLSearchParams(window.location.search).get('cut')).toBe('0.50');
+    expect(search('cut')).toBe('0.50');
     expect(added()).toBe(0);
     // Back at the served cut, the address is clean again.
     fireEvent.change(screen.getByRole('slider', { name: 'Explored cut' }), {
       target: { value: '36' },
     });
-    expect(new URLSearchParams(window.location.search).get('cut')).toBeNull();
+    expect(search('cut')).toBeNull();
+  });
+
+  it('goes back to the served cut with the fader’s reset', async () => {
+    await showPerformance('/performance?tab=errors&cut=0.50');
+    await userEvent.click(screen.getByRole('button', { name: /reset/i }));
+    expect(search('cut')).toBeNull();
+    expect(screen.getByText(/^At 0\.36: /)).toBeInTheDocument();
   });
 
   it.each([
-    ['/performance?cut=0.50', 'Errors at 0.50'],
-    ['/performance?cut=0.00', 'Errors at 0.00'],
+    ['/performance?tab=errors&cut=0.50', /^At 0\.50: /],
+    ['/performance?tab=errors&cut=0.00', /^At 0\.00: /],
     // Not a cut as the grid writes it: the served cut.
-    ['/performance?cut=0.5', 'Errors at 0.36'],
-  ])('opens %s at the cut from the address, or the served one', async (path, name) => {
+    ['/performance?tab=errors&cut=0.5', /^At 0\.36: /],
+  ])('opens %s at the cut from the address, or the served one', async (path, readout) => {
     await showPerformance(path);
-    expect(errorsTable()).toHaveAccessibleName(name);
+    expect(screen.getByText(readout)).toBeInTheDocument();
   });
 
   it('falls back to the served cut for a cut the curve lacks, and leaves the address alone', async () => {
     const lacking = curve();
     await showPerformance(
-      '/performance?cut=0.50',
+      '/performance?tab=errors&cut=0.50',
       performance({
         validation: { ...lacking, points: lacking.points.filter((_, i) => i !== 50) },
       }),
     );
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.36');
-    expect(new URLSearchParams(window.location.search).get('cut')).toBe('0.50');
+    expect(screen.getByText(/^At 0\.36: /)).toBeInTheDocument();
+    expect(search('cut')).toBe('0.50');
   });
 
   it('keeps the cut in the address while the figures load', async () => {
     const slow = held('/api/performance', performance());
     server.use(slow.handler);
-    renderAt(<App />, '/performance?cut=0.50');
+    renderAt(<App />, '/performance?tab=errors&cut=0.50');
     await screen.findByText('Loading the model’s evaluation');
-    expect(new URLSearchParams(window.location.search).get('cut')).toBe('0.50');
+    expect(search('cut')).toBe('0.50');
     slow.release();
-    expect(await screen.findByRole('table', { name: 'Errors at 0.50' })).toBeInTheDocument();
+    expect(await screen.findByText(/^At 0\.50: /)).toBeInTheDocument();
   });
 
   it('writes "—" for precision and F1 at a cut that flags nobody, and 0 where the flagged stayed', async () => {
-    const first = await showPerformance('/performance?cut=1.00');
+    const first = await showPerformance('/performance?tab=errors&cut=1.00');
     expect(at(100).flagged).toBe(0);
     expect([strip('Precision'), strip('Recall'), strip('F1')]).toEqual(['—', '0.000', '—']);
     first.unmount();
-    await showPerformance('/performance?cut=0.97');
+    await showPerformance('/performance?tab=errors&cut=0.97');
     expect(at(97).flagged).toBe(3);
     expect([strip('Precision'), strip('Recall'), strip('F1')]).toEqual(['0.000', '0.000', '0.000']);
   });
 
-  it('shows the recorded test counts under their own tab at the record’s cut, without a slider', async () => {
-    await showPerformance('/performance', RECORDED);
-    expect(screen.getByRole('tablist', { name: 'Partition for the errors' })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'Test · recorded at 0.40' }));
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.40');
-    expect(matrix()).toEqual({ tn: '800', fp: '250', fn: '100', tp: '250' });
-    expect([strip('Flagged'), strip('Precision'), strip('Recall'), strip('F1')]).toEqual([
-      '500',
-      '0.499',
-      '0.712',
-      '0.587',
-    ]);
-    expect(
-      screen.getByText('At 0.40: 500 flagged; 250 of them stayed, 100 churners not flagged.'),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('slider')).toBeNull();
-  });
-
-  it('reads recall as 0, not undefined, for a record whose cut reached no churner', async () => {
-    const none = recorded();
-    await showPerformance(
-      '/performance',
-      performance({
-        test: {
-          ...none,
-          metrics: { ...none.metrics, tp: 0, fp: 10, fn: 350, precision: 0, recall: 0, f1: 0 },
-        },
-        test_reason: null,
-      }),
-    );
-    await userEvent.click(screen.getByRole('tab', { name: 'Test · recorded at 0.40' }));
-    expect([strip('Precision'), strip('Recall'), strip('F1')]).toEqual(['0.000', '0.000', '0.000']);
-  });
-
-  it('goes back to validation when a cut is picked on the chart from the test tab', async () => {
-    await showPerformance('/performance', RECORDED);
-    await userEvent.click(screen.getByRole('tab', { name: 'Test · recorded at 0.40' }));
-    pick(50);
-    expect(screen.getByRole('tab', { name: 'Validation · explore' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    );
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.50');
-  });
-
   it('quotes how the served cut was set, and says it is one cut among others', async () => {
-    await showPerformance();
-    const errors = card('Errors at a cut');
+    await showPerformance('/performance?tab=errors');
+    const errors = card('Explore a cut');
     expect(errors).toHaveTextContent(modelInfo().threshold_source);
     expect(errors).toHaveTextContent('not a universal optimum');
     expect(within(errors).getByRole('link', { name: /simulator/i })).toHaveAttribute(
@@ -520,9 +782,65 @@ describe('errors at a cut', () => {
   });
 });
 
+describe('errors and trade-offs: test', () => {
+  it('shows the record’s two-by-two table at its own cut, without a fader or a curve', async () => {
+    await showPerformance('/performance?tab=errors&part=test', RECORDED);
+    expect(errorsTable()).toHaveAccessibleName('Errors at 0.40, test record');
+    expect(matrix()).toEqual({ tn: '800', fp: '250', fn: '100', tp: '250' });
+    const table = errorsTable();
+    expect(within(table).getByRole('cell', { name: /^250 caught/ })).toBeInTheDocument();
+    expect(within(table).getByRole('cell', { name: /^100 missed/ })).toBeInTheDocument();
+    expect(within(table).getByRole('cell', { name: /^800 left alone/ })).toBeInTheDocument();
+    expect(within(table).getByRole('cell', { name: /^250 offers to stayers/ })).toHaveTextContent(
+      '$50 each if offered, assumed',
+    );
+    const errors = card('Errors at the recorded cut');
+    expect([
+      strip('Precision', errors),
+      strip('Recall', errors),
+      strip('F1', errors),
+      strip('Accuracy', errors),
+    ]).toEqual(['0.499', '0.712', '0.587', '0.751']);
+    expect(within(errors).queryByText('Flagged', { selector: 'dt' })).toBeNull();
+    expect(
+      screen.getByText('At 0.40: 250 churners caught, 100 missed; 250 offers to stayers.'),
+    ).toBeInTheDocument();
+    expect(within(errors).getByText('TEST')).toBeVisible();
+    expect(screen.queryByRole('slider')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Precision against recall' })).toBeNull();
+    expect(card('What the test record holds')).toHaveTextContent(
+      'The test release is recorded at one cut only',
+    );
+  });
+
+  it('reads recall as 0, not undefined, for a record whose cut reached no churner', async () => {
+    const none = recorded();
+    await showPerformance(
+      '/performance?tab=errors&part=test',
+      performance({
+        test: {
+          ...none,
+          metrics: { ...none.metrics, tp: 0, fp: 10, fn: 350, precision: 0, recall: 0, f1: 0 },
+        },
+        test_reason: null,
+      }),
+    );
+    expect([strip('Precision'), strip('Recall'), strip('F1')]).toEqual(['0.000', '0.000', '0.000']);
+  });
+
+  it('shows no table without a record, and says why', async () => {
+    await showPerformance('/performance?tab=errors&part=test');
+    expect(screen.queryByRole('table', { name: /^Errors at / })).toBeNull();
+    expect(screen.getByRole('note', { name: 'Test evaluation' })).toHaveTextContent(
+      'No test figures shown',
+    );
+    expect(screen.queryByRole('slider')).toBeNull();
+  });
+});
+
 describe('precision against recall', () => {
   it('tables each cut’s served figures by column, "—" where nothing is flagged', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=errors');
     const p35 = at(35);
     expect(chartRow(prTable(), '0.35')).toEqual([
       String(p35.flagged),
@@ -536,7 +854,7 @@ describe('precision against recall', () => {
   });
 
   it('marks and names the explored cut beside the served one', async () => {
-    await showPerformance('/performance?cut=0.50');
+    await showPerformance('/performance?tab=errors&cut=0.50');
     expect(chartRow(prTable(), '0.50')[4]).toBe('explored');
     expect(chartRow(prTable(), '0.36')[4]).toBe('served');
     expect(
@@ -545,26 +863,30 @@ describe('precision against recall', () => {
   });
 
   it('draws the no-skill line at the precision of flagging everyone, as served', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=errors');
     expect(card('Precision against recall')).toHaveTextContent('no skill: the churn rate, 0.260');
   });
 
-  it('loads a clicked cut into the errors card, adding one history entry', async () => {
-    await showPerformance();
+  it('loads a clicked cut into the fader, adding one history entry', async () => {
+    await showPerformance('/performance?tab=errors');
     const added = entriesAdded();
     pick(50);
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.50');
+    expect(screen.getByText(/^At 0\.50: /)).toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Explored cut' })).toHaveAttribute(
+      'aria-valuetext',
+      '0.50',
+    );
     expect(added()).toBe(1);
   });
 
   it('loads the first cut too', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=errors');
     pick(0);
-    expect(errorsTable()).toHaveAccessibleName('Errors at 0.00');
+    expect(screen.getByText(/^At 0\.00: /)).toBeInTheDocument();
   });
 
   it('keeps the pointer layer out of the keyboard’s way', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=errors');
     const capture = screen.getByTestId('pr-capture');
     expect(capture).toHaveAttribute('aria-hidden', 'true');
     expect(capture).not.toHaveAttribute('tabindex');
@@ -577,7 +899,7 @@ describe('segments', () => {
   }
 
   it('reads each rate with its interval, and names undefined and small groups for what they are', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=calibration');
     const table = segmentTable();
     expect(cells(table, 'Month-to-month')).toEqual([
       '690',
@@ -611,23 +933,36 @@ describe('segments', () => {
     expect(table).toHaveTextContent('Senior citizen');
     expect(table).toHaveTextContent('Gender');
     expect(screen.getByRole('region', { name: 'Segment table' })).toHaveAttribute('tabindex', '0');
-    const segments = card('Does one cut serve every segment?');
+    const segments = card('Performance by segment at 0.36');
+    expect(within(segments).getByText('VALIDATION')).toBeVisible();
     expect(segments).toHaveTextContent(UNSCANNED);
     expect(segments).toHaveTextContent(GENDER);
   });
 
+  it('draws each served rate on a small bar, and none where the rate is undefined', async () => {
+    await showPerformance('/performance?tab=calibration');
+    const table = segmentTable();
+    const row = within(table).getByRole('rowheader', { name: 'Month-to-month' }).closest('tr');
+    const width = (rate: string) =>
+      row?.querySelector(`svg[data-rate="${rate}"] rect:last-child`)?.getAttribute('width');
+    expect(Number(width('precision'))).toBeCloseTo(55.33);
+    expect(Number(width('recall'))).toBeCloseTo(70.11);
+    const empty = within(table).getByRole('rowheader', { name: 'No internet' }).closest('tr');
+    expect(empty?.querySelectorAll('svg')).toHaveLength(0);
+  });
+
   it('offers no test breakdown, whatever is recorded', async () => {
-    await showPerformance('/performance', RECORDED);
-    const segments = card('Does one cut serve every segment?');
+    await showPerformance('/performance?tab=calibration&part=test', RECORDED);
+    const segments = card('Performance by segment at 0.36');
     expect(within(segments).queryByRole('group', { name: /Partition/ })).toBeNull();
-    expect(within(segments).queryByRole('button', { name: 'Test · recorded' })).toBeNull();
+    expect(within(segments).queryByText('TEST')).toBeNull();
     expect(segmentTable(/^Segments at 0\.36, validation$/)).toBeInTheDocument();
   });
 });
 
 describe('calibration', () => {
   it('tables the served reliability bins, and leaves a small bin without a rate', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=calibration');
     const table = screen.getByRole('table', {
       name: 'Observed churn by probability bin, validation',
     });
@@ -645,9 +980,21 @@ describe('calibration', () => {
     ).toBeInTheDocument();
   });
 
-  it('says on the chart which bins are too small to draw, and the served ECE', async () => {
-    await showPerformance();
+  it('sizes each drawn bin by its customers, the largest largest', async () => {
+    await showPerformance('/performance?tab=calibration');
+    const chart = screen.getByRole('img', { name: /validation bins/ });
+    const radii = [...chart.querySelectorAll('circle')].map((c) => Number(c.getAttribute('r')));
+    // 412, 233, 198 and 160 customers, in the bins' order.
+    expect(radii).toHaveLength(4);
+    expect(radii[0]).toBe(9);
+    expect([...radii].sort((a, b) => b - a)).toEqual(radii);
+  });
+
+  it('puts the served ECE in the header, and says which bins are too small to draw', async () => {
+    await showPerformance('/performance?tab=calibration');
     const calibration = card('Does a probability mean what it says?');
+    expect(within(calibration).getByText('ECE 0.031')).toBeVisible();
+    expect(within(calibration).getByText('VALIDATION')).toBeVisible();
     expect(calibration).toHaveTextContent(
       'Not drawn: 0.8–0.9 (14 customers), fewer than 20 customers.',
     );
@@ -656,7 +1003,7 @@ describe('calibration', () => {
 
   it('draws no bin, and says so, when none is served', async () => {
     await showPerformance(
-      '/performance',
+      '/performance?tab=calibration',
       performance({ validation_evaluation: measured({ reliability: [] }) }),
     );
     expect(
@@ -667,7 +1014,7 @@ describe('calibration', () => {
   });
 
   it('compares the uncalibrated and served model at 0.50 from the record', async () => {
-    await showPerformance();
+    await showPerformance('/performance?tab=calibration');
     const table = screen.getByRole('table', { name: 'At a cut of 0.50' });
     expect(cells(table, 'Precision')).toEqual(['0.501', '0.661']);
     expect(cells(table, 'Recall')).toEqual(['0.778', '0.522']);
@@ -681,7 +1028,7 @@ describe('calibration', () => {
 
   it('writes "—" where training recorded no figures, and says the model is not calibrated', async () => {
     await showPerformance(
-      '/performance',
+      '/performance?tab=calibration',
       performance({
         calibration: {
           method: null,
@@ -697,11 +1044,21 @@ describe('calibration', () => {
     expect(cells(table, 'Precision')).toEqual(['—', '—']);
     expect(screen.getByText('The served probabilities are not calibrated.')).toBeInTheDocument();
   });
+
+  it('keeps the training records when validation is withheld', async () => {
+    await showPerformance(
+      '/performance?tab=calibration',
+      performance({ validation: null, validation_evaluation: null, withheld_reason: 'x' }),
+    );
+    expect(screen.getByRole('table', { name: 'At a cut of 0.50' })).toBeInTheDocument();
+  });
 });
 
 describe('model selection', () => {
+  const CHOICE = '/performance?tab=choice';
+
   it('charts the candidates inside one standard error, and tables all of them', async () => {
-    await showPerformance();
+    await showPerformance(CHOICE);
     const chart = screen.getByRole('table', { name: /Cross-validated PR-AUC of the candidates/ });
     expect(within(chart).getAllByRole('row')).toHaveLength(1 + 3);
     expect(chartRow(chart, 'Random forest')).toEqual(['0.6704', '0.0071', 'leader']);
@@ -714,10 +1071,28 @@ describe('model selection', () => {
     );
   });
 
+  it('draws each whisker from the served score and error, as places along the plot', async () => {
+    await showPerformance(CHOICE);
+    const plots = card('Model selection: the one-standard-error rule').querySelectorAll('svg');
+    const percent = (value: string | null) => Number(value?.replace('%', ''));
+    for (const plot of [...plots].slice(0, 3)) {
+      const [cutoff, whisker] = plot.querySelectorAll('line');
+      const dot = plot.querySelector('circle');
+      const low = percent(whisker?.getAttribute('x1') ?? null);
+      const high = percent(whisker?.getAttribute('x2') ?? null);
+      const centre = percent(dot?.getAttribute('cx') ?? null);
+      expect(low).toBeLessThan(centre);
+      expect(centre).toBeLessThan(high);
+      // The interval is symmetric: the server's score, plus and minus its error.
+      expect(centre - low).toBeCloseTo(high - centre, 1);
+      expect(cutoff?.getAttribute('x1')).toBe(cutoff?.getAttribute('x2'));
+    }
+  });
+
   it('states the lead the server gives, and works none out', async () => {
     const figures = performance();
     await showPerformance(
-      '/performance',
+      CHOICE,
       performance({ selection: figures.selection && { ...figures.selection, leader_gap: 0.1234 } }),
     );
     expect(card('Model selection: the one-standard-error rule')).toHaveTextContent(
@@ -726,7 +1101,7 @@ describe('model selection', () => {
   });
 
   it('links to the model card, and to no report holding figures the policy does not publish', async () => {
-    await showPerformance('/performance', RECORDED);
+    await showPerformance(CHOICE, RECORDED);
     expect(screen.getByRole('link', { name: /Model card/ })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Final evaluation/ })).toBeNull();
   });
@@ -734,7 +1109,7 @@ describe('model selection', () => {
   it('marks the leader the server names, not the highest score', async () => {
     const figures = performance();
     await showPerformance(
-      '/performance',
+      CHOICE,
       performance({
         selection: figures.selection && {
           ...figures.selection,
@@ -750,7 +1125,7 @@ describe('model selection', () => {
   it('marks no leader, and claims no sum, for a leader the comparison does not list', async () => {
     const figures = performance();
     await showPerformance(
-      '/performance',
+      CHOICE,
       performance({
         selection: figures.selection && { ...figures.selection, leader_name: 'Gone' },
       }),
@@ -766,7 +1141,7 @@ describe('model selection', () => {
   it('writes the cutoff as the leader less its error only when the figures agree', async () => {
     const figures = performance();
     await showPerformance(
-      '/performance',
+      CHOICE,
       performance({ selection: figures.selection && { ...figures.selection, cutoff: 0.6501 } }),
     );
     expect(screen.getByText('cutoff 0.6501')).toBeInTheDocument();
@@ -776,7 +1151,7 @@ describe('model selection', () => {
     ['the comparison', { candidates: null }],
     ['the selection', { selection: null }],
   ])('says the comparison is not recorded when %s is missing', async (_, missing) => {
-    await showPerformance('/performance', performance(missing));
+    await showPerformance(CHOICE, performance(missing));
     expect(card('Model selection: the one-standard-error rule')).toHaveTextContent(
       'The model comparison is not recorded in this artifact’s reports.',
     );
@@ -784,12 +1159,37 @@ describe('model selection', () => {
 });
 
 describe('the words on the page', () => {
-  it('claim no cause or verdict, with or without a recorded test evaluation', async () => {
-    const first = await showPerformance();
+  it.each(EVERY_VIEW)('claim no cause, verdict or ratio at %s', async (path) => {
+    const first = await showPerformance(path);
     expectNoClaims();
     expect(document.body).toHaveTextContent('This page computes nothing from the test partition');
     first.unmount();
-    await showPerformance('/performance', RECORDED);
+    await showPerformance(path, RECORDED);
     expectNoClaims();
+  });
+});
+
+describe('the sidebar', () => {
+  it("reads the page's own figures: one request for both, kept across tabs, partitions and pages", async () => {
+    const seen = recordRequests();
+    await showPerformance(
+      '/performance',
+      performance({
+        test: recorded(),
+        test_reason: null,
+        validation_evaluation: measured({ ece: 0.0412 }),
+      }),
+    );
+    const ece = screen.getByText('Validation ECE').nextElementSibling;
+    expect(ece).toHaveTextContent(/^0\.041$/);
+    for (const name of [/Model choice/, /Errors & trade-offs/, /Calibration/, /Summary/]) {
+      await userEvent.click(screen.getByRole('tab', { name }));
+    }
+    await userEvent.click(within(partition()).getByRole('button', { name: 'Test' }));
+    act(() => window.history.back());
+    act(() => navigate('/batch'));
+    act(() => navigate('/performance'));
+    await screen.findByRole('tablist', { name: 'Performance sections' });
+    expect(seen.filter((url) => url.pathname === '/api/performance')).toHaveLength(1);
   });
 });

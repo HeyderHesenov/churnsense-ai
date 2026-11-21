@@ -12,6 +12,7 @@ import {
   explainResponse,
   LINKED,
   prediction,
+  README_PROBABILITY,
   README_RECORD,
 } from '../../test/customerApi';
 import { modelInfo } from '../../test/fixtures';
@@ -574,6 +575,8 @@ describe('Single customer: a customer in the book', () => {
       '/api/explain',
       '/api/health',
       '/api/model-info',
+      // The sidebar's serving card.
+      '/api/performance',
       '/api/predict',
     ]);
   });
@@ -1036,5 +1039,105 @@ describe('Single customer: when the examples cannot be loaded', () => {
       await screen.findByText('API example: 80.3%, Critical band, flagged at 0.36.'),
     ).toBeInTheDocument();
     expect(EXAMPLES).toHaveLength(4);
+  });
+});
+
+describe('Single customer, design v4', () => {
+  it('asks for the model, the examples, one score and one explanation on first load', async () => {
+    const seen = recordRequests();
+    showCustomer();
+    await loaded();
+    await within(screen.getByRole('region', { name: 'Contribution waterfall' })).findByRole(
+      'list',
+      { name: 'Contributions' },
+    );
+    await pause(400);
+    const count = (path: string) => seen.filter((url) => url.pathname === path).length;
+    expect(count('/api/model-info')).toBe(1);
+    expect(count('/api/customers/examples')).toBe(1);
+    expect(count('/api/predict')).toBe(1);
+    expect(count('/api/explain')).toBe(1);
+  });
+
+  it('shows no probability, band or flag until the API has answered', async () => {
+    const predict = hold('/api/predict');
+    showCustomer('/customer', [predict.handler]);
+    await loaded();
+    await pause(300);
+    const card = prediction_();
+    expect(card).not.toHaveTextContent(
+      /\d%|\b(Low|Moderate|High|Critical) band|Flagged at|Not flagged/,
+    );
+    expect(card.querySelector('svg[role="img"]')).toBeNull();
+    predict.release();
+    expect(await within(card).findByText('80.3%')).toBeInTheDocument();
+  });
+
+  it('shows the served probability, band, flag and threshold, even when they disagree', async () => {
+    // Deliberately inconsistent: a low probability served as Critical, flagged, at a high cut.
+    const served: Schemas['PredictionResponse'] = {
+      ...prediction(README_RECORD),
+      churn_probability: 0.1234,
+      risk_band: 'Critical',
+      flagged: true,
+      threshold: 0.9,
+    };
+    showCustomer('/customer', [answer('post', '/api/predict', served)]);
+    await loaded();
+    const card = prediction_();
+    expect(await within(card).findByText('12.3%')).toBeInTheDocument();
+    expect(within(card).getByText('Critical band')).toBeInTheDocument();
+    expect(within(card).getByText('Flagged at 0.90')).toBeInTheDocument();
+    const lit = card.querySelectorAll('[data-on="true"]');
+    expect([...lit].map((band) => band.getAttribute('data-band'))).toEqual(['Critical']);
+  });
+
+  it('draws the scale as SVG at the served figures, setting no style', async () => {
+    showCustomer();
+    await loaded();
+    const card = prediction_();
+    await within(card).findByText('80.3%');
+    const scale = within(card).getByRole('img');
+    const marker = scale.querySelector('svg[data-lean]');
+    expect(parseFloat(marker?.getAttribute('x') ?? '')).toBeCloseTo(README_PROBABILITY * 100, 9);
+    const line = scale.querySelector('line[class*="thresholdLine"]');
+    expect(line).toHaveAttribute('x1', '36%');
+    expect(within(scale).getByText('threshold 0.36')).toBeInTheDocument();
+    const bands = modelInfo().risk_bands ?? [];
+    const rects = [...scale.querySelectorAll('rect[data-band]')];
+    expect(rects.map((r) => r.getAttribute('data-band'))).toEqual(bands.map((b) => b.name));
+    rects.forEach((rect, i) => {
+      const band = bands[i];
+      if (!band) throw new Error('band');
+      expect(parseFloat(rect.getAttribute('x') ?? '')).toBeCloseTo(band.min * 100, 9);
+      expect(parseFloat(rect.getAttribute('width') ?? '')).toBeCloseTo(
+        (Math.min(band.max, 1) - band.min) * 100,
+        9,
+      );
+    });
+    expect(card.querySelector('[style]')).toBeNull();
+    const list = await screen.findByRole('list', { name: 'Contributions' });
+    expect(list.querySelector('[style]')).toBeNull();
+    // Each bar is placed by the served contributions' running total (customer.ts bar()).
+    expect(list.querySelectorAll('svg rect[data-direction]').length).toBeGreaterThan(2);
+    expect(picker().querySelector('[style]')).toBeNull();
+  });
+
+  it('says where each part of the result comes from', async () => {
+    showCustomer();
+    await loaded();
+    expect(within(prediction_()).getByText('Model output')).toBeInTheDocument();
+    expect(
+      within(prediction_()).getByText(
+        'POST /api/predict · probability, band, flag and threshold as served',
+      ),
+    ).toBeInTheDocument();
+    const explanation = screen.getByRole('region', { name: 'Contribution waterfall' });
+    expect(within(explanation).getByText('Explanation')).toBeInTheDocument();
+    expect(
+      within(explanation).getByText(
+        'POST /api/explain · attributions of this score, not causal effects',
+      ),
+    ).toBeInTheDocument();
   });
 });

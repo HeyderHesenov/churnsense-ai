@@ -1,84 +1,22 @@
 /**
- * The cut, and the figures at it. Every figure is a field of the response:
- * the counts measured on validation customers apart from the money simulated
- * from them, the response's own assumptions named first, and, when those are
- * not the assumptions set, a line saying so before any figure.
+ * Results & impact: the figures at the cut. Every figure is a field of the
+ * response: the money simulated from the assumptions first (the impact, under
+ * its SIMULATED tag), then the counts measured on validation customers under
+ * theirs, the response's own assumptions named before any figure, and, when
+ * those are not the assumptions set, a line saying so.
  */
 import type { ReactNode } from 'react';
 import { ApiError } from '../../api/client';
 import type { Sweep } from '../../api/queries';
-import { Button } from '../../components/ui/Button';
-import { Card, CardHeader, SimulatedBadge } from '../../components/ui/Surface';
+import { SimulatedBadge, Tag } from '../../components/ui/Surface';
 import { ErrorState, Skeleton } from '../../components/ui/States';
 import { cut, int, money, signedMoney } from '../../lib/format';
 import { cx } from '../../lib/style';
-import { netParts, precisionText, provenance, recallText, statusNote } from './copy';
-import { ForAssumptions } from './ForAssumptions';
+import { f1Text, netParts, precisionText, provenance, recallText, statusNote } from './copy';
 import type { Selection, Status } from './simulator';
 import styles from './Simulator.module.css';
 
 export const RESULTS_ID = 'simulator-results';
-
-interface CutCardProps {
-  sweep: Sweep;
-  selected: Selection;
-  onCut: (index: number) => void;
-  onFollow: () => void;
-  /** The figures are for other assumptions than those set. */
-  stale: boolean;
-}
-
-/** The one keyboard control for the cut; the chart is a pointer's shortcut to it. */
-export function CutCard({ sweep, selected, onCut, onFollow, stale }: CutCardProps) {
-  const point = sweep.points[selected.index];
-  return (
-    <Card titleId="cut-title" className={styles.panel}>
-      <CardHeader
-        id="cut-title"
-        title="Where to cut"
-        subtitle="Customers the model scores at or above the cut would get an offer."
-      />
-      <ForAssumptions echo={sweep.assumptions} stale={stale} />
-      <div className={styles.field}>
-        <div className={styles.fieldTop}>
-          <label htmlFor="cut" className={styles.label}>
-            Decision threshold
-          </label>
-          <span className={styles.cutValue} aria-hidden="true">
-            {point ? cut(point.threshold) : '—'}
-          </span>
-        </div>
-        <input
-          id="cut"
-          type="range"
-          className={styles.slider}
-          min={0}
-          max={sweep.points.length - 1}
-          step={1}
-          value={selected.index}
-          aria-valuetext={point ? cut(point.threshold) : 'no cut'}
-          onChange={(event) => onCut(Number(event.target.value))}
-        />
-      </div>
-      <div className={styles.follow}>
-        <span className={styles.followNote}>
-          {selected.following ? 'Following the recommendation' : 'Set by hand'}
-        </span>
-        <Button
-          variant="simGhost"
-          size="sm"
-          aria-disabled={selected.following}
-          onClick={() => {
-            if (!selected.following) onFollow();
-          }}
-        >
-          Use recommended
-        </Button>
-      </div>
-      <p className={styles.tip}>A click on the net-benefit chart sets the cut there.</p>
-    </Card>
-  );
-}
 
 interface ResultsProps {
   status: Status;
@@ -88,6 +26,8 @@ interface ResultsProps {
   /** The service's reason when it publishes no sweep at all. */
   sweepNote?: string | null;
   onRetry: () => void;
+  /** The pin control, shown under the figures. */
+  pin?: ReactNode;
 }
 
 /** A response whose recommendation is none of its points: no cut can be drawn from it. */
@@ -98,7 +38,7 @@ const WITHHELD =
   'The simulator works on the observed outcomes of validation customers, and validation ' +
   'outcomes are withheld while the partitions cannot be verified against the served model.';
 
-export function Results({ status, sweep, selected, error, sweepNote, onRetry }: ResultsProps) {
+export function Results({ status, sweep, selected, error, sweepNote, onRetry, pin }: ResultsProps) {
   const point = sweep && selected ? sweep.points[selected.index] : undefined;
   const shown = point !== undefined && status !== 'failed' && status !== 'withheld';
   const note = statusNote(status, shown);
@@ -109,9 +49,12 @@ export function Results({ status, sweep, selected, error, sweepNote, onRetry }: 
       className={cx(styles.results, shown && status !== 'current' && styles.stale)}
     >
       <div className={styles.resultsTop}>
-        <h2 id={RESULTS_ID} tabIndex={-1} className={styles.resultsTitle}>
-          {point ? `At ${cut(point.threshold)}` : 'At the cut'}
-        </h2>
+        <div>
+          <p className={styles.resultsEyebrow}>Results &amp; impact</p>
+          <h2 id={RESULTS_ID} tabIndex={-1} className={styles.resultsTitle}>
+            {point ? `At ${cut(point.threshold)}` : 'At the cut'}
+          </h2>
+        </div>
         <SimulatedBadge />
       </div>
       {note && (
@@ -139,45 +82,51 @@ export function Results({ status, sweep, selected, error, sweepNote, onRetry }: 
     return (
       <>
         <p className={styles.provenance}>{provenance(sweep)}</p>
-        <div className={styles.groups}>
-          <div className={styles.group}>
-            <h3 className={styles.groupTitle}>Measured on validation</h3>
-            <p className={styles.groupNote}>
-              The model’s flags at this cut against what these customers did.
-            </p>
-            <dl className={styles.figures}>
-              <Figure term="Flagged">
-                {int(point.flagged)}
-                <span className={styles.of}> of {int(sweep.customers)}</span>
-              </Figure>
-              <Figure term="Churners flagged">
-                {int(point.true_positives)}
-                <span className={styles.of}> of {int(sweep.churners)}</span>
-              </Figure>
-              <Figure term="Churners missed">{int(point.false_negatives)}</Figure>
-              <Figure term="Flagged customers who stayed">{int(point.false_positives)}</Figure>
-              <Figure term="Precision">{precisionText(point)}</Figure>
-              <Figure term="Recall">{recallText(point, sweep.churners)}</Figure>
-            </dl>
-          </div>
-          <div className={cx(styles.group, styles.simGroup)}>
+        <div className={cx(styles.group, styles.simGroup)}>
+          <div className={styles.groupHead}>
             <h3 className={styles.groupTitle}>Simulated money</h3>
-            <p className={styles.groupNote}>Your assumptions applied to the measured counts.</p>
-            <dl className={styles.figures}>
-              <Figure term="Net benefit" wide>
-                <span className={styles.net} data-sign={word}>
-                  {amount}
-                </span>{' '}
-                <span className={styles.netWord}>{word}</span>
-              </Figure>
-              <Figure term="Retained value">{money(point.retained_value, currency)}</Figure>
-              <Figure term="Campaign cost">{money(point.intervention_cost, currency)}</Figure>
-            </dl>
+            <SimulatedBadge />
           </div>
+          <p className={styles.groupNote}>Your assumptions applied to the measured counts.</p>
+          <dl className={styles.figures}>
+            <Figure term="Net benefit" wide>
+              <span className={styles.net} data-sign={word}>
+                {amount}
+              </span>{' '}
+              <span className={styles.netWord}>{word}</span>
+            </Figure>
+            <Figure term="Retained value">{money(point.retained_value, currency)}</Figure>
+            <Figure term="Campaign cost">{money(point.intervention_cost, currency)}</Figure>
+          </dl>
+        </div>
+        <div className={styles.group}>
+          <div className={styles.groupHead}>
+            <h3 className={styles.groupTitle}>Measured on validation</h3>
+            <Tag>VALIDATION</Tag>
+          </div>
+          <p className={styles.groupNote}>
+            The model’s flags at this cut against what these customers did.
+          </p>
+          <dl className={styles.figures}>
+            <Figure term="Flagged">
+              {int(point.flagged)}
+              <span className={styles.of}> of {int(sweep.customers)}</span>
+            </Figure>
+            <Figure term="Churners flagged">
+              {int(point.true_positives)}
+              <span className={styles.of}> of {int(sweep.churners)}</span>
+            </Figure>
+            <Figure term="Churners missed">{int(point.false_negatives)}</Figure>
+            <Figure term="Flagged customers who stayed">{int(point.false_positives)}</Figure>
+            <Figure term="Precision">{precisionText(point)}</Figure>
+            <Figure term="Recall">{recallText(point, sweep.churners)}</Figure>
+            <Figure term="F1">{f1Text(point, sweep.churners)}</Figure>
+          </dl>
         </div>
         <p className={styles.recommended}>
           {`Recommended under these assumptions: ${cut(sweep.recommended.threshold)} · ${signedMoney(sweep.recommended.net_benefit, currency)}`}
         </p>
+        {pin}
         <p className={styles.disclaimer}>{sweep.disclaimer}</p>
       </>
     );

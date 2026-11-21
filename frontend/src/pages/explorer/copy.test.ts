@@ -11,6 +11,7 @@ import {
   observedTile,
   pageNote,
   selectionStatus,
+  sortNote,
 } from './copy';
 import { FILTER_DEFAULTS, type Filters } from './explorer';
 import { CAUSAL } from '../../test/wording';
@@ -264,6 +265,8 @@ describe('every sentence', () => {
     const sentences = [
       lede(7043, null),
       lede(7043, 'Retrain.'),
+      sortNote('probability', 'desc'),
+      sortNote('at_risk', 'asc'),
       lede(null, undefined),
       ...['no-band', 'tenure'].map((idle) =>
         hint({ bands: [] }, { idle: idle as 'no-band' | 'tenure' }),
@@ -286,5 +289,18 @@ describe('every sentence', () => {
       flagCaption(info.threshold),
     ];
     for (const sentence of sentences) expect(sentence).not.toMatch(CAUSAL);
+  });
+});
+
+describe('sortNote', () => {
+  it('names the order the address asks the API for, in words', () => {
+    expect(sortNote('probability', 'desc')).toBe(
+      'Sorted by probability, highest first, by the API',
+    );
+    expect(sortNote('tenure', 'asc')).toBe('Sorted by tenure, lowest first, by the API');
+    expect(sortNote('id', 'asc')).toBe('Sorted by customer ID, A to Z, by the API');
+    expect(sortNote('id', 'desc')).toBe('Sorted by customer ID, Z to A, by the API');
+    expect(sortNote('at_risk', 'desc')).toBe('Sorted by at risk, highest first, by the API');
+    expect(sortNote('monthly', 'asc')).toBe('Sorted by monthly charges, lowest first, by the API');
   });
 });

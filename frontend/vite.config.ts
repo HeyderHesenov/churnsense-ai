@@ -43,7 +43,12 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
     // Scoped, as in the build: two modules' `.hideSm` must not meet in a test either.
-    css: { modules: { classNameStrategy: 'scoped' } },
+    css: {
+      // The tokens as written, for the contrast test (styles/contrast.test.ts); every
+      // other stylesheet stays empty in a test, as before.
+      include: [/\/src\/styles\/tokens\.css/],
+      modules: { classNameStrategy: 'scoped' },
+    },
     include: ['src/**/*.test.{ts,tsx}'],
     // A test that waits on a lazily loaded page and mocked responses can take past the
     // default 5 s when the machine is busy (load averages past 30 with another suite

@@ -5,7 +5,13 @@
  */
 const PREFIX = 'churnsense:';
 
-export function readPreference(key: string): string | null {
+/**
+ * Every preference there is: the sidebar's width ("collapsed" or "expanded")
+ * and whether the getting-started guide was dismissed ("hidden").
+ */
+export type PreferenceKey = 'sidebar' | 'guide';
+
+export function readPreference(key: PreferenceKey): string | null {
   try {
     return window.localStorage.getItem(PREFIX + key);
   } catch {
@@ -13,7 +19,7 @@ export function readPreference(key: string): string | null {
   }
 }
 
-export function writePreference(key: string, value: string): void {
+export function writePreference(key: PreferenceKey, value: string): void {
   try {
     window.localStorage.setItem(PREFIX + key, value);
   } catch {

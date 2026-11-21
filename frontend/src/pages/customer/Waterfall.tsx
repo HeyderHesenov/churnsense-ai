@@ -8,16 +8,17 @@ import { useState } from 'react';
 import type { Explanation, ExplainResponse } from '../../api/queries';
 import { Button } from '../../components/ui/Button';
 import { Skeleton } from '../../components/ui/States';
+import { Tag } from '../../components/ui/Surface';
 import { Segmented, type Option } from '../../components/ui/Toggle';
 import { pct, probabilityPct, shownSign, signedPoints } from '../../lib/format';
 import { contributionLabel, valueText } from '../../lib/labels';
-import { cssVars } from '../../lib/style';
 import {
   EXPLAIN_BLOCKED,
   EXPLAIN_FAILED,
   EXPLAIN_UNAVAILABLE,
   otherInputs,
   sentence,
+  SOURCES,
   SENTENCES_NOTE,
   showAll,
   waterfallNote,
@@ -72,6 +73,10 @@ export function Waterfall({
           </h2>
           <p className={styles.subtitle}>
             Which attributes moved the estimate, and by how much? SHAP, in percentage points.
+          </p>
+          <p className={styles.source}>
+            <Tag>{SOURCES.explanation.tag}</Tag>
+            <span>{SOURCES.explanation.text}</span>
           </p>
         </div>
         <div className={styles.waterfallTools}>
@@ -148,19 +153,32 @@ function Rows({
   stale: boolean;
 }) {
   const drawn = waterfall(explanation, shown);
-  const line = threshold === undefined ? null : <span className={styles.wfThreshold} />;
+  const at = (value: number) => `${String(value * 100)}%`;
+  // No viewBox: places are shares of the row's width, so nothing is stretched or styled.
   const track = (start: number, end: number, kind: string, band?: string, ruled = true) => {
     const { left, width } = bar(start, end);
     return (
-      <span className={styles.wfTrack} aria-hidden="true">
-        <span
+      <svg className={styles.wfTrack} aria-hidden="true">
+        <rect
           className={styles.wfBar}
           data-direction={kind}
           data-band={band}
-          style={cssVars({ '--l': left, '--w': width })}
+          x={at(left)}
+          y="3"
+          width={at(width)}
+          height="10"
+          rx="3"
         />
-        {ruled && line}
-      </span>
+        {ruled && threshold !== undefined && (
+          <line
+            className={styles.wfThreshold}
+            x1={at(threshold)}
+            x2={at(threshold)}
+            y1="0"
+            y2="16"
+          />
+        )}
+      </svg>
     );
   };
   return (
@@ -169,7 +187,6 @@ function Rows({
       aria-busy={stale}
       className={styles.waterfall}
       data-stale={stale}
-      style={threshold === undefined ? undefined : cssVars({ '--t': threshold })}
     >
       <li className={styles.wfRow}>
         <span className={styles.wfLabel}>

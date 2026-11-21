@@ -33,16 +33,16 @@ function listing(page: Page, matches: (query: URLSearchParams) => boolean) {
   });
 }
 
-async function overview(page: Page): Promise<Overview> {
+async function overview(page: Page, path = '/'): Promise<Overview> {
   const served = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/overview');
-  await page.goto('/');
+  await page.goto(path);
   const body = (await (await served).json()) as Overview;
   await settled(page);
   return body;
 }
 
 test('the flagged count leads to an explorer holding exactly those customers', async ({ page }) => {
-  const book = await overview(page);
+  const book = await overview(page, '/?tab=queue');
   const flagged = book.flagged.customers;
   const seeAll = page.getByRole('link', {
     name: `See all ${int(flagged)} flagged, churned included, in the explorer`,
@@ -111,6 +111,7 @@ test('a key figure opens the overview queue on its bands alone', async ({ page }
   await page.getByRole('link', { name: /^High or Critical/ }).click();
   const body = (await (await queued).json()) as CustomerPage;
   await expect(page).toHaveURL(/bands=High&bands=Critical/);
+  await expect(page).toHaveURL(/tab=queue/);
   await expect(page).not.toHaveURL(/q=|page=/);
   await expect(page.getByRole('heading', { name: /^Retention queue/ })).toBeFocused();
   await expect(

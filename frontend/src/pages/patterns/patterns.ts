@@ -195,3 +195,15 @@ export function explore(view: View, cell: Cell): Explore {
     href: hrefTo('/explorer', EXPLORER_PARAMS, { ...changes, part: 'train' }),
   };
 }
+
+/** How many steps a cell's shade is drawn in (Patterns.module.css has one rule each). */
+export const SHADE_STEPS = 20;
+
+/**
+ * A cell's shade as one of ``SHADE_STEPS`` + 1 steps, 0 for none: the
+ * colour's strength only, drawn by a class rule, so no style is set. The
+ * figure itself is printed in the cell; nothing is read from the step.
+ */
+export function shadeStep(shade: number | null): number {
+  return shade === null ? 0 : Math.round(Math.min(1, Math.abs(shade)) * SHADE_STEPS);
+}

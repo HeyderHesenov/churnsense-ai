@@ -18,7 +18,7 @@ import type { Option } from '../../components/ui/Toggle';
 import { Segmented } from '../../components/ui/Toggle';
 import { cents, cut, int, money, pct, probability } from '../../lib/format';
 import { profile } from '../../lib/labels';
-import { cssVars, cx } from '../../lib/style';
+import { cx } from '../../lib/style';
 import {
   arrange,
   DEFAULT_DIRECTION,
@@ -180,16 +180,7 @@ function Tiles({ result }: { result: BatchScore }) {
       />
       <div className={styles.bandsTile}>
         <span className={styles.tileLabel}>By band</span>
-        <span className={styles.bandBar} aria-hidden="true">
-          {summary.bands.map((band) => (
-            <span
-              key={band.name}
-              data-band={band.name}
-              className={styles.bandPart}
-              style={cssVars({ '--share': summary.rows ? band.customers / summary.rows : 0 })}
-            />
-          ))}
-        </span>
+        <BandBar bands={summary.bands} rows={summary.rows} />
         <ul aria-label="Rows by band" className={styles.bandList}>
           {summary.bands.map((band) => (
             <li key={band.name}>
@@ -282,5 +273,32 @@ function Table({ rows, sort, onSort, labelled }: TableProps) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The rows in each served band, side by side across the bar: each part's
+ * width is its band's share of the rows, the API's counts placed end to end.
+ * SVG with no viewBox, so places are shares of the width and no style is set.
+ */
+function BandBar({ bands, rows }: { bands: BatchScore['summary']['bands']; rows: number }) {
+  const shares = bands.map((band) => (rows ? band.customers / rows : 0));
+  const starts = shares.map((_, i) => shares.slice(0, i).reduce((sum, share) => sum + share, 0));
+  return (
+    <svg className={styles.bandBar} aria-hidden="true">
+      {bands.map((band, i) =>
+        (shares[i] ?? 0) > 0 ? (
+          <rect
+            key={band.name}
+            data-band={band.name}
+            className={styles.bandPart}
+            x={`${String((starts[i] ?? 0) * 100)}%`}
+            y="0"
+            width={`${String((shares[i] ?? 0) * 100)}%`}
+            height="10"
+          />
+        ) : null,
+      )}
+    </svg>
   );
 }

@@ -7,7 +7,13 @@ import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 import { AXE_EXCEPTIONS } from './axe-exceptions';
 import { expect, refuse, settled, test } from './fixtures';
-import { PAGES } from './pages';
+import {
+  EXPLAINABILITY_TABS,
+  OVERVIEW_TABS,
+  PAGES,
+  PERFORMANCE_TABS,
+  SIMULATOR_TABS,
+} from './pages';
 
 /** WCAG 2.2 level A and AA, and the earlier versions' rules it includes. */
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
@@ -26,7 +32,13 @@ async function findings(page: Page): Promise<string[]> {
   );
 }
 
-for (const { path, label } of PAGES) {
+for (const { path, label } of [
+  ...PAGES,
+  ...OVERVIEW_TABS,
+  ...PERFORMANCE_TABS,
+  ...SIMULATOR_TABS,
+  ...EXPLAINABILITY_TABS,
+]) {
   test(`${label} passes axe at 1440 px`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(path);

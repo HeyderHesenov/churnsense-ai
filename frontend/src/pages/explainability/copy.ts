@@ -47,7 +47,7 @@ export const CARDS = {
   rankings: {
     title: 'Two rankings, both published',
     unavailable: 'The association ranking is not available, so only the model’s ranking is shown.',
-    hint: 'Select a name to highlight it here and above.',
+    hint: 'Select a name to highlight it here and on the Global attributions tab.',
   },
 } as const;
 
@@ -110,6 +110,17 @@ export function explainedCustomers(global: GlobalExplanation): string {
 export function backgroundCustomers(global: GlobalExplanation): string {
   return isSynthetic(global) ? 'synthetic demo customers' : 'training customers';
 }
+
+/**
+ * What each part of the global tab describes: the cached sample as a whole,
+ * then one customer on request. The figures in them are the API's.
+ */
+export function globalScope(global: GlobalExplanation): string {
+  return `Across ${int(global.n_explained)} explained ${explainedCustomers(global)}, cached by make explain and served as they are: the size and direction of each attribute’s contribution to this model’s output.`;
+}
+
+export const INDIVIDUAL_SCOPE =
+  'One book customer at a time, from their own /api/explain answer, asked for only when you place them. Their contributions add up to their served probability; they describe this model’s score, not why the customer would leave.';
 
 /** The background tile's caption. */
 export function backgroundNote(global: GlobalExplanation): string {

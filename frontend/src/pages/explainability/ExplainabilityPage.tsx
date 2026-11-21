@@ -25,21 +25,27 @@ import { Button, ButtonLink } from '../../components/ui/Button';
 import { DataSourceNote } from '../../components/ui/DataSourceNote';
 import { Page } from '../../components/ui/Page';
 import { PageHeader } from '../../components/ui/PageHeader';
+import { PageTabs } from '../../components/ui/PageTabs';
 import { EmptyState, ErrorState, Skeleton } from '../../components/ui/States';
+import { Tag } from '../../components/ui/Surface';
 import { isFeature } from '../../lib/labels';
-import { FAILED, LEDE, MASKING_CAVEAT, MISMATCH, NOT_CACHED, TITLE } from './copy';
+import {
+  FAILED,
+  globalScope,
+  INDIVIDUAL_SCOPE,
+  LEDE,
+  MASKING_CAVEAT,
+  MISMATCH,
+  NOT_CACHED,
+  TITLE,
+} from './copy';
 import { CustomerCard, type Asked } from './CustomerCard';
 import { Dependence } from './Dependence';
-import {
-  comparability,
-  EXPLAIN_PARAMS,
-  featureChange,
-  pickExplanation,
-  selectedFeature,
-} from './explain';
+import { comparability, featureChange, pickExplanation, selectedFeature } from './explain';
 import { MethodStrip } from './MethodStrip';
 import { Rankings } from './Rankings';
 import { Swarm } from './Swarm';
+import { EXPLAIN_PAGE_PARAMS, EXPLAIN_TABS, type ExplainTab } from './tabs';
 import styles from './Explain.module.css';
 
 function notCached(error: Error | null): boolean {
@@ -128,8 +134,12 @@ function Explained({
   info: ModelInfo;
   onReload: () => void;
 }) {
-  const [state, set, href] = useParams(EXPLAIN_PARAMS);
+  const [state, set, href] = useParams(EXPLAIN_PAGE_PARAMS);
   const feature = selectedFeature(global, state.f);
+  // A tab is a view of the same figures and the same customer: one history entry each.
+  const choose = (tab: ExplainTab) => {
+    if (tab !== state.tab) set({ tab });
+  };
   // Studying another attribute is a view of the same figures: no history entry.
   const pick = (next: string) => {
     if (isFeature(next)) set({ f: featureChange(global, next) }, { replace: true });
@@ -141,7 +151,8 @@ function Explained({
   // runs: once it has said so, nothing more is asked for.
   const [never, setNever] = useState(false);
   const blocked = unverified || never;
-  const query = useExplanations(id !== '' && !blocked ? [id] : []);
+  // Asked for only where it is shown: a link to the rankings with a customer spends nothing.
+  const query = useExplanations(state.tab === 'global' && id !== '' && !blocked ? [id] : []);
   const error = query.error;
   if (!never && error instanceof ApiError && error.code === 'explanations_unavailable')
     setNever(true);
@@ -166,28 +177,56 @@ function Explained({
       <PageHeader eyebrow="Explainability" title={TITLE} size="md">
         {LEDE}
       </PageHeader>
-      <MethodStrip global={global} />
-      <CustomerCard
-        id={id}
-        asked={asked}
-        global={global}
-        blocked={blocked}
-        href={(next) => href({ id: next })}
-        onPlace={(next) => set({ id: next })}
-        onClear={() => set({ id: '' })}
-        onReload={onReload}
-      />
-      {feature !== null && (
-        <div className={styles.pair}>
-          <Swarm global={global} feature={feature} ringed={ringed} onPick={pick} />
-          <Dependence key={feature} global={global} feature={feature} ringed={ringed} />
-        </div>
-      )}
-      <Rankings global={global} feature={feature} onPick={pick} />
+      <PageTabs
+        def={EXPLAIN_TABS}
+        label="Explainability sections"
+        value={state.tab}
+        onChange={choose}
+      >
+        {state.tab === 'global' ? (
+          <>
+            <Scope tag="Global explanation">{globalScope(global)}</Scope>
+            <MethodStrip global={global} />
+            {feature !== null && (
+              <div className={styles.pair}>
+                <Swarm global={global} feature={feature} ringed={ringed} onPick={pick} />
+                <Dependence key={feature} global={global} feature={feature} ringed={ringed} />
+              </div>
+            )}
+            <Scope tag="Individual explanation">{INDIVIDUAL_SCOPE}</Scope>
+            <CustomerCard
+              id={id}
+              asked={asked}
+              global={global}
+              blocked={blocked}
+              href={(next) => href({ id: next })}
+              onPlace={(next) => set({ id: next })}
+              onClear={() => set({ id: '' })}
+              onReload={onReload}
+            />
+          </>
+        ) : (
+          <Rankings global={global} feature={feature} onPick={pick} />
+        )}
+      </PageTabs>
       <div className={styles.footer}>
         <p>{MASKING_CAVEAT}</p>
         <p>{global.caveat}</p>
       </div>
     </>
+  );
+}
+
+/**
+ * What the cards after it describe: the cached sample as a whole, or one
+ * customer. A line between parts of one tab, not a heading of its own: the
+ * cards keep theirs.
+ */
+function Scope({ tag, children }: { tag: string; children: string }) {
+  return (
+    <p className={styles.scope}>
+      <Tag>{tag}</Tag>
+      <span>{children}</span>
+    </p>
   );
 }
