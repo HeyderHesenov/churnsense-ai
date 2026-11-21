@@ -15,31 +15,90 @@ no persistent workspaces and no database, and it must never hold real customer d
 | Persistence | None (Caddy's certificates only) | Database, object storage, audit log, backups |
 
 
-## Blockers before a public deployment
+## Deployment status
 
-This repository is **not ready for a public deployment yet**. Each item below must be
-closed first:
+**The demo is live** at `https://churnsense.brimbyway.com`: one VPS, Caddy in front of
+one app container, the architecture of §1 started as in §9. Checked read-only from
+outside on 2026-11-21:
 
-1. **Memory is measured in local Docker only, and for the earlier layout** (§16,
-   2026-11-10): the app peaked at 762,073,088 bytes under its 1,610,612,736-byte limit,
-   with no OOM - while it still built its book from a mounted dataset. The service now
-   holds a smaller, generated book and no dataset, so that figure is expected to
-   overstate what is deployed, but that expectation is not measured. **Neither the
-   current image nor the VPS's real RAM use is measured**; the VPS size in §2 is an
-   estimate until §16 is repeated.
-2. **The domain is set, but not live** (§5): `configs/deploy.yaml` and
-   `deploy/Caddyfile` name `churnsense.brimbyway.com`. Its DNS does not point at a server
-   yet, and no certificate has been issued for it.
-3. **The stack has been run locally only, without a certificate.** On 2026-11-12 the
-   current image (`churnsense-ai:d6687995d4b3-dirty`, a local validation build with the
-   uncommitted E8 change) was built and started with Compose: the app reported healthy,
-   served generated customers only and answered 404 for a dataset ID; no file in it
-   hashes to the pinned dataset, and it has no `data/` folder, no `shap_global.json`,
-   no volume and no dataset path that exists. Caddy redirected HTTP to HTTPS, but could
-   not get a certificate for the placeholder domain (Let's Encrypt refuses it), so TLS
-   with a real certificate, the proxy headers in practice and the host itself are
-   still unverified. Idle, the app used about 197 MiB (peak 211 MiB after startup and
-   a few reads); the load phases of §16 were not run on this image.
+- **DNS:** an `A` record points the name at the host. There is no `AAAA` record (§4).
+- **TLS:** a Let's Encrypt certificate for `churnsense.brimbyway.com`, valid from
+  2026-11-17 to 2027-02-15, which Caddy renews (§10). HTTP answers 308 to HTTPS. HTTP/2
+  is served and HTTP/3 advertised.
+- **`GET /health`:** 200, `{"status": "ok", "model_loaded": true}`.
+- **`GET /ready`:** 200, `{"status": "ready", "model": true, "dataset": true,
+  "frontend": true}`. (`dataset` names the customer book, here the generated one; §11.)
+- **Headers on the page:** `Strict-Transport-Security: max-age=31536000`, the CSP of
+  §20, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, COOP and CORP `same-origin`, and the permissions policy.
+- **Front end:** the live page loads a build from before the front-end redesign (its
+  main script holds none of the redesign's sidebar labels).
+
+**On the host**, read read-only by the maintainer on 2026-11-21:
+
+- **Host:** `vps01.brimbyway.com`, Ubuntu 24.04.5 LTS, x86-64 (amd64), 2 CPUs — the size
+  §2 estimates.
+- **Memory (`free -b`), one snapshot at rest, not under load:** total 4,294,967,296 bytes
+  (4 GiB), used 398,015,488 (about 380 MiB), free 1,198,354,432, buffers and cache
+  2,699,142,144, available 3,896,951,808 (about 3.6 GiB). No swap.
+- **App container `churnsense-app-1`:** up 3 days, **healthy** (its Docker health check,
+  §11). Image `churnsense-ai:d64455abaff2`, ID
+  `sha256:b837f9dc8146bb5ef0e698aeea566b33d3e3829fa755eb82b284128297fbb79a`. Labels:
+  revision `d64455abaff237efe3223c6dcb52d8ce2775750f` (the merge of pull request #42),
+  `io.churnsense.source.dirty=false`, evidence
+  `1e231a8b6e978bd838a6c62405fade6fa13f306c2858b474b59f3f7a165711c2` (§8). At that moment
+  0.15 % CPU and 245.1 MiB of its 1.5 GiB limit (15.96 %).
+- **Caddy container `churnsense-caddy-1`:** up 3 days, **running**. It has no Docker
+  health check (`deploy/compose.yaml` defines one for the app only), so Docker reports no
+  health for it. Image `caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0`,
+  the digest compose pins. At that moment 0.00 % CPU and 13.21 MiB of its 256 MiB limit
+  (5.16 %).
+
+So production runs the image built from `d64455a`, from before the front-end redesign;
+the redesign is neither merged nor deployed (below).
+
+### Still open
+
+1. **The host's memory use under load is not measured** (§16); only the snapshot at
+   rest above. The only measurement under load is of local Docker on 2026-11-10, for the
+   earlier layout: the app peaked at 762,073,088 bytes under
+   its 1,610,612,736-byte limit, with no OOM, while it still built its book from a mounted
+   dataset. The service now holds a smaller, generated book and no dataset, so that
+   figure is expected to overstate what is deployed, but that expectation is not
+   measured. **Neither the current image nor the VPS's real RAM use is measured** under
+   the load of §16; the snapshot above is the host and its containers at rest.
+
+### The next release: the front-end redesign
+
+The redesign (design v4, `docs/frontend/PLAN.md`) is on the branch
+`feature/frontend-redesign`: six local commits and the final QA's uncommitted checks and
+documents. It is not merged and not deployed. To release it:
+
+1. Before the pull request, check the front end's dependencies again in `frontend/`:
+   `npm audit --omit=dev` (0 on 2026-11-21) and `npm audit --audit-level=high` (passing
+   on 2026-11-21), and whether the minimatch advisory accepted in SECURITY.md still
+   stands or now has a fix the linters accept. Nothing about it was changed.
+2. Commit the final QA, push the branch, open one pull request, wait for every check
+   (CI, dependency review, the held-out governance check), and merge it the guarded way.
+3. Update the host as §19: the bundle check (§7), a new image tagged with the merge
+   commit (§8), `CHURNSENSE_IMAGE=churnsense-ai:<new-tag> docker compose up -d`, then
+   `/ready`, the headers and the pages.
+4. Keep the tag that runs now, `churnsense-ai:d64455abaff2`, on the host for a roll back
+   (§14).
+5. Repeat §16 on the host.
+
+### Before it went live
+
+- **2026-11-12, local only:** the then current image (`churnsense-ai:d6687995d4b3-dirty`,
+  a local validation build with the uncommitted E8 change) was built and started with
+  Compose. The app reported healthy, served generated customers only and answered 404 for
+  a dataset ID. No file in it hashed to the pinned dataset, and it had no `data/` folder,
+  no `shap_global.json`, no volume and no dataset path that existed. Caddy redirected HTTP
+  to HTTPS but could not get a certificate for the placeholder domain, which Let's Encrypt
+  refuses. Idle, the app used about 197 MiB (peak 211 MiB after startup and a few reads);
+  the load phases of §16 were not run on that image.
+- **2026-11-15:** the domain `churnsense.brimbyway.com` was set in `configs/deploy.yaml`
+  and `deploy/Caddyfile` (pull request #42), before its DNS pointed at a host.
 
 **Closed, 2026-11-11: the API no longer serves the dataset's rows.** It used to return
 all 7,043 customers of the IBM sample (a listing, a lookup by ID, a CSV export, and
@@ -743,7 +802,8 @@ Keep these:
 ## 16. Resource monitoring and the memory measurement
 
 **Status: LOCAL DOCKER MEASUREMENT DONE (2026-11-10), FOR THE EARLIER LAYOUT. THE
-CURRENT IMAGE AND THE VPS ARE NOT MEASURED.** The figures below were taken while the app
+CURRENT IMAGE AND THE VPS ARE NOT MEASURED.** The demo now runs on the VPS (see
+"Deployment status"); its memory there has still not been measured. The figures below were taken while the app
 built its book from a mounted dataset (7,043 customers). It now holds 2,000 generated
 customers and reads its aggregates from a file, so they are expected to overstate the
 current image's use, but that expectation is not measured. Repeat the procedure before
@@ -1045,7 +1105,8 @@ the development log no longer quotes hidden cells.
 | Container | Non-root, read-only, no capabilities, internal network with no route out |
 
 **Budgets**, per visitor (an IPv6 visitor counts as its /64). A burst, then one
-request per interval. A HEAD request counts as the GET it runs.
+request per interval. A HEAD request spends the budget of its GET, and is then answered
+405: every route is registered for GET only, so a HEAD never runs one.
 
 | Budget | Endpoints | Burst | Then one every |
 |---|---|---|---|
@@ -1058,9 +1119,21 @@ request per interval. A HEAD request counts as the GET it runs.
 These are not budgeted:
 
 - the memoised reads: overview, performance, examples, one customer, the global
-  explanation;
+  explanation. The sidebar's Serving card reads `/api/health`, `/api/model-info` and
+  `/api/performance` once per page load and keeps them in the app's in-memory query
+  cache for the visit, so every load of the app costs those three unbudgeted reads;
 - `/health`, `/ready`, the pages and the static assets. These are also outside the
   in-flight cap.
+
+**An aborted request still costs the server.** A budget is spent when a request
+arrives, and an explanation, once it holds one of the three explainer places
+(`EXPLAIN_SLOTS`), is computed to the end: the handler runs in a worker thread and does
+not watch for the visitor going away. A browser that aborts the request (the retention
+queue does, for a page the reader has moved on from) frees its own connection and never
+reads the answer, but gets no budget back, and the place stays taken until the
+computation ends; a fourth explanation meanwhile is refused at once with 503. The queue
+therefore asks for a page only once it has been shown for 300 ms (`docs/frontend/PLAN.md`,
+"Retention queue explanations").
 
 **Rate limits are per visitor address and held in memory.** They reset on restart, and
 a visitor with many addresses can spend many budgets. The process-wide batch and

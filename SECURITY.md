@@ -61,7 +61,7 @@ here; one that ships, or reaches high, is fixed instead.
 
 | Advisory | Package (dev only) | Why it does not affect this project | Owner | Review by |
 |---|---|---|---|---|
-| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (moderate) | `minimatch` < 11.0.1, through eslint, typescript-eslint and `@redocly/openapi-core` | The amplification needs `optimizationLevel` ≥ 2, which no caller sets; the patterns come only from `eslint.config.js`, never from input; nothing of it is in `frontend/dist`. `npm audit fix --force` would downgrade the linters, and an override to 11 changes `**` matching. Assessed 2026-11-01 (`docs/frontend/PLAN.md`, Phase 3.5). | maintainer | 2027-02-01, or as soon as eslint and typescript-eslint accept `^11.0.1` |
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (moderate) | `minimatch` < 11.0.1, through eslint, typescript-eslint and `eslint-plugin-jsx-a11y-x` (the type generator's `@redocly/openapi-core` uses minimatch 5.1.9, which `npm audit` does not flag) | The amplification needs `optimizationLevel` ≥ 2, which no caller sets; the patterns come only from `eslint.config.js`, never from input; nothing of it is in `frontend/dist`. `npm audit fix --force` would downgrade the linters, and an override to 11 changes `**` matching. Assessed 2026-11-01 (`docs/frontend/PLAN.md`, Phase 3.5). | maintainer | 2027-02-01, or as soon as eslint and typescript-eslint accept `^11.0.1` |
 
 Accepted advisories are reviewed by their date and removed as soon as a fixed
 version is available.

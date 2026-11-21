@@ -569,11 +569,17 @@ make api        # the API serves the built app at http://localhost:8000/
 ```
 
 The same eight views as the dashboard, built with React, TypeScript and Vite in
-[`frontend/`](frontend/). The API serves it from its own origin, so the browser
-talks to nothing else: every page is sent under a strict
-Content-Security-Policy (no inline script or style, no third-party origin), and
-an address the app does not have gets its own *Not found* page with status 404.
-The design and the record of every decision are in
+[`frontend/`](frontend/), grouped in the sidebar as *Understand* (overview,
+explorer, patterns), *Trust the model* (performance, explainability) and *Take
+action* (single customer, simulator, batch). Four pages are split into tabs
+whose choice is part of the address (`?tab=`), so a tab can be linked and Back
+and Forward move between tabs. The API serves it from its own origin, so the
+browser talks to nothing else: every page is sent under a strict
+Content-Security-Policy (no inline script or style, no third-party origin;
+`style-src 'self'` refuses a `style` attribute written in markup, and the few
+dynamic values a shared component needs are set through the CSSOM, which the
+policy allows), and an address the app does not have gets its own *Not found*
+page with status 404. The design and the record of every decision are in
 [`docs/frontend/PLAN.md`](docs/frontend/PLAN.md).
 
 ```bash
@@ -584,7 +590,11 @@ make e2e             # browser tests (Playwright, Chromium) of the built app
 `make e2e` never touches `data/`, `artifacts/` or `reports/`.
 [`scripts/e2e_server.py`](scripts/e2e_server.py) generates a synthetic book
 (every ID prefixed `E2E-`), trains a small model on it in a temporary folder,
-and serves the real API on `127.0.0.1:8799`. The tests refuse to run against a
+and serves the real API. Playwright starts two such servers and runs two
+projects: `chromium` (every spec but one) against `127.0.0.1:8799`, and
+`public-demo` against a second server on `127.0.0.1:8798` started with
+`--public`, as the deployed demo is, whose "dataset" is deleted before it
+serves. The tests refuse to run against a
 server whose customers are not synthetic, and every model figure they check is
 taken from the API response that page received, never typed into a test.
 Besides each page's own flows, every test fails on:
@@ -612,12 +622,35 @@ review.
 make api     # http://localhost:8000/docs
 ```
 
+The public service, at the root and again under `/api`:
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /health` | liveness, and whether a model is actually loaded |
+| `GET /ready` | readiness: 200 only when the model, the book and the built front end are in place, else 503 |
 | `GET /model-info` | what is served: metrics, threshold, features, limitations |
 | `POST /predict` | score one customer |
 | `POST /predict/batch` | score a CSV upload |
+
+The web front end's own endpoints, under `/api` only:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/overview` | the book's headline figures for the overview |
+| `GET /api/customers` | a filtered, sorted page of the book, with the selection's summary |
+| `GET /api/customers/export` | the same selection as a CSV, formula cells neutralised |
+| `GET /api/customers/examples` | the example customers the pages offer |
+| `GET /api/customers/{customer_id}` | one customer's record and score |
+| `POST /api/explain` | signed SHAP attributions for 1–8 book customers by ID, or for one record |
+| `GET /api/explain/global` | the cached global attributions (`make explain`) |
+| `GET /api/segments` | observed churn by one attribute or two crossed, small groups suppressed |
+| `GET /api/threshold/sweep` | the simulator's curve under stated campaign assumptions |
+| `GET /api/performance` | validation figures, and the test record when one is published |
+| `POST /api/batch/score` | the batch page's upload: every row scored, plus a scored CSV |
+
+The full schema is at `/docs` and in
+[`frontend/openapi.json`](frontend/openapi.json), which CI checks against the
+API on every change.
 
 ```bash
 curl -s -X POST http://localhost:8000/predict \
@@ -671,16 +704,18 @@ make test     # pytest
 make lint     # ruff
 ```
 
-**634 tests, all passing on Python 3.12.13** (2026-10-17). Measured, not
-claimed:
+**4,630 tests, all passing on Python 3.12.13** (2026-11-21, 94 % coverage of
+`src/churnsense`, 25 minutes). Measured, not claimed:
 
 ```
-$ make test
-634 passed
+$ pytest --cov=churnsense
+4630 passed
 ```
 
-The same 634 pass on a fresh copy of the tracked files with no dataset and no
-trained artifact — the state GitHub Actions runs in. No test reads the real
+On a fresh copy of the tracked files with no dataset and no trained artifact —
+the state GitHub Actions runs in — 4,617 pass and 13 are skipped, because they
+need the local disclosure evidence, the untracked comparison reports or a built
+front end (CI, 2026-11-15). No test reads the real
 dataset: the dashboard tests run the real app script on a synthetic model and
 book, and fail if anything tries to load the real file.
 
@@ -771,11 +806,15 @@ src/churnsense/
                              ← predict.py is the only inference path, and it validates
   evaluation/ metrics, threshold, report, figures
   explainability/ shap_explain
-  api/       main, schemas
+  api/       main, schemas, dashboard, dashboard_schemas, middleware, spa,
+             state, uploads
 app/                         Streamlit dashboard (theme, components, 8 sections)
+frontend/                    React + TypeScript web front end (Vite), its unit and
+                             browser tests, and the OpenAPI types it is checked against
 notebooks/                   narrated EDA walkthrough; imports the package, holds no logic
-tests/                       634 tests + seeded synthetic fixtures
-docs/                        walkthrough, interview prep, model card
+tests/                       4,630 tests + seeded synthetic fixtures
+docs/                        walkthrough, interview prep, model card, deployment,
+                             the front end's plan (frontend/PLAN.md) and its design source
 reports/                     generated: EDA, model comparison, final evaluation
 artifacts/                   generated: model.joblib, model_meta.json (gitignored)
 ```
@@ -888,8 +927,10 @@ Found a vulnerability? Please report it privately, as described in
 > unauthenticated portfolio demo of the API and front end (not the Streamlit
 > dashboard), behind Caddy with TLS: its configuration,
 > the trusted-proxy rule that keeps `LoopbackOnly` meaningful there, and its
-> limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It is not a
-> multi-user product and must never hold real customer data.
+> limits are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). It runs at
+> `https://churnsense.brimbyway.com` (its status, as checked on 2026-11-21, is in
+> that document). It is not a multi-user product and must never hold real customer
+> data.
 >
 > **The public demo serves no row of the dataset.** It is configured as
 > `deployment: {mode: public_demo, customer_records: synthetic}`: every customer

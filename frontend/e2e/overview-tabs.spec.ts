@@ -290,6 +290,144 @@ test('an explanation still unanswered when the reader leaves the page is not sen
   expect(api.explains()).toHaveLength(1);
 });
 
+/** The customers in the queue's rows, in order. */
+async function rowIds(page: Page): Promise<string[]> {
+  const links = page
+    .getByRole('table', { name: 'Flagged customers' })
+    .getByRole('link', { name: /^Explain / });
+  return (
+    await links.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label') ?? ''))
+  ).map((label) => label.replace(/^Explain /, ''));
+}
+
+const askedIds = (request: Request | undefined) =>
+  (request?.postDataJSON() as { customer_ids: string[] } | undefined)?.customer_ids ?? [];
+
+/** Explanation requests the page aborted (its own cancellation), and the statuses of those answered. */
+function explainOutcomes(page: Page) {
+  const aborted: Request[] = [];
+  const statuses: number[] = [];
+  const isExplain = (request: Request) =>
+    new URL(request.url()).pathname === '/api/explain' && request.method() === 'POST';
+  page.on('requestfailed', (request) => {
+    if (isExplain(request) && request.failure()?.errorText === 'net::ERR_ABORTED') {
+      aborted.push(request);
+    }
+  });
+  page.on('response', (response) => {
+    if (isExplain(response.request())) statuses.push(response.status());
+  });
+  return { aborted, statuses };
+}
+
+/**
+ * Clicks *Next page* ``times`` from inside the page, each click as soon as the rows have
+ * changed, so the steps are as quick as the server lists a page, not as quick as the test
+ * runner drives the browser. Returns how long the whole run took, in milliseconds.
+ */
+async function pageQuickly(page: Page, times: number): Promise<number> {
+  return page.evaluate(async (count) => {
+    const start = performance.now();
+    const firstRow = () =>
+      document
+        .querySelector('[role="table"][aria-label="Flagged customers"] a[aria-label^="Explain "]')
+        ?.getAttribute('aria-label');
+    const next = () => document.querySelector<HTMLButtonElement>('button[aria-label="Next page"]');
+    for (let i = 0; i < count; i += 1) {
+      const before = firstRow();
+      next()?.click();
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (firstRow() !== before) resolve();
+          else requestAnimationFrame(check);
+        };
+        check();
+      });
+    }
+    return performance.now() - start;
+  }, times);
+}
+
+test('paging quickly through the queue explains the page the reader stops at, never one passed on the way', async ({
+  page,
+}) => {
+  const api = apiRequests(page);
+  const outcomes = explainOutcomes(page);
+  await page.goto('/?tab=queue');
+  await settled(page);
+  const table = page.getByRole('table', { name: 'Flagged customers' });
+  await expect(table.getByText('Loading attributions')).toHaveCount(0, { timeout: 15_000 });
+  await api.idle();
+  expect(api.explains()).toHaveLength(1);
+  const took = await pageQuickly(page, 3);
+  await expect(page).toHaveURL(/[?&]page=4\b/);
+  await expect(table.getByText('Loading attributions')).toHaveCount(0, { timeout: 15_000 });
+  await api.idle();
+  const explains = api.explains();
+  // The last request asks for the rows on screen; any sent on the way was aborted, none refused.
+  expect(askedIds(explains.at(-1))).toEqual(await rowIds(page));
+  expect(outcomes.aborted.map(askedIds)).toEqual(explains.slice(1, -1).map(askedIds));
+  expect(outcomes.statuses.every((status) => status === 200)).toBe(true);
+  // Paged faster than a page settles (300 ms): the second and third pages are never asked for.
+  expect(explains, `three pages in ${String(Math.round(took))} ms`).toHaveLength(2);
+  await expect(page.getByText('Attributions are unavailable right now.')).toHaveCount(0);
+});
+
+test('a page moved on from mid-request has its explanation aborted, and asked again once when shown again', async ({
+  page,
+}) => {
+  const api = apiRequests(page);
+  const outcomes = explainOutcomes(page);
+  // The second page's first request is held in the browser, so it is surely in flight when the
+  // reader moves on, and its abort reaches no server: an explanation the server had begun would go
+  // on being computed there, taking one of its explainer's places from the tests after this one.
+  let asked = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  page.on('close', () => release());
+  await page.route('**/api/explain', async (route) => {
+    asked += 1;
+    if (asked === 2) {
+      await held;
+      // Aborted by the page meanwhile: there is nothing left to send.
+      await route.continue().catch(() => undefined);
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto('/?tab=queue');
+  await settled(page);
+  const table = page.getByRole('table', { name: 'Flagged customers' });
+  await expect(table.getByText('Loading attributions')).toHaveCount(0, { timeout: 15_000 });
+  await api.idle();
+  const next = page.getByRole('button', { name: 'Next page' });
+  await next.click();
+  await expect.poll(() => api.explains().length).toBe(2);
+  const second = await rowIds(page);
+  expect(askedIds(api.explains()[1])).toEqual(second);
+  // On to the third page while the second's explanation is still being computed.
+  await next.click();
+  await expect.poll(() => outcomes.aborted.length).toBe(1);
+  expect(askedIds(outcomes.aborted[0])).toEqual(second);
+  await expect(table.getByText('Loading attributions')).toHaveCount(0, { timeout: 15_000 });
+  release();
+  await page.getByRole('button', { name: 'Previous page' }).click();
+  await expect(page).toHaveURL(/[?&]page=2\b/);
+  await expect(table.getByText('Loading attributions')).toHaveCount(0, { timeout: 15_000 });
+  await api.idle();
+  const explains = api.explains();
+  expect(explains.map(askedIds)).toEqual([
+    askedIds(explains[0]),
+    second,
+    askedIds(explains[2]),
+    second,
+  ]);
+  expect(outcomes.aborted).toHaveLength(1);
+  expect(outcomes.statuses.every((status) => status === 200)).toBe(true);
+});
+
 for (const width of [320, 375]) {
   test(`at ${String(width)} px the queue is a list of cards, every figure in view, with no sideways scroll`, async ({
     page,

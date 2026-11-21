@@ -10,6 +10,7 @@ import { ApiError } from './client';
 import {
   createQueryClient,
   customersQuery,
+  explanationsKey,
   retryDelay,
   retryExplanation,
   retryGlobal,
@@ -293,6 +294,201 @@ describe('explanations: what a reader leaving does to a request in flight', () =
 });
 
 /**
+ * Every explanation request, held unanswered until ``release``: the ids it
+ * asked for and its signal, to see which ones the hook aborted.
+ */
+function holdEachExplain() {
+  const requests: { ids: string; signal: AbortSignal }[] = [];
+  let release = () => {};
+  const opened = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  server.use(
+    respond('post', '/api/explain', async (request) => {
+      const body = (await request.clone().json()) as { customer_ids: string[] };
+      requests.push({ ids: body.customer_ids.join(','), signal: request.signal });
+      await opened;
+      return explanations(body.customer_ids);
+    }),
+  );
+  const live = () => requests.filter((r) => !r.signal.aborted).map((r) => r.ids);
+  return { requests, live, release: () => release() };
+}
+
+describe('explanations: what a reader who stays but moves to other ids does to a request in flight', () => {
+  const A = ['DEMO-0001', 'DEMO-0002'];
+  const B = ['DEMO-0003', 'DEMO-0004'];
+  const C = ['DEMO-0005', 'DEMO-0006'];
+
+  function shared() {
+    const client = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return { client, wrapper };
+  }
+
+  function outliving(wrapper: (props: { children: ReactNode }) => ReactNode) {
+    return renderHook(({ ids }) => useExplanations(ids, { outlive: true }), {
+      wrapper,
+      initialProps: { ids: A },
+    });
+  }
+
+  it('with outlive, aborts the old ids’ request and puts their query back as it was', async () => {
+    const held = holdEachExplain();
+    const { client, wrapper } = shared();
+    const hook = outliving(wrapper);
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(held.requests).toHaveLength(2));
+    await waitFor(() => expect(held.requests[0]?.signal.aborted).toBe(true));
+    expect(held.live()).toEqual([B.join(',')]);
+    // Put back, not failed: shown again, those ids would simply be asked for again.
+    const old = client.getQueryCache().find({ queryKey: explanationsKey(A), exact: true });
+    expect(old?.state).toMatchObject({
+      status: 'pending',
+      fetchStatus: 'idle',
+      error: null,
+      data: undefined,
+    });
+    act(() => held.release());
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(hook.result.current.data?.explanations.map((e) => e.customer_id)).toEqual(B);
+    expect(old?.state.data).toBeUndefined();
+    expect(held.requests).toHaveLength(2);
+  });
+
+  it('with outlive, never gives the new ids the old ids’ answer, however recently it came', async () => {
+    server.use(
+      respond('post', '/api/explain', async (request) => {
+        const body = (await request.json()) as { customer_ids: string[] };
+        return explanations(body.customer_ids);
+      }),
+    );
+    const { wrapper } = shared();
+    const hook = outliving(wrapper);
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    hook.rerender({ ids: B });
+    expect(hook.result.current.data).toBeUndefined();
+    expect(hook.result.current.isPending).toBe(true);
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(hook.result.current.data?.explanations.map((e) => e.customer_id)).toEqual(B);
+  });
+
+  it('with outlive, keeps only the last of quick changes in flight', async () => {
+    const held = holdEachExplain();
+    const { wrapper } = shared();
+    const hook = outliving(wrapper);
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    hook.rerender({ ids: B });
+    hook.rerender({ ids: C });
+    await waitFor(() => expect(held.live()).toEqual([C.join(',')]));
+    // However many reached the server on the way, each is aborted but the last.
+    expect(held.requests.filter((r) => r.ids === C.join(','))).toHaveLength(1);
+    act(() => held.release());
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(hook.result.current.data?.explanations.map((e) => e.customer_id)).toEqual(C);
+  });
+
+  it('with outlive, asks again for aborted ids that are shown again', async () => {
+    const held = holdEachExplain();
+    const { wrapper } = shared();
+    const hook = outliving(wrapper);
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(held.requests[0]?.signal.aborted).toBe(true));
+    hook.rerender({ ids: A });
+    await waitFor(() => expect(held.live()).toEqual([A.join(',')]));
+    act(() => held.release());
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(hook.result.current.data?.explanations.map((e) => e.customer_id)).toEqual(A);
+    expect(held.requests.slice(0, 3).map((r) => r.ids)).toEqual(
+      [A, B, A].map((ids) => ids.join(',')),
+    );
+    // Asked again once in a browser (e2e/overview-tabs.spec.ts). Here MSW sometimes passes a request
+    // identical to one aborted mid-answer through to the network (ECONNREFUSED), and the retry of
+    // that network error asks for the same ids once more.
+    expect(held.requests.slice(2).every((r) => r.ids === A.join(','))).toBe(true);
+  });
+
+  it('with outlive, still lets the last request outlive a reader who then leaves, and the return reads it', async () => {
+    const held = holdEachExplain();
+    const { wrapper } = shared();
+    const hook = outliving(wrapper);
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(held.live()).toEqual([B.join(',')]));
+    hook.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(held.live()).toEqual([B.join(',')]);
+    const back = renderHook(() => useExplanations(B, { outlive: true }), { wrapper });
+    act(() => held.release());
+    await waitFor(() => expect(back.result.current.isSuccess).toBe(true));
+    expect(held.requests).toHaveLength(2);
+  });
+
+  it('with outlive, never sends the old ids again after a refusal, once the reader moved on during the wait', async () => {
+    const asked: string[] = [];
+    server.use(
+      http.post('/api/explain', async ({ request }) => {
+        const body = (await request.json()) as { customer_ids: string[] };
+        asked.push(body.customer_ids.join(','));
+        if (body.customer_ids[0] === A[0]) {
+          return HttpResponse.json(
+            { error: 'explanations_busy', detail: '', problems: [] },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(explanations(body.customer_ids));
+      }),
+    );
+    const { wrapper } = shared();
+    const hook = outliving(wrapper);
+    // Refused once; the retry waits (half a second) before asking again.
+    await waitFor(() => expect(hook.result.current.failureCount).toBe(1));
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    await act(() => new Promise((resolve) => setTimeout(resolve, 900)));
+    expect(asked).toEqual([A.join(','), B.join(',')]);
+  });
+
+  it('with outlive, never aborts the request for the ids shown, even as StrictMode runs its effects twice', async () => {
+    const held = holdEachExplain();
+    const { wrapper } = shared();
+    const hook = renderHook(({ ids }) => useExplanations(ids, { outlive: true }), {
+      wrapper,
+      initialProps: { ids: A },
+      reactStrictMode: true,
+    });
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Asked once and still in flight: not aborted and asked again.
+    expect(held.requests.map((r) => r.ids)).toEqual([A.join(',')]);
+    expect(held.live()).toEqual([A.join(',')]);
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(held.live()).toEqual([B.join(',')]));
+    act(() => held.release());
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(hook.result.current.data?.explanations.map((e) => e.customer_id)).toEqual(B);
+  });
+
+  it('by default, as every page but the retention queue asks, aborts on moving and on leaving, as before', async () => {
+    const held = holdEachExplain();
+    const { wrapper } = shared();
+    const hook = renderHook(({ ids }) => useExplanations(ids), {
+      wrapper,
+      initialProps: { ids: A },
+    });
+    await waitFor(() => expect(held.requests).toHaveLength(1));
+    hook.rerender({ ids: B });
+    await waitFor(() => expect(held.live()).toEqual([B.join(',')]));
+    hook.unmount();
+    await waitFor(() => expect(held.live()).toEqual([]));
+  });
+});
+
+/**
  * Every call of ``useExplanations`` in the app, read from the source: the
  * retention queue alone outlives its reader; every other page asks with the
  * ids alone, the default, so its requests are aborted as they always were.
@@ -323,7 +519,7 @@ describe('who asks for explanations that outlive the reader', () => {
 
   it.each(calls)('%s asks with outlive only if it is the retention queue', (path, args) => {
     if (path === '../pages/overview/RetentionQueue.tsx') {
-      expect(args).toBe('ids, { outlive: true }');
+      expect(args).toBe('asked, { outlive: true }');
     } else {
       expect(args).not.toMatch(/outlive/);
       // One argument: the ids, so the default holds.

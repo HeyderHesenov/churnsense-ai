@@ -5,13 +5,17 @@
  * request is aborted (React Query passes the AbortSignal through to fetch).
  */
 import {
+  hashKey,
   keepPreviousData,
   QueryClient,
   queryOptions,
   skipToken,
   useQuery,
+  useQueryClient,
+  type QueryKey,
   type UseQueryResult,
 } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { ApiError, request, type Schemas } from './client';
 
 export type ModelInfo = Schemas['ModelInfoResponse'];
@@ -212,28 +216,62 @@ export function useExamples(): UseQueryResult<Examples> {
   });
 }
 
+/** The cache key of the explanations of ``ids``. */
+export function explanationsKey(ids: readonly string[]) {
+  return ['explain', 'ids', ids] as const;
+}
+
 /**
  * Explanations of book customers; nothing is fetched for an empty list.
  *
  * By default a request nobody waits for any more is aborted. With ``outlive``
- * it runs to its answer and the answer is cached: the server has counted it
- * against the rate limit either way, so a reader who leaves and comes back
- * (Back, Forward, another page and back) is shown that answer instead of
- * asking again.
+ * a reader who leaves (another page, the hook unmounted) lets it run to its
+ * answer, which is cached: the server has counted it against the rate limit
+ * either way, so coming back (Back, Forward, another page and back) shows that
+ * answer instead of asking again. A reader who stays but moves on to other
+ * ids (another page of the queue, another sort) no longer needs the old
+ * answer: its request is aborted and the old query put back as it was, to be
+ * asked again only if those ids are shown again. Aborting frees the browser's
+ * connection; it does not undo what the server already received and counted.
  */
 export function useExplanations(
   ids: readonly string[],
   { outlive = false }: { outlive?: boolean } = {},
 ): UseQueryResult<ExplainResponse> {
+  const client = useQueryClient();
+  // With ``outlive``: the request in flight for each key, which only this hook aborts.
+  const inFlight = useRef(new Map<string, { key: QueryKey; controller: AbortController }>());
+  const shown = hashKey(explanationsKey(ids));
+  useEffect(() => {
+    // Runs when the ids change while the reader stays; never on leaving, so a left request outlives.
+    // Only ``outlive`` requests are ever kept here; the others the query aborts by itself.
+    for (const [held, { key, controller }] of inFlight.current) {
+      // Never the request for the ids shown (the query starts it after this effect; kept should that change).
+      if (held === shown) continue;
+      inFlight.current.delete(held);
+      // First put the query back (pending, no error), then drop the request it no longer waits for.
+      void client.cancelQueries({ queryKey: key, exact: true });
+      controller.abort();
+    }
+  }, [client, shown]);
   return useQuery({
-    queryKey: ['explain', 'ids', ids],
-    // Reading the signal is what lets the query abort the request, so with ``outlive`` it is never read.
-    queryFn: (context) =>
-      request<ExplainResponse>('/explain', {
-        method: 'POST',
-        json: { customer_ids: ids },
-        signal: outlive ? undefined : context.signal,
-      }),
+    queryKey: explanationsKey(ids),
+    // Reading the query's own signal would abort on leaving too, so with ``outlive`` it is never read.
+    queryFn: (context) => {
+      const init = { method: 'POST' as const, json: { customer_ids: ids } };
+      if (!outlive) {
+        return request<ExplainResponse>('/explain', { ...init, signal: context.signal });
+      }
+      const held = hashKey(context.queryKey);
+      const entry = { key: context.queryKey, controller: new AbortController() };
+      inFlight.current.set(held, entry);
+      return request<ExplainResponse>('/explain', {
+        ...init,
+        signal: entry.controller.signal,
+      }).finally(() => {
+        if (inFlight.current.get(held) === entry) inFlight.current.delete(held);
+      });
+    },
     enabled: ids.length > 0,
     retry: (failures, error: Error) => retryExplanation(failures, error),
   });

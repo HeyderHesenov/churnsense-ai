@@ -6,9 +6,11 @@
  * browser sums nothing. A page's attributions come from one explanation
  * request for its eight customers.
  */
+import { useQueryClient } from '@tanstack/react-query';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { exportUrl } from '../../api/client';
 import {
+  explanationsKey,
   useCustomers,
   useExplanations,
   type CustomerRow,
@@ -54,6 +56,8 @@ import styles from './RetentionQueue.module.css';
 /** The queue's heading: where the reader continues when its controls go away. */
 export const QUEUE_TITLE_ID = 'queue-title';
 const SCROLL_HINT_ID = 'queue-scroll-hint';
+/** How long a page of rows must stay before its explanation is asked for (see ``useAskedIds``). */
+export const SETTLE_MS = 300;
 
 type Column = QueueState['sort'];
 const DEFAULT_DIRECTION = {
@@ -320,8 +324,11 @@ interface TableProps {
 
 function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
   const ids = rows.map((row) => row.id);
+  const asked = useAskedIds(ids);
   // A page's explanation outlives the tab and the page: one leaving mid-request finds it answered on return.
-  const explained = useExplanations(ids, { outlive: true });
+  // Another page or sort while here aborts the old one's request (see useExplanations).
+  // While the rows settle nothing is asked for: no answer, so they show as loading, never another page's.
+  const explained = useExplanations(asked, { outlive: true });
   const byId = new Map(explained.data?.explanations.map((e) => [e.customer_id, e]));
   const sort = { column: state.sort, dir: state.dir };
   const onSort = (column: Column) => {
@@ -425,6 +432,29 @@ function Table({ rows, state, set, selected, full, onSelect }: TableProps) {
       </div>
     </>
   );
+}
+
+const NOTHING: readonly string[] = [];
+
+/**
+ * The ids to ask explanations for: the rows' own at once when they are the
+ * first the table shows, or when their answer is already cached; else nothing
+ * until they have stayed ``SETTLE_MS``. Paging or sorting quickly through the
+ * queue then asks only for the page the reader stops at, not for each one
+ * passed on the way: each would cost the server an explanation either way,
+ * aborted or not.
+ */
+function useAskedIds(ids: readonly string[]): readonly string[] {
+  const client = useQueryClient();
+  const key = ids.join(',');
+  const [settledKey, setSettledKey] = useState(key);
+  useEffect(() => {
+    if (key === settledKey) return;
+    const timer = setTimeout(() => setSettledKey(key), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [key, settledKey]);
+  if (key === settledKey) return ids;
+  return client.getQueryData(explanationsKey(ids)) === undefined ? NOTHING : ids;
 }
 
 /**

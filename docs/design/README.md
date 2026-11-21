@@ -1,9 +1,13 @@
 # Dashboard design: the source of truth for `frontend/`
 
 These are the eight artboards of the dashboard design, as they were published on the
-Claude Design canvas (`canvas.json` holds the layout, order and titles). The production
-front end in `frontend/` reproduces their layout, spacing, type scale and interactions.
-`MASTER_PROMPT.md` is the brief the implementation follows, and
+Claude Design canvas (`canvas.json` holds the layout, order and titles). The front end in
+`frontend/` was first built from them, page for page. It has since been redesigned to a
+later version of the design ("design v4": a grouped sidebar, pages split into tabs, new
+layouts), which supersedes these artboards where the two differ; that version is kept
+as a written specification in [`docs/frontend/PLAN.md`](../frontend/PLAN.md) ("Design v4"),
+not as files here. These artboards stay as the record of the first build.
+`MASTER_PROMPT.md` is the brief the first implementation followed, and
 [`docs/frontend/PLAN.md`](../frontend/PLAN.md) records how the brief was applied to this
 repository.
 
