@@ -648,9 +648,10 @@ The web front end's own endpoints, under `/api` only:
 | `GET /api/performance` | validation figures, and the test record when one is published |
 | `POST /api/batch/score` | the batch page's upload: every row scored, plus a scored CSV |
 
-The full schema is at `/docs` and in
-[`frontend/openapi.json`](frontend/openapi.json), which CI checks against the
-API on every change.
+The API serves its OpenAPI schema at `/openapi.json` and interactive
+documentation at `/docs`. The front end's TypeScript types are committed in
+[`frontend/src/api/schema.d.ts`](frontend/src/api/schema.d.ts); CI regenerates
+them from the API and fails if the committed copy has drifted.
 
 ```bash
 curl -s -X POST http://localhost:8000/predict \
