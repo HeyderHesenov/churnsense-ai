@@ -8,11 +8,12 @@ made in another clone replacing the first, an old ``open`` ledger coming back th
 conflict resolution, a malformed publication on its way to becoming permanent.
 It never runs an evaluation and never writes.
 
-**What it is not.** It is not a required check today, and not a trusted boundary even if it
-becomes one: on ``pull_request`` GitHub takes the workflow from the change itself, and a merged
+**What it is not.** ``held-out-release-governance`` is a required status check of the
+``Protect main`` ruleset, and still not a trusted boundary: on ``pull_request`` GitHub takes
+the workflow from the change itself, so a pull request can edit its own workflow, and a merged
 change can replace this file. It catches accidents and ordinary mistakes, not a change
 written to get past it. The maintainer has to read every change to this governance, and
-nothing enforces that (``SECURITY.md``).
+nothing enforces that: the ruleset requires no approval (``SECURITY.md``).
 
 Nothing is imported from the project, so the check needs no dependency and no data, and
 nothing outside the standard library has to be trusted to run it. So the schema below is a

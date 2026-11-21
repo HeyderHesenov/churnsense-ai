@@ -12,9 +12,10 @@ or fork has its own, and nothing here can stop a calculation made there on a pub
 dataset. What makes one release the project's is an operating rule: one operator, on one
 machine, in one checkout, and a person reading every change to this governance.
 ``scripts/check_release_ledger.py`` helps as a best-effort consistency check. It catches
-accidental and ordinary invalid ledger changes in a pull request; it is not a required check
-today, and a pull request can edit its own workflow or the script, so it is not a trusted
-boundary. ``SECURITY.md`` sets out all of them.
+accidental and ordinary invalid ledger changes in a pull request. Its job,
+``held-out-release-governance``, is a required status check of the ``Protect main`` ruleset,
+but a pull request can edit its own workflow or the script, so it is not a trusted boundary.
+``SECURITY.md`` sets out all of them.
 
 **The ledger is the release.** ``LEDGER_FILE`` holds the state, the fingerprints of
 what was evaluated and the released figures, in one file replaced in one step. So there

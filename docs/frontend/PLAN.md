@@ -385,7 +385,7 @@ Same data and same model, so the numbers must match. Every remaining difference 
 ## Risks and notes
 
 - **The first explanation takes about 2.4 s** (numba JIT); later ones about 0.3 s per row. The queue uses one batched call per page, behind skeletons.
-- **The new CI job is not a required check** until the maintainer adds it to the ruleset.
+- **The new CI job is not a required check** until the maintainer adds it to the ruleset. (Status 2026-11-21: the `Protect main` ruleset lists neither `frontend (node 22)` nor `e2e (chromium)`; the maintainer merges only when both pass, an operating rule GitHub does not enforce.)
 - **`make evaluate CONFIRM=yes` is one more test read.** It is recorded in MODEL_CARD, and the numbers must reproduce exactly (the artifact sha is unchanged).
 - **429 is now possible on the legacy `/predict/batch` path.** This is intentional and documented.
 
@@ -2246,6 +2246,8 @@ sha256.
 - The new jobs are not required checks until the ruleset lists them;
   `actionlint` was not run, and CI has not run on GitHub (not pushed). CodeQL's
   default setup may need JavaScript added (repository settings, untouched).
+  (Status 2026-11-21: CI has since run on GitHub, CodeQL's default setup covers
+  JavaScript and TypeScript, and the ruleset still does not list these jobs.)
 - The temporary folder is left behind only if the server is killed with
   SIGKILL. `make e2e` builds first, since the server serves `frontend/dist`.
 
@@ -2453,8 +2455,9 @@ procedure and the rules are in `SECURITY.md`, "The held-out release".
 The maintainer's decisions: no `pull_request_target`, and the check is accepted as best-effort.
 
 - **The check is what it is.** `pull_request` lets a change edit its own workflow, and a merged
-  change can replace the script. It is not in the ruleset, and requiring it would not make it
-  tamper-resistant. The documents now say so, a test keeps them saying so, and
+  change can replace the script. It was not in the ruleset then; it has been a required status
+  check since 2026-11-09, and requiring it did not make it tamper-resistant. The documents say
+  so, a test keeps them saying so, and
   `test_known_limit_a_merged_change_can_weaken_the_check_for_the_next_one` holds the limit in code.
 - **Strict schema in both readers.** A closed set of fields per state, a table whose cells, totals
   and rates are checked, the threshold of its identity, exact format and policy (only the
@@ -2497,8 +2500,9 @@ permanently consuming the release, and found the documents saying otherwise.
 
 **Still open.**
 
-- `held-out-release-governance` has to run for the first time on GitHub, and may then be added to
-  the `Protect main` ruleset by hand. Neither has happened.
+- `held-out-release-governance` had to run for the first time on GitHub, and could then be added
+  to the `Protect main` ruleset by hand. Both happened on 2026-11-09: it first ran green, and was
+  then added to the ruleset's required status checks. That does not make it tamper-resistant.
 - The rehearsal and preflight have not met the real artifact: `make evaluate` is what runs them.
 - A reservation that cannot finish has no recovery path until there is an approval that can be
   verified (`SECURITY.md`, "A reservation has no way back").

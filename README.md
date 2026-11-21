@@ -163,8 +163,10 @@ make evaluate CONFIRM=yes   # FINAL evaluation: the official release, under the 
 **Only `make evaluate CONFIRM=yes` reads the test partition. In one working tree the first run
 freezes a release, and that checkout evaluates nothing else afterwards. The project publishes one
 release as an operating policy: one operator on one machine, with the maintainer reading every
-governance change. A best-effort consistency check looks at ledger changes in pull requests; it
-is not a required check today and not a tamper-resistant one. Another clone or a fork can still
+governance change. A best-effort consistency check, `held-out-release-governance`, looks at ledger
+changes in pull requests; it is one of the `main` ruleset's required status checks, but a pull
+request can edit the workflow and the checker it runs, so that does not make it tamper-resistant.
+Another clone or a fork can still
 calculate what it likes on this public dataset; that is not this project's release**
 (`SECURITY.md`, "The held-out release"). **It is the
 only command that does** (and `make all
@@ -760,7 +762,12 @@ environment and both locks. A third job installs the dev lock through
 suite against those exact pins. It then installs the runtime lock on its own,
 imports every module, runs the dashboard script and starts the API on it, and
 keeps that environment's CycloneDX SBOM as a build artifact. Pull requests into
-`main` also run a dependency review, and only merge once every required check passes.
+`main` also run a dependency review and the held-out release check. The `main`
+ruleset requires six of these checks to pass, listed in
+[SECURITY.md](SECURITY.md#dependency-audits); `frontend (node 22)`, which runs
+both npm audits, and `e2e (chromium)` are not among them. The maintainer merges
+only when those two have passed as well, an operating rule GitHub does not
+enforce.
 
 CI needs no dataset and no network beyond the package index.
 
@@ -894,13 +901,19 @@ Found a vulnerability? Please report it privately, as described in
   CI audits both the resolved environment and the locks, with a read-only
   `GITHUB_TOKEN` and actions pinned to commit SHAs. Dependabot raises alerts
   and fix pull requests for known advisories and proposes weekly version
-  updates; CodeQL scans the Python code and the workflows.
-- **`main` takes only checked, signed commits.** A ruleset blocks direct
-  pushes, force-pushes and deletion, requires the CI checks to pass, blocks
-  merging new high-severity CodeQL alerts, and requires verified signatures.
-  Commits are signed with an SSH key. A pull request lands by fast-forwarding
-  `main` to its checked head, because GitHub's rebase-and-merge rewrites
-  commits and drops their signatures.
+  updates; CodeQL scans the Python and TypeScript code and the workflows.
+- **`main` takes only checked, signed commits.** A ruleset requires a pull
+  request, so no direct pushes, and refuses force-pushes and deletion. It
+  requires six status checks to pass on a branch up to date with `main`: the
+  Python tests on 3.12, 3.13 and against the lock, `dependency audit`,
+  `dependency review` and `held-out-release-governance`. It blocks merging new
+  CodeQL alerts of `error` severity or of high security severity and above, and
+  requires verified signatures. `frontend (node 22)` and `e2e (chromium)` are
+  not in the ruleset; the maintainer's own rule is to merge only when they pass
+  too ([SECURITY.md](SECURITY.md#dependency-audits)). Commits are signed with an
+  SSH key. A pull request lands through a merge commit, which GitHub signs;
+  rebase-and-merge is not used, because it rewrites commits and drops their
+  signatures.
 
 > **Local by design.** There is no authentication (the API only budgets its two
 > costly endpoints, explanations and batch uploads, per client), so

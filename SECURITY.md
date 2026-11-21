@@ -32,13 +32,46 @@ that none is coming.
 
 ## Dependency audits
 
-CI audits the dependencies on every pull request and every push to `main`:
-`pip-audit` over the environment the test jobs resolve, and over both hashed
-locks exactly as pinned. The job is a required check, so **any known
-vulnerability blocks merging** - `pip-audit` reports no severities, so there is
-no "low enough to ignore" tier. Dependabot alerts and security updates cover
-the same locks between pull requests, and the dependency review blocks a pull
-request that would add a vulnerable version.
+CI audits the dependencies on every pull request and every push to `main`.
+The checks look at different things, and GitHub enforces only some of them:
+
+| Check | What it looks at | It fails on | Required by the `Protect main` ruleset |
+|---|---|---|---|
+| `dependency audit` | `pip-audit` over the environment the test jobs resolve, and over both hashed Python locks exactly as pinned | any known advisory | yes |
+| `dependency review` | what the pull request changes in the dependency graph (`actions/dependency-review-action` v5, default settings) | a dependency the change adds or upgrades to a version with a known advisory of any severity, in the runtime scope | yes |
+| `frontend (node 22)`, step `npm audit --omit=dev` | the front end's production dependency tree in `frontend/package-lock.json`, dev dependencies left out; it reads the lock and does not scan the built `frontend/dist` itself | an advisory of any severity | no |
+| `frontend (node 22)`, step `npm audit --audit-level=high` | the whole front-end lock, dev toolchain included: linters, test runners, the type generator | a high or critical advisory | no |
+
+- `dependency audit` is the Python audit only; the npm audits are not part of
+  it. It is a required check, so **any known Python vulnerability blocks
+  merging** - `pip-audit` reports no severities, so there is no "low enough to
+  ignore" tier.
+- `dependency review` compares the dependency graphs of the two commits. It
+  does not look at advisories already in a lock, and with its default settings
+  it fails only on the runtime scope: the dependency graph files the front
+  end's dev dependencies under the development scope, and both Python locks
+  under runtime. A dev-only advisory already in `frontend/package-lock.json`,
+  such as the one listed below, never reaches it.
+- `frontend (node 22)` is not a required check: the ruleset does not list it,
+  so a failing npm audit does not by itself stop a merge in GitHub. Neither is
+  `e2e (chromium)`.
+
+Dependabot alerts and security updates cover the same locks between pull
+requests.
+
+**What GitHub enforces on `main`.** The `Protect main` ruleset is active and
+has no bypass list. It requires a pull request, and these six status checks to
+pass on a branch that is up to date with `main`: `test (py3.12)`,
+`test (py3.13)`, `test (lock, py3.12)`, `dependency audit`, `dependency review`
+and `held-out-release-governance`. Its code scanning rule blocks a merge when
+CodeQL reports a new alert of `error` severity, or a security alert of high
+severity or above. It requires verified signatures, and refuses force-pushes and
+deletion of `main`. It requires no approval.
+
+**The project's own merge rule.** Beyond the ruleset, the maintainer merges a
+pull request only when every job of its workflows has passed,
+`frontend (node 22)` and `e2e (chromium)` included. That is an operating rule:
+GitHub does not enforce it for those two jobs.
 
 When a fix exists, the dependency is upgraded (`make lock
 LOCK_ARGS="--upgrade-package <name>"`). When none does, the advisory is assessed
@@ -51,20 +84,18 @@ review date is not accepted.
 |---|---|---|---|---|
 | *(none)* | | | | |
 
-The front end is audited with npm in two tiers, kept apart on purpose
-(`frontend` job in `.github/workflows/ci.yml`): `npm audit --omit=dev` covers
-what ships in `frontend/dist` and blocks at **any** severity; `npm audit
---audit-level=high` covers the dev toolchain (linters, test runners, the type
-generator) and blocks at high and critical. A moderate or low advisory in a
-dev-only package is assessed and, when it does not reach this project, listed
-here; one that ships, or reaches high, is fixed instead.
+The front end's two npm audit tiers, in the table above, are kept apart on
+purpose (`frontend` job in `.github/workflows/ci.yml`). A moderate or low
+advisory in a dev-only package is assessed and, when it does not reach this
+project, listed here; one that ships, or reaches high, is fixed instead. A
+listed advisory stays open: it is accepted for now, not closed.
 
 | Advisory | Package (dev only) | Why it does not affect this project | Owner | Review by |
 |---|---|---|---|---|
-| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (moderate) | `minimatch` < 11.0.1, through eslint, typescript-eslint and `eslint-plugin-jsx-a11y-x` (the type generator's `@redocly/openapi-core` uses minimatch 5.1.9, which `npm audit` does not flag) | The amplification needs `optimizationLevel` ≥ 2, which no caller sets; the patterns come only from `eslint.config.js`, never from input; nothing of it is in `frontend/dist`. `npm audit fix --force` would downgrade the linters, and an override to 11 changes `**` matching. Assessed 2026-11-01 (`docs/frontend/PLAN.md`, Phase 3.5). | maintainer | 2027-02-01, or as soon as eslint and typescript-eslint accept `^11.0.1` |
+| [GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) (moderate) | `minimatch` 10.2.6 in the lock; affected ≥ 7.0.0, < 11.0.1, fixed in 11.0.1. Required by eslint 10.12.0 (`^10.2.5`, and `^10.2.4` through `@eslint/config-array` 0.23.5), by typescript-eslint 8.71.2 (`^10.2.2` through `@typescript-eslint/typescript-estree`) and by `eslint-plugin-jsx-a11y-x` 0.2.0 (`^10.2.5`). The type generator's `@redocly/openapi-core` uses minimatch 5.1.9, outside the affected range, which `npm audit` does not flag | The amplification needs `optimizationLevel` ≥ 2. minimatch defaults to 1, and no caller in the installed tree sets it. The patterns are not external input: eslint's come from `files` and `ignores` in `eslint.config.js` and the configs it extends; `eslint-plugin-jsx-a11y-x` matches the JSX element names in `frontend/src` against its default component names (`label`, `input`, `meter`, `output`, `progress`, `select`, `textarea`), since `configs.strict` adds none; typescript-eslint's `allowDefaultProject` is not set. Dev toolchain only: nothing of it is in `frontend/dist`, and `npm audit --omit=dev` finds nothing. Upstream fixes exist for two of the three: eslint 10.15.0 (released 2026-11-13, minimatch `^11.0.5`) and typescript-eslint 8.73.0 (released 2026-11-16, `^11.0.1`); this lock is not upgraded to them yet. `eslint-plugin-jsx-a11y-x` 0.2.0, its latest release, still requires `^10.2.5`, so the advisory stays after that upgrade. `npm audit fix --force` would downgrade it to 0.1.1, and an override to 11 changes `**` matching. First assessed 2026-11-01 (`docs/frontend/PLAN.md`, Phase 3.5); reviewed 2026-11-21. | maintainer | After 2026-11-23, when both fixed releases are past the 7-day Dependabot cooldown (`.github/dependabot.yml`): upgrade eslint and typescript-eslint in a separate dependency pull request, then review this row again for `eslint-plugin-jsx-a11y-x`. At the latest 2027-02-01 |
 
-Accepted advisories are reviewed by their date and removed as soon as a fixed
-version is available.
+Accepted advisories are reviewed by their date, and removed once no package in
+the lock requires an affected version.
 
 `pip-audit` reads the locks, not the container image. The runtime image's base
 (`python:3.12.16-slim`) ships pip 25.0.1, which has known advisories. The image needs
@@ -243,7 +274,7 @@ and they do not reach equally far:
 |---|---|---|
 | **One working tree**, enforced by code (`src/churnsense/evaluation/release.py`) | The ledger and a `flock` on its folder allow one release in that checkout | See any other clone, worktree or fork. `flock` is local to one filesystem and one ledger, not a global lock |
 | **The official environment**, an operating rule | Names the one place the project's release is made | Nothing checks it in code: it holds because the one operator follows it |
-| **A pull-request check**, best-effort (`held-out-release-governance`) | Catches an accidental or ordinary invalid change to the ledger on its way to `main`, a second release among them | Stop a pull request written to get past it, which can edit its own workflow or checker. It is not a required check today, and requiring it would not change that |
+| **A pull-request check**, best-effort (`held-out-release-governance`) | Catches an accidental or ordinary invalid change to the ledger on its way to `main`, a second release among them | Stop a pull request written to get past it, which can edit its own workflow or checker. It has been one of the ruleset's required status checks since 2026-11-09, and that does not change this |
 | **Maintainer review**, an operating rule | A person inspects every change to the governance files | Nothing enforces it: the ruleset requires no approval |
 | **An independent calculation**, not preventable | | The dataset is public and the split reproducible, so anyone can compute what they like. That is not this project's release |
 
@@ -330,8 +361,8 @@ last line of the table above says why no more than that is claimed.
 
 1. The release-governance code is on protected `main`, merged after the maintainer's review, and
    the checks the ruleset does require are green.
-2. `held-out-release-governance` has run green and been added to the ruleset. **Not done today**:
-   see the manual step below.
+2. `held-out-release-governance` has run green and is among the ruleset's required status checks.
+   **Done**: added on 2026-11-09, see the manual step below.
 3. The checkout is on `main`, clean and up to date, with the committed `open` ledger. This is for
    the first run only: a retry follows "After a reservation", below, and updates nothing.
 4. The operator runs `make evaluate CONFIRM=yes` once.
@@ -407,8 +438,9 @@ change written to get past it:
   (`test_known_limit_a_merged_change_can_weaken_the_check_for_the_next_one`). With no script on
   `main`, the workflow falls back to the pull request's own copy: for the change that first adds it,
   and for every change after one that deleted it.
-- It is not a required check: the ruleset does not list it, so today it reports and blocks nothing.
-  Requiring it does not make it tamper-resistant, for the reasons above.
+- The `Protect main` ruleset lists it among its required status checks, so a failed or missing run
+  stops a merge. Requiring it does not make it tamper-resistant, for the reasons above: a pull
+  request can still edit the workflow, or weaken the script for the change after it.
 - A ruleset administrator could change the ruleset; it has no bypass list today.
 
 This limit is accepted on purpose. `pull_request_target` stays prohibited, and so does any other
@@ -416,9 +448,9 @@ privileged route to a pull request's code (`workflow_run`, `issue_comment`, `rep
 If a trusted automated gate is needed later, that is a separate architecture decision: a trusted
 GitHub App, or another design authorized on its own.
 
-**Manual step.** Still pending: after the check's first successful run, add the context
-`held-out-release-governance` to the required status checks of the `Protect main` ruleset. That
-makes an ordinary mistake harder to merge. It does not change anything in "Its limits".
+**Manual step.** Done on 2026-11-09: the context `held-out-release-governance` was added to the
+required status checks of the `Protect main` ruleset. That makes an ordinary mistake harder to
+merge. It does not change anything in "Its limits".
 
 ### Maintainer review
 
