@@ -1,5 +1,8 @@
 """``POST /api/v2/imports/preview`` - served only where it was asked for, and never in public.
 
+The same gate serves the Retention Workbench's reads (``workbench_api``): ``install``
+adds them with the preview, or adds neither.
+
 **Off unless switched on, and never in a public demo.** ``install`` adds the
 route only when both hold:
 
@@ -210,16 +213,26 @@ async def import_preview(request: Request) -> out.ImportPreviewResponse:
 def install(
     app: FastAPI, environ: Mapping[str, str] | None = None, cfg: Config | None = None
 ) -> bool:
-    """Add the preview to ``app`` if ``preview_enabled``; whether it was added.
+    """Add the preview and the Workbench to ``app`` if ``preview_enabled``; whether they were.
 
     ``environ`` and ``cfg`` default to the process's environment and configuration.
     """
     if not preview_enabled(environ, cfg):
         return False
+    # Imported here: workbench_api imports this module's gate, so it cannot be imported above.
+    from churnsense.workspace import workbench_api
+
     app.include_router(router, prefix=PREFIX)
+    app.include_router(workbench_api.router, prefix=PREFIX)
     middleware.LOCAL_UPLOAD_PATHS = middleware.LOCAL_UPLOAD_PATHS | {PREVIEW_PATH}
+    middleware.LOCAL_QUERY_PATHS = middleware.LOCAL_QUERY_PATHS | {
+        PREFIX + workbench_api.SUMMARY_PATH,
+        PREFIX + workbench_api.ACCOUNTS_PATH,
+    }
     logger.warning(
-        "the V2 Data Hub preview is enabled at %s: local only, synthetic or test data only",
+        "the V2 Data Hub preview is enabled at %s, with the Retention Workbench under %s: "
+        "local only, synthetic or test data only",
         PREVIEW_PATH,
+        PREFIX,
     )
     return True

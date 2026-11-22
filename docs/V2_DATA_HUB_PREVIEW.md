@@ -280,3 +280,8 @@ body limit. Tests check this with an audit hook on every file the process opens.
 Not in M1: authentication, organisations, persistence of any kind, import
 commit or history, saved mappings, native integrations, risk scoring and UI
 pages. The V1 telecom model is never applied to these snapshots.
+
+M2 adds the Retention Workbench's reads behind the same switch
+([V2_RETENTION_WORKBENCH.md](V2_RETENTION_WORKBENCH.md)). They read their own
+synthetic dataset: nothing uploaded here reaches them, because nothing uploaded
+here is kept.

@@ -369,6 +369,11 @@ BATCH_PATHS = frozenset({"/api/batch/score", "/api/predict/batch", "/predict/bat
 #: gets the upload limit and spends the ``batch`` budget, as ``BATCH_PATHS`` do.
 LOCAL_UPLOAD_PATHS: frozenset[str] = frozenset()
 
+#: GET paths of routes served only in a local deployment that compute over a whole
+#: dataset on every request, added as they are installed and empty otherwise. Each
+#: spends the ``query`` budget, as the customer list and the segment tables do.
+LOCAL_QUERY_PATHS: frozenset[str] = frozenset()
+
 #: Which (method, path) spends from which budget. A legacy path shares its
 #: budget with its /api twin, so the alias is not a way around it; a HEAD is
 #: budgeted as the GET it runs (Starlette answers HEAD with the GET route).
@@ -495,6 +500,8 @@ class RateLimit:
             budget = RATE_LIMITED.get((method, scope["path"]))
             if budget is None and method == "POST" and scope["path"] in LOCAL_UPLOAD_PATHS:
                 budget = "batch"
+            if budget is None and method == "GET" and scope["path"] in LOCAL_QUERY_PATHS:
+                budget = "query"
             rule = self._limits().get(budget) if budget else None
             if rule is not None:
                 wait = self._take(budget, key, rule)

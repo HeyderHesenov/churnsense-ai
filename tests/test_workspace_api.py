@@ -58,6 +58,7 @@ def app(monkeypatch) -> Iterator:
     application = api_main.app
     routes = list(application.router.routes)
     monkeypatch.setattr(middleware, "LOCAL_UPLOAD_PATHS", middleware.LOCAL_UPLOAD_PATHS)
+    monkeypatch.setattr(middleware, "LOCAL_QUERY_PATHS", middleware.LOCAL_QUERY_PATHS)
     application.openapi_schema = None
     assert preview_api.install(application, ON)
     yield application
@@ -468,7 +469,13 @@ def test_v1_routes_and_upload_paths_are_unchanged(app):
     from churnsense.api import middleware, spa
 
     served = _paths(app)
-    assert {p for p in served if p.startswith(preview_api.PREFIX)} == {PATH}
+    # The preview, and the Retention Workbench's reads that the same gate installs.
+    assert {p for p in served if p.startswith(preview_api.PREFIX)} == {
+        PATH,
+        f"{preview_api.PREFIX}/portfolio/summary",
+        f"{preview_api.PREFIX}/accounts",
+        f"{preview_api.PREFIX}/accounts/{{account_id}}",
+    }
     assert "/api/batch/score" in served and "/predict" in served
     assert {"/api/batch/score", "/api/predict/batch", "/predict/batch"} == middleware.BATCH_PATHS
     assert PATH not in spa.PAGES
