@@ -210,7 +210,8 @@ M2 does not include:
 - authentication, organisations or persistence;
 - imports kept from the Data Hub;
 - native integrations;
-- Action Center work items or playbooks;
+- Action Center work items or playbooks (M3 adds their contracts only:
+  `docs/V2_RETENTION_ACTION_CENTER.md`);
 - campaigns, intervention outcomes or experiments;
 - a SaaS model;
 - UI pages.
