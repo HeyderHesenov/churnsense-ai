@@ -369,7 +369,8 @@ jobs:
         working-directory: frontend
         run: |
           npm run openapi
-          git diff --exit-code -- src/api/schema.d.ts
+          npm run openapi:v2
+          git diff --exit-code -- src/api/schema.d.ts src/api/v2.schema.d.ts
 
       - name: Build
         working-directory: frontend

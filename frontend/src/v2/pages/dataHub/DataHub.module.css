@@ -1,0 +1,135 @@
+/* The Data Hub: the upload panel, the result's status and the mapping form. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-16);
+}
+
+.drop {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 150px;
+  padding: 18px;
+  border: 1.5px dashed var(--line-dash);
+  border-radius: var(--radius-14);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.drop:hover,
+.drop:focus-within {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.drop[data-busy='true'] {
+  cursor: progress;
+  opacity: 0.6;
+}
+.dropIcon {
+  color: var(--accent-text);
+}
+.dropTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* Over the whole box: a click or a drop anywhere on it reaches the input. */
+.input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 6px 20px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: var(--radius-12);
+  background: var(--surface);
+}
+.status[data-status='valid'] {
+  border-left-color: var(--ok);
+}
+.status[data-status='partially_valid'],
+.status[data-status='mapping_required'] {
+  border-left-color: var(--moderate);
+}
+.status[data-status='invalid'] {
+  border-left-color: var(--critical);
+}
+.statusTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.fileRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.fileName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.select {
+  width: 100%;
+  max-width: 280px;
+}
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.statusRow input {
+  width: 220px;
+  max-width: 100%;
+}
+.refused {
+  padding: 12px 14px;
+  border: 1px solid var(--critical-line);
+  border-radius: var(--radius-12);
+  background: var(--critical-soft);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* A card's own inset, around a table that runs edge to edge. */
+.panelInset {
+  padding: 0 20px;
+}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -195,16 +196,90 @@ def test_the_committed_openapi_schema_has_no_v2_path():
     assert not [p for p in schema["paths"] if p.startswith(PREFIX)]
 
 
-def test_no_front_end_code_calls_or_computes_v2():
-    """Every business number is the API's: no V2 page exists yet to compute one."""
+FRONTEND = PROJECT_ROOT / "frontend"
+#: Where the V2 Preview's front end lives, and its generated schema.
+V2_FRONT_END = FRONTEND / "src" / "v2"
+V2_SCHEMA = FRONTEND / "src" / "api" / "v2.schema.d.ts"
+#: The dashboard's only ways into the preview, both behind the build-time switch
+#: (src/v2/flag.ts): the app loads the workspace, the sidebar shows its link.
+V2_ENTRY_IMPORTS = {
+    FRONTEND / "src" / "app" / "App.tsx": {"../v2/flag", "../v2/Workspace"},
+    FRONTEND / "src" / "components" / "shell" / "Sidebar.tsx": {
+        "../../v2/EntryLink",
+        "../../v2/flag",
+    },
+}
+_V2_IMPORT = re.compile(r"""['"](\.{1,2}/(?:\.\./)*v2/[^'"]*)['"]""")
+
+
+def _front_end_sources() -> list[Path]:
+    return [p for p in (FRONTEND / "src").rglob("*") if p.is_file()]
+
+
+def test_no_dashboard_code_calls_or_computes_v2():
+    """V2 code lives under src/v2/ alone: no dashboard file asks for /api/v2 or names a V2 figure.
+
+    Every business number is the API's, and only the preview's own pages show one.
+    """
+    outside = [
+        p
+        for p in _front_end_sources()
+        if not p.is_relative_to(V2_FRONT_END)
+        and p not in (V2_SCHEMA, FRONTEND / "src" / "api" / "schema.d.ts")
+    ]
+    assert outside
     found = [
-        path
-        for path in (PROJECT_ROOT / "frontend" / "src").rglob("*")
-        if path.is_file()
-        and path.name != "schema.d.ts"
-        and ("/v2" in (text := path.read_text(errors="ignore")) or "exposed_mrr" in text)
+        p.relative_to(FRONTEND).as_posix()
+        for p in outside
+        if (text := p.read_text(errors="ignore"))
+        and (
+            "/api/v2" in text or "exposed_mrr" in text or "/v2/" in _without_entry_imports(p, text)
+        )
     ]
     assert found == []
+
+
+def _without_entry_imports(path: Path, text: str) -> str:
+    """``text`` with the imports of the preview this file is allowed (``V2_ENTRY_IMPORTS``) removed."""
+    allowed = V2_ENTRY_IMPORTS.get(path, set())
+    return _V2_IMPORT.sub(lambda m: "" if m.group(1) in allowed else m.group(0), text)
+
+
+def test_the_dashboard_enters_the_preview_only_through_its_switch():
+    """Only App.tsx and Sidebar.tsx import the preview, and only its switch and entry points."""
+    importers = {
+        p: set(_V2_IMPORT.findall(p.read_text(errors="ignore")))
+        for p in _front_end_sources()
+        if not p.is_relative_to(V2_FRONT_END) and p.suffix in {".ts", ".tsx"}
+    }
+    assert {p: found for p, found in importers.items() if found} == V2_ENTRY_IMPORTS
+    app = (FRONTEND / "src" / "app" / "App.tsx").read_text()
+    # The lazy import sits behind the build-time switch itself, so a default build drops it.
+    assert (
+        "import.meta.env.VITE_CHURNSENSE_V2_PREVIEW === '1' ? lazy(() => import('../v2/Workspace'))"
+        in (" ".join(app.split()))
+    )
+
+
+def _built_chunks() -> list[Path]:
+    return sorted((FRONTEND / "dist" / "assets").glob("*.js"))
+
+
+@pytest.mark.skipif(
+    os.environ.get("CHURNSENSE_REQUIRE_FRONTEND_BUILD") != "1" and not _built_chunks(),
+    reason="the front end is not built (make frontend)",
+)
+def test_the_built_front_end_has_no_v2_preview():
+    """A default build (the one every deployment serves) holds no V2 page, link or request."""
+    chunks = _built_chunks()
+    assert chunks, "frontend/dist/assets holds no chunk"
+    found = {
+        p.name: marker
+        for p in chunks
+        for marker in ("/v2/portfolio/summary", "/v2/imports/preview", "V2 Preview", "exposed_mrr")
+        if marker in p.read_text(errors="ignore")
+    }
+    assert found == {}
 
 
 # --- the service's own layers still stand in front -------------------------------------------

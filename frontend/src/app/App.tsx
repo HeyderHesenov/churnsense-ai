@@ -3,18 +3,33 @@
  * on first visit, and a page that fails to render is contained - the shell
  * and the other pages keep working, and the failed one can be tried again.
  */
-import { Component, Suspense, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, Suspense, type ErrorInfo, type ReactNode } from 'react';
 import { Header } from '../components/shell/Header';
 import { Shell } from '../components/shell/Shell';
 import { ButtonLink } from '../components/ui/Button';
 import { Page } from '../components/ui/Page';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ErrorState, Skeleton } from '../components/ui/States';
+import { isV2Path } from '../v2/flag';
 import { useLocation } from './router';
 import { routeFor } from './routes';
 
+/**
+ * The V2 Preview workspace, in a build made with the preview on; otherwise
+ * ``null``, and the workspace's code is left out of the build (``v2/flag``).
+ */
+const V2Workspace =
+  import.meta.env.VITE_CHURNSENSE_V2_PREVIEW === '1' ? lazy(() => import('../v2/Workspace')) : null;
+
 export function App() {
   const { pathname } = useLocation();
+  if (V2Workspace && isV2Path(pathname)) {
+    return (
+      <Suspense fallback={<PageLoading />}>
+        <V2Workspace />
+      </Suspense>
+    );
+  }
   const route = routeFor(pathname);
   return (
     <Shell>

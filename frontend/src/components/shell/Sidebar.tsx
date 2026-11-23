@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Link, useLocation } from '../../app/router';
 import { NAV_GROUPS, ROUTES, type Route } from '../../app/routes';
 import { useHealth, useModelInfo, usePerformance, type ModelInfo } from '../../api/queries';
 import { cut, int } from '../../lib/format';
 import { modelName } from '../../lib/labels';
 import { readPreference, writePreference } from '../../lib/preferences';
+import { V2EntryLink } from '../../v2/EntryLink';
+import { V2_PREVIEW } from '../../v2/flag';
 import { icons, Logo } from '../icons';
 import { useDataSource } from '../ui/DataSourceNote';
 import styles from './Shell.module.css';
 
-interface SidebarProps {
+export interface SidebarProps {
   /** Labels, the guide and the serving card are shown. */
   expanded: boolean;
   /** The narrow icon column of a wide screen. */
@@ -29,30 +31,15 @@ const GUIDE = [
   { path: '/simulator', title: 'Plan a campaign', note: 'Pick a cut-off, compare scenarios' },
 ] as const;
 
-export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarProps) {
-  const { pathname } = useLocation();
-  const aside = useRef<HTMLElement>(null);
-  const nav = useRef<HTMLElement>(null);
-  const closeButton = useRef<HTMLButtonElement>(null);
-  const [guide, setGuide] = useState(() => readPreference('guide') !== 'hidden');
-  // The explorer lists the book: its size, as the service states it, and nothing without it.
-  const bookSize = useDataSource()?.customers;
-  /** In an open drawer: close it, even for the page already shown. */
-  const onFollow = drawer && open ? onClose : undefined;
-
-  const hideGuide = () => {
-    writePreference('guide', 'hidden');
-    // The button leaves with the card; focus goes to the page's own link, not to the document.
-    const links = nav.current;
-    (
-      links?.querySelector<HTMLElement>('[aria-current="page"]') ??
-      links?.querySelector<HTMLElement>('a[href]')
-    )?.focus();
-    setGuide(false);
-  };
-
-  // While the drawer is open it is modal: focus starts on its close button,
-  // Esc closes it, and Tab cycles within it.
+/**
+ * While the drawer is open it is modal: focus starts on its close button, Esc
+ * closes it, and Tab cycles within ``aside``. Every sidebar's drawer behaves so.
+ */
+export function useModalDrawer(
+  aside: RefObject<HTMLElement | null>,
+  closeButton: RefObject<HTMLButtonElement | null>,
+  { drawer, open, onClose }: Pick<SidebarProps, 'drawer' | 'open' | 'onClose'>,
+): void {
   useEffect(() => {
     if (!drawer || !open) return;
     closeButton.current?.focus();
@@ -77,7 +64,32 @@ export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarP
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [drawer, open, onClose]);
+  }, [aside, closeButton, drawer, open, onClose]);
+}
+
+export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarProps) {
+  const { pathname } = useLocation();
+  const aside = useRef<HTMLElement>(null);
+  const nav = useRef<HTMLElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const [guide, setGuide] = useState(() => readPreference('guide') !== 'hidden');
+  // The explorer lists the book: its size, as the service states it, and nothing without it.
+  const bookSize = useDataSource()?.customers;
+  /** In an open drawer: close it, even for the page already shown. */
+  const onFollow = drawer && open ? onClose : undefined;
+
+  const hideGuide = () => {
+    writePreference('guide', 'hidden');
+    // The button leaves with the card; focus goes to the page's own link, not to the document.
+    const links = nav.current;
+    (
+      links?.querySelector<HTMLElement>('[aria-current="page"]') ??
+      links?.querySelector<HTMLElement>('a[href]')
+    )?.focus();
+    setGuide(false);
+  };
+
+  useModalDrawer(aside, closeButton, { drawer, open, onClose });
 
   return (
     // A closed drawer is off screen: inert, so focus and screen readers skip it.
@@ -130,6 +142,8 @@ export function Sidebar({ expanded, collapsed, drawer, open, onClose }: SidebarP
             ))}
           </div>
         ))}
+        {/* Only in a build made with the preview on: otherwise left out of the bundle. */}
+        {V2_PREVIEW && <V2EntryLink expanded={expanded} onFollow={onFollow} />}
       </nav>
       {expanded && (
         <div className={styles.foot}>

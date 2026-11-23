@@ -6,7 +6,11 @@
  * - a Content-Security-Policy violation;
  * - a request to another origin, or a failed one (navigation and the app's own
  *   cancellation abort requests; those are expected);
- * - the same request sent again by one document while the first is in flight;
+ * - the same request sent again by one document while the first is in flight
+ *   (on the V2 Preview's dev server, a GET repeat is excused when a copy of it
+ *   was cancelled, one repeat per cancelled copy: React's StrictMode mounts each
+ *   component twice in a dev build, and the first mount's request is aborted as
+ *   the second's is sent);
  * - an outcome of a held-out (test or unverified) customer, a figure of a
  *   suppressed group, or a final-evaluation figure in any API response, or an
  *   IBM Telco customer ID in any response or in the final page;
@@ -15,7 +19,7 @@
  */
 import { expect, test as base, type Page, type Request, type Route } from '@playwright/test';
 import type { components } from '../src/api/schema';
-import { DATASET_PREFIX, PUBLIC_PROJECT } from './global-setup';
+import { DATASET_PREFIX, PUBLIC_PROJECT, V2_PROJECT } from './global-setup';
 
 export type ErrorResponse = components['schemas']['ErrorResponse'];
 
@@ -241,6 +245,11 @@ export const test = base.extend<{ guard: Guard }>({
       const inFlight = new Map<string, number>();
       const keys = new WeakMap<Request, string>();
       const bodies: Promise<Body | null>[] = [];
+      // The V2 Preview runs on the Vite dev server, under StrictMode's double mount.
+      const devServer = testInfo.project.name === V2_PROJECT;
+      // Per request: its repeats while in flight, and its copies the page cancelled.
+      const resent = new Map<string, { problem: string; times: number }>();
+      const cancelled = new Map<string, number>();
       const key = (method: string, url: string, data: string | null) =>
         `${method} ${url} ${data ?? ''}`;
 
@@ -291,7 +300,12 @@ export const test = base.extend<{ guard: Guard }>({
         }
         const sent = key(request.method(), url, request.postData());
         const counted = `${String(generation)} ${sent}`;
-        if (inFlight.has(counted)) problems.push(`sent again while in flight: ${sent}`);
+        if (inFlight.has(counted)) {
+          const problem = `sent again while in flight: ${sent}`;
+          if (devServer && request.method() === 'GET') {
+            resent.set(counted, { problem, times: (resent.get(counted)?.times ?? 0) + 1 });
+          } else problems.push(problem);
+        }
         inFlight.set(counted, (inFlight.get(counted) ?? 0) + 1);
         keys.set(request, counted);
       });
@@ -305,6 +319,10 @@ export const test = base.extend<{ guard: Guard }>({
       };
       page.on('requestfinished', settle);
       page.on('requestfailed', (request) => {
+        const counted = keys.get(request);
+        if (counted !== undefined && request.failure()?.errorText === 'net::ERR_ABORTED') {
+          cancelled.set(counted, (cancelled.get(counted) ?? 0) + 1);
+        }
         settle(request);
         const url = request.url();
         const failure = request.failure()?.errorText ?? 'failed';
@@ -336,6 +354,11 @@ export const test = base.extend<{ guard: Guard }>({
         allowCspViolation: (directive) => allowedCsp.push(directive),
       });
 
+      // Each repeat must be matched by a cancelled copy: StrictMode's double mount
+      // sends a GET twice and cancels one. A third copy, or none cancelled, fails.
+      for (const [counted, { problem, times }] of resent) {
+        if (times > (cancelled.get(counted) ?? 0)) problems.push(problem);
+      }
       const publicDemo = testInfo.project.name === PUBLIC_PROJECT;
       const refused = new Map<string, string>();
       for (const body of await Promise.all(bodies)) {

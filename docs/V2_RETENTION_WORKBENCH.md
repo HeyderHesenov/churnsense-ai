@@ -215,6 +215,7 @@ M2 does not include:
 - campaigns, intervention outcomes or experiments (M4 adds outcome and experiment
   contracts only: `docs/V2_RETENTION_IMPACT_EXPERIMENTS.md`);
 - a SaaS model;
-- UI pages.
+- UI pages (M5 adds a local, opt-in preview front end over these reads:
+  `docs/V2_PREVIEW_WORKSPACE.md`).
 
 The V1 telecom model is never applied to these accounts.

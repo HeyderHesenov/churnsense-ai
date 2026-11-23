@@ -17,7 +17,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "e2e": "playwright test",
-    "openapi": "../.venv/bin/python ../scripts/export_openapi.py > openapi.json && openapi-typescript openapi.json --output src/api/schema.d.ts && prettier --write src/api/schema.d.ts"
+    "openapi": "../.venv/bin/python ../scripts/export_openapi.py > openapi.json && openapi-typescript openapi.json --output src/api/schema.d.ts && prettier --write src/api/schema.d.ts",
+    "openapi:v2": "CHURNSENSE_V2_DATA_HUB_PREVIEW=1 ../.venv/bin/python ../scripts/export_openapi.py > openapi.v2.json && openapi-typescript openapi.v2.json --output src/api/v2.schema.d.ts && prettier --write src/api/v2.schema.d.ts"
   },
   "dependencies": {
     "@fontsource/geist": "5.3.0",

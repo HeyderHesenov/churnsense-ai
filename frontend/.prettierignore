@@ -4,3 +4,4 @@ package-lock.json
 openapi.json
 playwright-report
 test-results
+openapi.v2.json

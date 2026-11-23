@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -18,7 +19,7 @@ import { flushSync } from 'react-dom';
 import { useLocation } from '../../app/router';
 import { readPreference, writePreference } from '../../lib/preferences';
 import { SMALL_SCREEN, useMediaQuery } from '../../lib/useMediaQuery';
-import { Sidebar } from './Sidebar';
+import { Sidebar, type SidebarProps } from './Sidebar';
 import styles from './Shell.module.css';
 
 /** The page's content: the skip link's target, and where a page-wide retry leaves the reader. */
@@ -40,7 +41,13 @@ export function useShell(): ShellState {
   return state;
 }
 
-export function Shell({ children }: { children: ReactNode }) {
+interface ShellProps {
+  children: ReactNode;
+  /** The navigation: the dashboard's own, or the V2 Preview workspace's. */
+  sidebar?: ComponentType<SidebarProps>;
+}
+
+export function Shell({ children, sidebar: Navigation = Sidebar }: ShellProps) {
   const [expanded, setExpanded] = useState(() => readPreference('sidebar') !== 'collapsed');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const small = useMediaQuery(SMALL_SCREEN);
@@ -97,7 +104,7 @@ export function Shell({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
-        <Sidebar
+        <Navigation
           expanded={expanded || small}
           collapsed={!expanded && !small}
           drawer={small}
