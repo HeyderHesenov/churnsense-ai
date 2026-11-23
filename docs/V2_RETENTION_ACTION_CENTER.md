@@ -8,7 +8,7 @@ The third piece of ChurnSense V2. The V2 workflow is
 | Data | M1 Data Hub preview (`docs/V2_DATA_HUB_PREVIEW.md`) | Served locally, stateless |
 | Understand risk, Prioritize | M2 Customer Intelligence and Retention Workbench (`docs/V2_RETENTION_WORKBENCH.md`) | Served locally, synthetic, stateless |
 | Act | **M3 Retention Action Center: this document** | **Contracts and checks only. Not served** |
-| Measure | Not started | None |
+| Measure | M4 Retention Impact and Experiments (`docs/V2_RETENTION_IMPACT_EXPERIMENTS.md`) | Contracts and pure analysis only |
 
 M3 is the foundation of the Act step. It defines how a future authenticated
 ChurnSense workspace will find a playbook for an M2 risk indicator, propose a

@@ -212,7 +212,8 @@ M2 does not include:
 - native integrations;
 - Action Center work items or playbooks (M3 adds their contracts only:
   `docs/V2_RETENTION_ACTION_CENTER.md`);
-- campaigns, intervention outcomes or experiments;
+- campaigns, intervention outcomes or experiments (M4 adds outcome and experiment
+  contracts only: `docs/V2_RETENTION_IMPACT_EXPERIMENTS.md`);
 - a SaaS model;
 - UI pages.
 

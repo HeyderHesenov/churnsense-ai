@@ -32,6 +32,14 @@ from tests.workspace_snapshots import AS_OF, earlier, snap
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = ROOT / "src" / "churnsense" / "workspace"
 M3_MODULES = ("action_lifecycle.py", "action_playbooks.py", "action_schemas.py")
+#: M4's contract-only modules, which build on M3's task contract and are served by nothing
+#: either (``tests/test_workspace_retention_impact.py`` holds them to that).
+CONTRACT_ONLY_IMPORTERS = (
+    "outcome_schemas.py",
+    "retention_metrics.py",
+    "experiment_schemas.py",
+    "experiment_analysis.py",
+)
 
 #: The mapping, written out independently of the catalog: a moved trigger fails here.
 EXPECTED_MAPPING = {
@@ -892,7 +900,7 @@ def test_nothing_serves_or_imports_the_action_center():
     """No route, router or service module reaches M3: it is contracts only."""
     m3 = {f"churnsense.workspace.{name[:-3]}" for name in M3_MODULES}
     for path in sorted((ROOT / "src" / "churnsense").rglob("*.py")):
-        if path.name in M3_MODULES:
+        if path.name in M3_MODULES or path.name in CONTRACT_ONLY_IMPORTERS:
             continue
         imported = _imports(path)
         assert not imported & m3, path

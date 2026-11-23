@@ -20,4 +20,10 @@ playbook catalog keyed to M2's indicator codes, the lifecycle of a retention
 task with human approval before work starts, and the typed contracts of a
 future authenticated API. No route, no storage, no execution
 (``docs/V2_RETENTION_ACTION_CENTER.md``).
+
+M4 is the Measure step's foundation, and nothing serves it either: recorded
+account outcomes, exact per-currency logo retention, GRR and NRR, the link of a
+completed task to a later outcome (in time, not as a cause), and two-arm
+experiment contracts with a descriptive analysis only
+(``docs/V2_RETENTION_IMPACT_EXPERIMENTS.md``).
 """
