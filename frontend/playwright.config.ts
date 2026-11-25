@@ -15,6 +15,10 @@
  * forwards /api to a third API server with its V2 routes on
  * (CHURNSENSE_V2_DATA_HUB_PREVIEW=1). The preview is local only: the served
  * build (``dist``) has no V2 code, which ``chromium`` checks.
+ *
+ * A fourth, ``v2-built``, runs that spec and ``v2-built.spec.ts`` against the V2
+ * Preview's own build (``build/v2-preview``), served as ``make v2-preview-serve``
+ * serves it, by the same script, in front of the same third API server.
  */
 import { defineConfig, devices } from '@playwright/test';
 
@@ -28,8 +32,12 @@ const PUBLIC_SPEC = /public-demo\.spec\.ts$/;
 const v2ApiPort = Number(process.env['E2E_V2_API_PORT'] ?? port - 2);
 const v2Port = Number(process.env['E2E_V2_PORT'] ?? 5178);
 const v2URL = `http://127.0.0.1:${String(v2Port)}`;
-/** The spec that runs against the V2 Preview dev server, and only against it. */
+/** The spec that runs against the V2 Preview, on its dev server and as built. */
 const V2_SPEC = /v2-preview\.spec\.ts$/;
+const v2BuiltPort = Number(process.env['E2E_V2_BUILT_PORT'] ?? 5177);
+const v2BuiltURL = `http://127.0.0.1:${String(v2BuiltPort)}`;
+/** The spec that runs against the V2 Preview as built, and only against it. */
+const V2_BUILT_SPEC = /v2-built\.spec\.ts$/;
 const server = {
   // Never another server on the port: it could be serving the real book.
   reuseExistingServer: false,
@@ -66,7 +74,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: [PUBLIC_SPEC, V2_SPEC],
+      testIgnore: [PUBLIC_SPEC, V2_SPEC, V2_BUILT_SPEC],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -78,6 +86,11 @@ export default defineConfig({
       name: 'v2-preview',
       testMatch: V2_SPEC,
       use: { ...devices['Desktop Chrome'], baseURL: v2URL },
+    },
+    {
+      name: 'v2-built',
+      testMatch: [V2_SPEC, V2_BUILT_SPEC],
+      use: { ...devices['Desktop Chrome'], baseURL: v2BuiltURL },
     },
   ],
   webServer: [
@@ -104,6 +117,13 @@ export default defineConfig({
       command: `npx vite --port ${String(v2Port)} --strictPort`,
       url: v2URL,
       env: { VITE_CHURNSENSE_V2_PREVIEW: '1', API_PORT: String(v2ApiPort) },
+    },
+    {
+      ...server,
+      // Started after the API above is ready (Playwright starts them in order): the
+      // script refuses to serve without it, and without the V2 Preview build.
+      command: `../.venv/bin/python ../scripts/v2_preview.py serve --api-port ${String(v2ApiPort)} --web-port ${String(v2BuiltPort)}`,
+      url: v2BuiltURL,
     },
   ],
 });

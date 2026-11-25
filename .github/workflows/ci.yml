@@ -382,6 +382,20 @@ jobs:
           CHURNSENSE_REQUIRE_FRONTEND_BUILD: "1"
         run: .venv/bin/python -m pytest tests/test_wording.py
 
+      # Into build/v2-preview, never dist: vite.config.ts refuses any other pairing.
+      - name: Build the V2 Preview, apart from the build above
+        working-directory: frontend
+        run: npm run build:v2-preview
+
+      # Both builds, then the preview's runtime as a user starts it. A
+      # missing build or front end fails here instead of skipping.
+      - name: The default build has no V2, the V2 Preview build has it and runs
+        env:
+          CHURNSENSE_REQUIRE_FRONTEND_BUILD: "1"
+        run: >-
+          .venv/bin/python -m pytest -rs tests/test_v2_preview_runtime.py
+          tests/test_workspace_workbench_api.py::test_the_built_front_end_has_no_v2_preview
+
       - name: Install Chromium
         working-directory: frontend
         run: npx --no-install playwright install --with-deps chromium

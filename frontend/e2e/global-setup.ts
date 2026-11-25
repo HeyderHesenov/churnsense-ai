@@ -9,6 +9,7 @@
  * - ``v2-preview``: the Vite dev server, forwarding to a synthetic "dataset"
  *   server (as ``chromium``'s) that has the V2 Preview routes on, whose
  *   Workbench serves the synthetic portfolio.
+ * - ``v2-built``: the same, behind the server of the V2 Preview's own build.
  */
 import { request, type FullConfig } from '@playwright/test';
 import type { components } from '../src/api/schema';
@@ -22,6 +23,7 @@ export const DATASET_PREFIX = 'E2E-';
 export const DEMO_PREFIX = 'DEMO-';
 export const PUBLIC_PROJECT = 'public-demo';
 export const V2_PROJECT = 'v2-preview';
+export const V2_BUILT_PROJECT = 'v2-built';
 
 /** The V2 Workbench is on, and serves the synthetic portfolio only. */
 async function proveV2(baseURL: string): Promise<void> {
@@ -77,6 +79,6 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     const baseURL = project.use.baseURL;
     if (!baseURL) throw new Error(`playwright.config.ts sets no baseURL for ${project.name}`);
     await prove(baseURL, project.name === PUBLIC_PROJECT);
-    if (project.name === V2_PROJECT) await proveV2(baseURL);
+    if ([V2_PROJECT, V2_BUILT_PROJECT].includes(project.name)) await proveV2(baseURL);
   }
 }

@@ -16,7 +16,8 @@ Center (M3) and Impact & Experiments (M4) are contracts with no routes, and the
 preview has no page, link or request for either.
 
 **Local only.** The preview is switched off in every default and deployed build.
-It runs on the Vite dev server, on this machine, against a local API.
+It runs on this machine, against a local API: on the Vite dev server, or from a
+build of its own ([V2_PREVIEW_RUNTIME.md](V2_PREVIEW_RUNTIME.md)).
 
 **Nothing is stored.** No page saves anything, in the browser or on the server.
 
@@ -42,11 +43,13 @@ Then open <http://127.0.0.1:5173/v2>. The dashboard's navigation also gets one
 link, **V2 Preview**, under a "Preview" group. With the API's switch off, the
 preview's pages say that the local server does not serve the preview.
 
-Use the dev server. `make api` serves the built app (`frontend/dist`) with a
-fixed list of V1 pages (`src/churnsense/api/spa.py`), so it answers `/v2` with
-its Not found page. A default build has no V2 code in any case (next section).
-Serving the preview from a build is outside M5, because it would change the
-API's page list.
+`make api` serves the built app (`frontend/dist`) with a fixed list of V1 pages
+(`src/churnsense/api/spa.py`), so it answers `/v2` with its Not found page. A
+default build has no V2 code in any case (next section).
+
+M6 added one command that does both steps and checks them (`make v2-preview`), and
+a separate V2 Preview build with a local server of its own. Both are described in
+[V2_PREVIEW_RUNTIME.md](V2_PREVIEW_RUNTIME.md); the API's page list is unchanged.
 
 ## How it stays off
 
@@ -244,7 +247,9 @@ to or removed from the contract fails the type check until the list matches.
     is mapped and translated, and passes. Then come the portfolio with
     "31 October 2026", the attention list by currency and MRR, and one account.
     The test also checks that the file's accounts are not in the list. axe runs
-    on every page, and only M1 and M2 routes are asked for.
+    on every page, and only M1 and M2 routes are asked for. The same spec runs
+    on the V2 Preview's build (project `v2-built`,
+    [V2_PREVIEW_RUNTIME.md](V2_PREVIEW_RUNTIME.md)).
   - **The phone drawer**, with axe.
 - **pytest:** the front-end checks in `tests/test_workspace_workbench_api.py`
   (above).
@@ -258,7 +263,7 @@ with no copy cancelled, still fails. Every other project is checked as before.
 
 ## Limitations
 
-- **Dev server only.** The built app served by the API does not serve `/v2`
+- **Not served by the API.** The built app that `make api` serves has no `/v2`
   (above).
 - **Some columns cannot be mapped.** A column whose header is itself an email
   address or a phone number is reported as `[column N]`. An explicit mapping is

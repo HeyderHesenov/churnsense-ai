@@ -1,7 +1,7 @@
 /**
- * The V2 Preview, end to end: the Vite dev server built with the preview on,
- * forwarding to an API server with its V2 routes on (playwright.config.ts,
- * project ``v2-preview``). One reader's path through both tools - a file
+ * The V2 Preview, end to end: the Vite dev server built with the preview on, and
+ * the preview's own build, each forwarding to an API server with its V2 routes on
+ * (playwright.config.ts, projects ``v2-preview`` and ``v2-built``). One reader's path through both tools - a file
  * checked in the Data Hub, then the synthetic portfolio and one account - and
  * axe on each page. Every API request is to an M1 or M2 route.
  */

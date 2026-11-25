@@ -1,7 +1,8 @@
 /**
  * The served build - the one every deployment ships - has no V2 Preview: no
  * link to it, no page under /v2, and no request to /api/v2. The preview exists
- * only in a dev build made with VITE_CHURNSENSE_V2_PREVIEW=1 (v2-preview.spec.ts).
+ * only in a build made with VITE_CHURNSENSE_V2_PREVIEW=1, which is never this one
+ * (v2-preview.spec.ts and v2-built.spec.ts).
  */
 import { expect, settled, test } from './fixtures';
 
