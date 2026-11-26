@@ -7,7 +7,18 @@
  *
  * Each page's explanation carries its own tenure attribution (page 1: +10.0 pp,
  * page 2: +20.0 pp…), so an answer shown on the wrong rows would be seen.
+ *
+ * No test waits a fixed time: each step waits for what it needs to see (a
+ * request received, rows shown, the client idle), so a slow machine makes a
+ * step slower, never another outcome. Where a test asserts what quick paging
+ * leaves unasked, the queue's settle timer fires only when the test fires it
+ * (``holdSettling``). Where a request is aborted, the timer runs as in the
+ * app, so the next request starts ``SETTLE_MS`` after the abort, as for a
+ * reader: under MSW's Node interception, one sent the instant another is
+ * aborted can open a socket that is passed through to the real, closed port
+ * and be cut off with it - a fault of the harness, not of the queue.
  */
+import type { QueryClient } from '@tanstack/react-query';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from '../../app/App';
@@ -103,10 +114,52 @@ async function shown(sort: string, page: number) {
   );
 }
 
-/** Longer than the queue waits for a page to settle, with room for its requests to start. */
-async function settle() {
-  await act(() => new Promise((resolve) => setTimeout(resolve, SETTLE_MS + 200)));
+/**
+ * Holds the queue's settle timer (its only timer of ``SETTLE_MS``) until the
+ * test fires it, so whether rows settle between two clicks is the test's
+ * choice, never the machine's speed. Every other timer runs as usual; the
+ * spies go with ``vi.restoreAllMocks`` after the test.
+ */
+function holdSettling() {
+  const { setTimeout: realSet, clearTimeout: realClear } = globalThis;
+  const waiting = new Map<number, () => void>();
+  let last = 0;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback: (...args: unknown[]) => void,
+    ms?: number,
+    ...args: unknown[]
+  ) => {
+    if (ms !== SETTLE_MS) return realSet(callback, ms, ...args);
+    // Negative: never the id of a real timer.
+    last -= 1;
+    waiting.set(last, () => {
+      callback(...args);
+    });
+    return last;
+  }) as unknown as typeof setTimeout);
+  vi.spyOn(globalThis, 'clearTimeout').mockImplementation((handle) => {
+    if (typeof handle === 'number' && handle < 0) waiting.delete(handle);
+    else realClear(handle);
+  });
+  return {
+    /** Lets the rows shown now settle, as ``SETTLE_MS`` passing would. */
+    fire() {
+      const due = [...waiting.values()];
+      waiting.clear();
+      expect(due, 'a settle timer waiting').not.toHaveLength(0);
+      act(() => {
+        for (const run of due) run();
+      });
+    },
+  };
 }
+
+/** Until no request is in flight: any a step started has been received and answered. */
+async function idle(client: QueryClient) {
+  await waitFor(() => expect(client.isFetching()).toBe(0));
+}
+
+const explainsIn = (seen: readonly URL[]) => seen.filter((url) => url.pathname === '/api/explain');
 
 async function next() {
   await userEvent.click(screen.getByRole('button', { name: 'Next page' }));
@@ -115,91 +168,119 @@ async function next() {
 describe('Retention queue: explanations as the reader pages and sorts', () => {
   it('aborts the last page’s request on paging, and shows only the new page’s answer on its rows', async () => {
     const held = queueApi({ hold: true });
-    renderAt(<App />, '/?tab=queue');
-    await shown('at_risk', 1);
-    await waitFor(() => expect(held.requests).toHaveLength(1));
-    await next();
-    await shown('at_risk', 2);
-    // The new rows wait for their own answer, never borrowing one.
-    expect(within(table()).getAllByText('Loading attributions')).toHaveLength(8);
-    await settle();
-    expect(held.requests.map((r) => r.ids)).toEqual([idsOf('at_risk', 1), idsOf('at_risk', 2)]);
-    expect(held.live()).toEqual([idsOf('at_risk', 2)]);
-    act(() => held.release());
-    expect(await within(table()).findAllByText('Tenure +20.0')).toHaveLength(8);
-    expect(within(table()).queryByText('Tenure +10.0')).toBeNull();
+    try {
+      renderAt(<App />, '/?tab=queue');
+      await shown('at_risk', 1);
+      await waitFor(() => expect(held.requests).toHaveLength(1));
+      await next();
+      await shown('at_risk', 2);
+      // The new rows wait for their own answer, never borrowing one.
+      expect(within(table()).getAllByText('Loading attributions')).toHaveLength(8);
+      // Once they settle, they ask for it.
+      await waitFor(() => expect(held.requests).toHaveLength(2));
+      expect(held.requests.map((r) => r.ids)).toEqual([idsOf('at_risk', 1), idsOf('at_risk', 2)]);
+      expect(held.live()).toEqual([idsOf('at_risk', 2)]);
+      act(() => held.release());
+      expect(await within(table()).findAllByText('Tenure +20.0')).toHaveLength(8);
+      expect(within(table()).queryByText('Tenure +10.0')).toBeNull();
+      expect(held.requests).toHaveLength(2);
+    } finally {
+      // Answered even when an assertion failed, so nothing is left in flight after the test.
+      held.release();
+    }
   });
 
   it('aborts the last order’s request on sorting, and asks once for the rows sorted', async () => {
     const held = queueApi({ hold: true });
-    renderAt(<App />, '/?tab=queue');
-    await shown('at_risk', 1);
-    await waitFor(() => expect(held.requests).toHaveLength(1));
-    await userEvent.click(within(table()).getByRole('button', { name: 'Tenure' }));
-    await shown('tenure', 1);
-    await settle();
-    expect(held.requests.map((r) => r.ids)).toEqual([idsOf('at_risk', 1), idsOf('tenure', 1)]);
-    expect(held.live()).toEqual([idsOf('tenure', 1)]);
-    act(() => held.release());
-    expect(await within(table()).findAllByText('Tenure +10.0')).toHaveLength(8);
-    expect(within(table()).getByText('DEMO-T1-01')).toBeInTheDocument();
+    try {
+      renderAt(<App />, '/?tab=queue');
+      await shown('at_risk', 1);
+      await waitFor(() => expect(held.requests).toHaveLength(1));
+      await userEvent.click(within(table()).getByRole('button', { name: 'Tenure' }));
+      await shown('tenure', 1);
+      await waitFor(() => expect(held.requests).toHaveLength(2));
+      expect(held.requests.map((r) => r.ids)).toEqual([idsOf('at_risk', 1), idsOf('tenure', 1)]);
+      expect(held.live()).toEqual([idsOf('tenure', 1)]);
+      act(() => held.release());
+      expect(await within(table()).findAllByText('Tenure +10.0')).toHaveLength(8);
+      expect(within(table()).getByText('DEMO-T1-01')).toBeInTheDocument();
+      expect(held.requests).toHaveLength(2);
+    } finally {
+      held.release();
+    }
   });
 
   it('asks only for the page the reader stops at when paging quickly', async () => {
     const seen = recordRequests();
+    const settling = holdSettling();
     queueApi();
-    renderAt(<App />, '/?tab=queue');
+    const { client } = renderAt(<App />, '/?tab=queue');
     await shown('at_risk', 1);
     expect(await within(table()).findAllByText('Tenure +10.0')).toHaveLength(8);
+    // Quickly: no page stays long enough to settle, however long each click takes.
     await next();
+    await shown('at_risk', 2);
     await next();
+    await shown('at_risk', 3);
     await next();
     await shown('at_risk', 4);
-    await settle();
+    expect(explainsIn(seen)).toHaveLength(1);
+    settling.fire();
     expect(await within(table()).findAllByText('Tenure +40.0')).toHaveLength(8);
-    const explains = seen.filter((url) => url.pathname === '/api/explain');
+    await idle(client);
     // The first page, then the fourth: the second and third were passed on the way.
-    expect(explains).toHaveLength(2);
+    expect(explainsIn(seen)).toHaveLength(2);
     expect(within(table()).queryByText(/Tenure \+(10|20|30)\.0/)).toBeNull();
   });
 
   it('shows a page already answered at once on returning to it, asking nothing', async () => {
     const seen = recordRequests();
+    const settling = holdSettling();
     queueApi();
-    renderAt(<App />, '/?tab=queue');
+    const { client } = renderAt(<App />, '/?tab=queue');
     await shown('at_risk', 1);
     expect(await within(table()).findAllByText('Tenure +10.0')).toHaveLength(8);
     await next();
-    await settle();
+    await shown('at_risk', 2);
+    settling.fire();
     expect(await within(table()).findAllByText('Tenure +20.0')).toHaveLength(8);
     await userEvent.click(screen.getByRole('button', { name: 'Previous page' }));
     await shown('at_risk', 1);
     expect(within(table()).getAllByText('Tenure +10.0')).toHaveLength(8);
     expect(within(table()).queryByText('Loading attributions')).toBeNull();
-    await settle();
-    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(2);
+    // Nor once the rows settle: the answer kept is all they need.
+    settling.fire();
+    await idle(client);
+    expect(explainsIn(seen)).toHaveLength(2);
   });
 
   it('lets the new page’s request outlive a reader who leaves the page, and shows its answer on Back', async () => {
     const seen = recordRequests();
     const held = queueApi({ hold: true });
-    renderAt(<App />, '/?tab=queue');
-    await shown('at_risk', 1);
-    await next();
-    await shown('at_risk', 2);
-    await settle();
-    expect(held.live()).toEqual([idsOf('at_risk', 2)]);
-    await userEvent.click(
-      screen.getAllByRole('link', { name: /^Model performance/ })[0] as HTMLElement,
-    );
-    await waitFor(() => expect(window.location.pathname).toBe('/performance'));
-    await settle();
-    expect(held.live()).toEqual([idsOf('at_risk', 2)]);
-    act(() => window.history.back());
-    await shown('at_risk', 2);
-    act(() => held.release());
-    expect(await within(table()).findAllByText('Tenure +20.0')).toHaveLength(8);
-    await settle();
-    expect(seen.filter((url) => url.pathname === '/api/explain')).toHaveLength(2);
+    try {
+      const { client } = renderAt(<App />, '/?tab=queue');
+      await shown('at_risk', 1);
+      await next();
+      await shown('at_risk', 2);
+      await waitFor(() => expect(held.live()).toEqual([idsOf('at_risk', 2)]));
+      await userEvent.click(
+        screen.getAllByRole('link', { name: /^Model performance/ })[0] as HTMLElement,
+      );
+      await waitFor(() => expect(window.location.pathname).toBe('/performance'));
+      // The queue is gone (unmounted), and its request still runs.
+      await waitFor(() =>
+        expect(screen.queryByRole('table', { name: 'Flagged customers' })).toBeNull(),
+      );
+      expect(held.live()).toEqual([idsOf('at_risk', 2)]);
+      act(() => window.history.back());
+      await shown('at_risk', 2);
+      act(() => held.release());
+      expect(await within(table()).findAllByText('Tenure +20.0')).toHaveLength(8);
+      await idle(client);
+      // The request left behind answered the page on Back: nothing was asked again.
+      expect(explainsIn(seen)).toHaveLength(2);
+    } finally {
+      held.release();
+    }
   });
 });

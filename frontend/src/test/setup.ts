@@ -41,7 +41,14 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  await settleQueries();
+  // Requests still in flight fail the test, but only once everything below is reset: a
+  // test failing here must leave nothing (its page, handlers, spies, storage) to the next.
+  let inFlight: Error | null = null;
+  try {
+    await settleQueries();
+  } catch (error) {
+    inFlight = error instanceof Error ? error : new Error(String(error));
+  }
   cleanup();
   vi.restoreAllMocks();
   server.resetHandlers();
@@ -50,6 +57,7 @@ afterEach(async () => {
   window.localStorage.clear();
   const missed = unanswered.splice(0);
   expect(missed, 'requests no test handler answered').toEqual([]);
+  if (inFlight !== null) throw inFlight;
 });
 
 afterAll(() => {
