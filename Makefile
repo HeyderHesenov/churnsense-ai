@@ -18,8 +18,12 @@ RUNTIME := .venv-runtime
 APP_PORT ?= 8501
 API_PORT ?= 8000
 
+# Ports for the local V2 Preview: not the ones above, so it starts beside them.
+V2_API_PORT ?= 8010
+V2_WEB_PORT ?= 5180
+
 .DEFAULT_GOAL := help
-.PHONY: help setup setup-runtime check-python lock sbom data eda train explain demo-data dev evaluate all test lint format audit app api frontend-install frontend frontend-test e2e clean
+.PHONY: help setup setup-runtime check-python lock sbom data eda train explain demo-data dev evaluate all test lint format audit app api frontend-install frontend frontend-test v2-preview v2-preview-api v2-preview-build v2-preview-serve e2e clean
 
 help:  ## Show the available targets
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -154,11 +158,36 @@ frontend: $(FRONTEND_DEPS)  ## Build the front end into frontend/dist, which the
 frontend-test: $(FRONTEND_DEPS)  ## Type-check, lint, format-check and unit-test the front end
 	cd frontend && npm run typecheck && npm run lint && npm run format:check && npm test
 
+# The local V2 Preview (docs/V2_PREVIEW_RUNTIME.md): bound to 127.0.0.1, checked
+# before it says it is ready, stopped by Ctrl+C. None of these installs anything:
+# what is missing is reported with the command that installs it.
+V2_PREVIEW = $(PY) scripts/v2_preview.py
+V2_PORTS = --api-port $(V2_API_PORT) --web-port $(V2_WEB_PORT)
+NEEDS_VENV = @test -x $(PY) || { echo "The V2 Preview runs on .venv: run make setup first."; exit 1; }
+
+v2-preview:  ## Start the local V2 Preview: the API and the Vite dev server (Ctrl+C stops both)
+	$(NEEDS_VENV)
+	@$(V2_PREVIEW) dev $(V2_PORTS)
+
+v2-preview-api:  ## Start only the local V2 Preview's API, for v2-preview-serve
+	$(NEEDS_VENV)
+	@$(V2_PREVIEW) api $(V2_PORTS)
+
+# Into build/v2-preview, never frontend/dist; frontend/vite.config.ts refuses any other pairing.
+v2-preview-build:  ## Build the front end with the V2 Preview on, into build/v2-preview
+	$(NEEDS_VENV)
+	@$(V2_PREVIEW) check
+	cd frontend && npm run build:v2-preview
+
+v2-preview-serve:  ## Serve build/v2-preview locally; needs v2-preview-api running beside it
+	$(NEEDS_VENV)
+	@$(V2_PREVIEW) serve $(V2_PORTS)
+
 # The built app against scripts/e2e_server.py: a synthetic book, model and SHAP
 # cache in a temporary folder; nothing under data/, artifacts/ or reports/ is
 # read or written. Chromium is installed once with
 # `cd frontend && npx --no-install playwright install chromium`.
-e2e: frontend  ## Browser tests of the built app against a synthetic book and model
+e2e: frontend v2-preview-build  ## Browser tests of the built app against a synthetic book and model
 	@test -x $(PY) || { echo "The e2e server runs on .venv: run make setup first."; exit 1; }
 	cd frontend && npx --no-install playwright test
 

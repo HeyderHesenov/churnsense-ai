@@ -1,0 +1,342 @@
+/* The V2 Preview: shared pieces (sidebar card, banners, badges, grids, tables, forms). */
+
+/* --- sidebar --------------------------------------------------------------------- */
+.previewCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+  background: var(--well);
+}
+.previewBadge {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+.previewText {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  font-size: 12.5px;
+  color: var(--link);
+  text-decoration: none;
+}
+.backLink:hover {
+  color: var(--link-hover);
+}
+
+/* --- banners ---------------------------------------------------------------------- */
+.banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+  background: var(--well);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.bannerTag {
+  padding: 2px 8px;
+  border: 1px solid var(--moderate-line);
+  border-radius: 999px;
+  background: var(--moderate-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--moderate-ink);
+}
+.bannerFact {
+  color: var(--muted);
+}
+.bannerFact strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* --- badges ----------------------------------------------------------------------- */
+.level {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.level::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.level[data-level='attention'] {
+  border-color: var(--critical-line);
+  background: var(--critical-soft);
+  color: var(--critical-ink);
+}
+.level[data-level='attention']::before {
+  background: var(--critical);
+}
+.level[data-level='watch'] {
+  border-color: var(--moderate-line);
+  background: var(--moderate-soft);
+  color: var(--moderate-ink);
+}
+.level[data-level='watch']::before {
+  background: var(--moderate);
+}
+.level[data-level='no_signals'] {
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+  color: var(--ok-text);
+}
+.level[data-level='no_signals']::before {
+  background: var(--ok);
+}
+
+/* --- layout ------------------------------------------------------------------------ */
+.grid2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
+  gap: 14px;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 12px;
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.muted {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* --- tables ------------------------------------------------------------------------- */
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.table caption {
+  padding: 0 20px 8px;
+  text-align: start;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-align: start;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-row);
+  vertical-align: top;
+  color: var(--ink-2);
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+.table th:first-child,
+.table td:first-child {
+  padding-left: 20px;
+}
+.table th:last-child,
+.table td:last-child {
+  padding-right: 20px;
+}
+.table .num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+.cellNote {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.link {
+  color: var(--link);
+  text-decoration: none;
+}
+.link:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+/* --- definition lists ---------------------------------------------------------------- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px 20px;
+  margin: 0;
+}
+.facts dt {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.facts dd {
+  margin: 3px 0 0;
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+/* --- forms ---------------------------------------------------------------------------- */
+.control {
+  height: 34px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line-input);
+  border-radius: var(--radius-8);
+  background: var(--well);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+.control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* A card's own inset, around a table that runs edge to edge. */
+.inset {
+  padding: 0 20px;
+}
+
+/* --- account list -------------------------------------------------------------------- */
+.signalList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+.context {
+  min-width: 220px;
+  max-width: 360px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+button.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* --- account detail ------------------------------------------------------------------- */
+.signal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-12);
+  background: var(--well);
+  list-style: none;
+}

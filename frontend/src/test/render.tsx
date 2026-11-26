@@ -27,12 +27,16 @@ export function testQueryClient(): QueryClient {
  * land after the test.
  */
 export async function settleQueries(): Promise<void> {
-  await waitFor(() => {
-    for (const client of live) {
-      if (client.isFetching() + client.isMutating() > 0) throw new Error('requests in flight');
-    }
-  });
-  live.clear();
+  try {
+    await waitFor(() => {
+      for (const client of live) {
+        if (client.isFetching() + client.isMutating() > 0) throw new Error('requests in flight');
+      }
+    });
+  } finally {
+    // Forgotten even when they never settled: the next test waits only for its own.
+    live.clear();
+  }
 }
 
 export function renderAt(ui: ReactElement, path = '/'): RenderResult & { client: QueryClient } {

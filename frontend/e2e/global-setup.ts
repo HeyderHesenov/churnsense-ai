@@ -6,6 +6,10 @@
  * - ``public-demo``: the server started as the deployed demo is. It says its
  *   customers are synthetic, lists only generated ``DEMO-`` customers, and
  *   knows no ``E2E-`` customer at all.
+ * - ``v2-preview``: the Vite dev server, forwarding to a synthetic "dataset"
+ *   server (as ``chromium``'s) that has the V2 Preview routes on, whose
+ *   Workbench serves the synthetic portfolio.
+ * - ``v2-built``: the same, behind the server of the V2 Preview's own build.
  */
 import { request, type FullConfig } from '@playwright/test';
 import type { components } from '../src/api/schema';
@@ -18,6 +22,25 @@ export const DATASET_PREFIX = 'E2E-';
 /** The prefix of a generated demo customer (src/churnsense/demo/customers.py). */
 export const DEMO_PREFIX = 'DEMO-';
 export const PUBLIC_PROJECT = 'public-demo';
+export const V2_PROJECT = 'v2-preview';
+export const V2_BUILT_PROJECT = 'v2-built';
+
+/** The V2 Workbench is on, and serves the synthetic portfolio only. */
+async function proveV2(baseURL: string): Promise<void> {
+  const api = await request.newContext({ baseURL });
+  try {
+    const summary = await api.get('/api/v2/portfolio/summary');
+    if (!summary.ok()) {
+      throw new Error(`${baseURL} has no V2 Workbench: ${String(summary.status())}`);
+    }
+    const { dataset } = (await summary.json()) as { dataset: { source: string } };
+    if (dataset.source !== 'synthetic') {
+      throw new Error(`${baseURL}: its V2 portfolio is ${dataset.source}, not synthetic`);
+    }
+  } finally {
+    await api.dispose();
+  }
+}
 
 async function prove(baseURL: string, publicDemo: boolean): Promise<void> {
   const api = await request.newContext({ baseURL });
@@ -56,5 +79,6 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     const baseURL = project.use.baseURL;
     if (!baseURL) throw new Error(`playwright.config.ts sets no baseURL for ${project.name}`);
     await prove(baseURL, project.name === PUBLIC_PROJECT);
+    if ([V2_PROJECT, V2_BUILT_PROJECT].includes(project.name)) await proveV2(baseURL);
   }
 }

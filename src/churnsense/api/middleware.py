@@ -363,6 +363,17 @@ class TrustedHosts:
 #: The only paths whose body may be an upload; every other body is ``SMALL_BODY_BYTES``.
 BATCH_PATHS = frozenset({"/api/batch/score", "/api/predict/batch", "/predict/batch"})
 
+#: Upload paths of routes served only in a local deployment, added by the route as
+#: it is installed (``churnsense.workspace.api.install``) and empty otherwise. No
+#: public deployment has one, so deploy/Caddyfile lists ``BATCH_PATHS`` alone. Each
+#: gets the upload limit and spends the ``batch`` budget, as ``BATCH_PATHS`` do.
+LOCAL_UPLOAD_PATHS: frozenset[str] = frozenset()
+
+#: GET paths of routes served only in a local deployment that compute over a whole
+#: dataset on every request, added as they are installed and empty otherwise. Each
+#: spends the ``query`` budget, as the customer list and the segment tables do.
+LOCAL_QUERY_PATHS: frozenset[str] = frozenset()
+
 #: Which (method, path) spends from which budget. A legacy path shares its
 #: budget with its /api twin, so the alias is not a way around it; a HEAD is
 #: budgeted as the GET it runs (Starlette answers HEAD with the GET route).
@@ -487,6 +498,10 @@ class RateLimit:
         try:
             method = "GET" if scope["method"] == "HEAD" else scope["method"]
             budget = RATE_LIMITED.get((method, scope["path"]))
+            if budget is None and method == "POST" and scope["path"] in LOCAL_UPLOAD_PATHS:
+                budget = "batch"
+            if budget is None and method == "GET" and scope["path"] in LOCAL_QUERY_PATHS:
+                budget = "query"
             rule = self._limits().get(budget) if budget else None
             if rule is not None:
                 wait = self._take(budget, key, rule)
@@ -524,9 +539,9 @@ class BodySizeLimit:
     cut off the moment it crosses the limit.
 
     The limit depends on the path alone - never on the content type or the
-    method - and only the exact ``BATCH_PATHS`` get the upload limit
-    (``max_bytes``); any other path, an alias or a trailing-slash variant
-    included, gets ``SMALL_BODY_BYTES``.
+    method - and only the exact ``BATCH_PATHS`` (and ``LOCAL_UPLOAD_PATHS``, where
+    a local route is installed) get the upload limit (``max_bytes``); any other
+    path, an alias or a trailing-slash variant included, gets ``SMALL_BODY_BYTES``.
 
     Without an explicit ``max_bytes`` the upload limit is read from the config -
     the same cached value ``predict_batch`` reads, so the two can never
@@ -546,7 +561,8 @@ class BodySizeLimit:
         return load_config().api.max_upload_bytes + MULTIPART_OVERHEAD_BYTES
 
     def limit_for(self, path: str) -> int:
-        return self.max_bytes if path in BATCH_PATHS else SMALL_BODY_BYTES
+        uploads = path in BATCH_PATHS or path in LOCAL_UPLOAD_PATHS
+        return self.max_bytes if uploads else SMALL_BODY_BYTES
 
     @staticmethod
     def _too_large(limit: int) -> str:

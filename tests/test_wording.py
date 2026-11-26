@@ -74,6 +74,8 @@ def test_the_openapi_text_makes_no_causal_claim():
     [
         *sorted((ROOT / "src" / "churnsense" / "api").glob("*.py")),
         ROOT / "src" / "churnsense" / "book.py",
+        # V2: the Data Hub preview's and the Retention Workbench's messages and notes.
+        *sorted((ROOT / "src" / "churnsense" / "workspace").glob("*.py")),
     ],
     ids=lambda p: p.name,
 )

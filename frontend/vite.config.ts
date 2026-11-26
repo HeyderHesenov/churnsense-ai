@@ -1,13 +1,44 @@
 /// <reference types="vitest/config" />
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 
-// The API the dev server forwards to: `make api` (or `make api API_PORT=8001`).
+// The API the dev and preview servers forward to: `make api` (or `make api API_PORT=8001`).
 const apiPort = process.env.API_PORT ?? '8000';
 
+// changeOrigin stays false: the API sees the dev server's own host and
+// origin, which its same-origin check accepts like the built app's.
+const proxy: Record<string, ProxyOptions> = {
+  '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false },
+};
+
+/** The V2 Preview build's own folder: ignored by Git, and outside the Docker build context. */
+const V2_PREVIEW_OUT = resolve(import.meta.dirname, '../build/v2-preview');
+
+/**
+ * Refuses a build whose folder and V2 switch disagree, before anything is
+ * written: `dist` - what the API serves and every deployment ships - never
+ * receives a build with the V2 Preview on, wherever the switch was set (the
+ * shell or an .env file), and the preview's folder never one with it off.
+ */
+const v2PreviewBuildsApart: Plugin = {
+  name: 'v2-preview-builds-apart',
+  apply: 'build',
+  configResolved({ env, root, build }) {
+    const on = env['VITE_CHURNSENSE_V2_PREVIEW'] === '1';
+    if (on !== (resolve(root, build.outDir) === V2_PREVIEW_OUT)) {
+      throw new Error(
+        on
+          ? 'VITE_CHURNSENSE_V2_PREVIEW=1 is set: the V2 Preview is built with `make v2-preview-build`, ' +
+              'never into another folder. Unset it for the default build.'
+          : 'build/v2-preview holds the V2 Preview build only: run `make v2-preview-build`.',
+      );
+    }
+  },
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), v2PreviewBuildsApart],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -32,11 +63,13 @@ export default defineConfig({
       // artifacts - is never allowed.
       allow: [import.meta.dirname, resolve(import.meta.dirname, '../tests/fixtures')],
     },
-    proxy: {
-      // changeOrigin stays false: the API sees the dev server's own host and
-      // origin, which its same-origin check accepts like the built app's.
-      '/api': { target: `http://127.0.0.1:${apiPort}`, changeOrigin: false },
-    },
+    proxy,
+  },
+  // `vite preview`, for the V2 Preview build only (`make v2-preview-serve`). Stated
+  // here rather than inherited from `server`, so neither can change the other.
+  preview: {
+    host: '127.0.0.1',
+    proxy,
   },
   test: {
     environment: 'jsdom',

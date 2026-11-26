@@ -81,6 +81,7 @@ from churnsense.config import load_config
 from churnsense.exceptions import ModelNotAvailableError, SchemaValidationError
 from churnsense.logging_setup import configure_logging
 from churnsense.models.predict import upload_rules
+from churnsense.workspace.api import install as install_workspace_preview
 
 logger = logging.getLogger(__name__)
 
@@ -369,5 +370,8 @@ def predict_batch(
 app.include_router(service)
 app.include_router(service, prefix="/api")
 app.include_router(dashboard_router, prefix="/api")
+# The V2 Data Hub preview: absent unless switched on in a local deployment, and
+# never in a public demo (churnsense.workspace.api, docs/V2_DATA_HUB_PREVIEW.md).
+install_workspace_preview(app)
 # Last, so a page route can never shadow an API path.
 spa.install(app)
