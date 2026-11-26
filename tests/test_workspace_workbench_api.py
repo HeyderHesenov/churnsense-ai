@@ -190,10 +190,14 @@ def test_the_v2_openapi_text_makes_no_causal_claim(app):
     assert not _offending(json.dumps(app.openapi()))
 
 
-def test_the_committed_openapi_schema_has_no_v2_path():
-    """The front end's types are generated from the default (gate off) schema."""
-    schema = json.loads((PROJECT_ROOT / "frontend" / "openapi.json").read_text())
-    assert not [p for p in schema["paths"] if p.startswith(PREFIX)]
+def test_the_default_openapi_schema_has_no_v2_path():
+    """The front end's types are generated from this schema, with the gate off."""
+    from churnsense.api import main as api_main
+
+    assert preview_api.FLAG not in os.environ
+    paths = _paths(api_main.app)
+    assert {"/api/customers", "/predict"} <= paths  # an empty schema would prove nothing
+    assert not [p for p in paths if p.startswith(PREFIX)]
 
 
 FRONTEND = PROJECT_ROOT / "frontend"
